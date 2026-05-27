@@ -1,0 +1,75 @@
+# Build the .nvda-addon and create a GitHub release when a version tag is pushed.
+#
+# Trigger: push a tag matching v*.*.* (e.g. v1.0.1, v1.1.0, v2.0.0).
+#
+# Result: a GitHub release at that tag with two .nvda-addon assets attached:
+#   - textMarksTheSpot-<version>.nvda-addon (versioned, for archival)
+#   - textMarksTheSpot.nvda-addon (unversioned — keeps the "always latest"
+#     download URL stable across releases)
+#
+# Manual fallback: if this workflow ever fails, the same build can be done
+# locally with `scons` and a release created with `gh release create`.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out source at the tag
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install gettext (provides msgfmt + xgettext for SCons)
+        run: choco install gettext --no-progress -y
+
+      - name: Install Python build deps
+        run: python -m pip install --upgrade pip scons markdown pytest
+
+      - name: Run unit tests
+        run: python -m pytest tests/ -q
+
+      - name: Build add-on with SCons
+        run: scons
+
+      - name: Verify built filename matches the pushed tag
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          $expected = "textMarksTheSpot-$tag.nvda-addon"
+          if (-not (Test-Path $expected)) {
+            Write-Error "Built file not found: $expected (tag=${{ github.ref_name }}). Make sure buildVars.py addon_version matches the tag."
+            exit 1
+          }
+          Write-Host "OK: $expected"
+
+      - name: Create unversioned copy for the stable Latest URL
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          Copy-Item "textMarksTheSpot-$tag.nvda-addon" "textMarksTheSpot.nvda-addon" -Force
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $stripped = $tag.TrimStart("v")
+          gh release create $tag `
+            "textMarksTheSpot-$stripped.nvda-addon" `
+            "textMarksTheSpot.nvda-addon" `
+            --title "$tag" `
+            --notes-file changelog.md
