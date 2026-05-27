@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.5
+
+Documentation pass. No code changes from 1.0.4.
+
+- Readme rewritten to be friendlier to readers who do not work in tech. "Nav" became "menu", "JavaScript-heavy single-page apps" became "slow-loading pages", and the "structural header block above the main landmark" got replaced with "an unusual place where the add-on cannot see".
+- Raw URLs replaced with markdown links carrying descriptive text. Email addresses are now `mailto:` links so they open in the user's mail client.
+- The "What it does" list and "Known limitations" list dropped the bolded-prefix style for plain bullets.
+- New section: Hear it in action, with a short audio clip of the add-on flipping through three web pages.
+- The add-on store description and "What's new" text were rewritten to avoid internal jargon ("teaser-skip", "chrome", "content-section heading matcher").
+
 ## 1.0.4
 
 Detection-quality improvements and a usability overhaul of the Z key.
