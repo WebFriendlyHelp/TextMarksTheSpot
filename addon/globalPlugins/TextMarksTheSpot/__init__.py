@@ -129,11 +129,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Cancelled whenever a new detection cycle starts (real navigation,
 		# Z press, refresh, alt-tab to a new TI).
 		self._pending_retry = None
-		# Phase 1.5 Z-sequence state. None means "next Z press runs fresh
-		# detection." When populated, contains {"url": str, "last_idx": int,
-		# "press_count": int} and the next Z press advances to the next
-		# heading in main_nodes after last_idx. Reset on new TI / URL.
-		self._z_state = None
+		# Shift+Z support: the textInfo captured at the last successful
+		# initial-detection landing. Shift+Z calls updateCaret on this
+		# directly — no recalculation. Reset on new TI / page load.
+		self._last_initial_landing_info = None
+		self._last_initial_landing_url = None
 
 	def terminate(self):
 		# Called by NVDA on add-on disable, uninstall, or reload. We must
@@ -149,7 +149,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			fb_mod.progress_stop()
 		except Exception:
 			log.exception("[TMTS] terminate: progress_stop failed")
-		self._z_state = None
+		self._last_initial_landing_info = None
+		self._last_initial_landing_url = None
 		log.info("[TMTS] terminate: clean shutdown complete")
 		super().terminate()
 
@@ -188,10 +189,6 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# A new detection cycle invalidates any pending retry from a prior
 		# load — the page state we'd have retried against is gone.
 		self._cancel_pending_retry()
-		# Same logic for the Phase 1.5 Z-sequence: a new TI or new page
-		# means the saved last_idx no longer refers to anything useful.
-		if ti is not self._last_ti:
-			self._z_state = None
 		# User-managed site exclusion list. The double-Z one-shot path
 		# sets bypass_exclusion=True to force detection regardless of the
 		# saved exclusion entry, without modifying the persisted list.
@@ -433,18 +430,40 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				(n.kind, n.text_length, n.text_preview[:40])
 				for n in summary.main_nodes[:8]
 			]
+			# Diagnostic: list every paragraph >= 50 chars in main_nodes —
+			# these are the candidates the article-landing cascade considered.
+			# Helps explain why the addon picked the index it did, especially
+			# when first_eight doesn't show the landing.
+			substantial = [
+				(i, n.text_length, n.text_preview[:50])
+				for i, n in enumerate(summary.main_nodes)
+				if n.kind == "paragraph" and n.text_length >= 50
+			]
+			# Diagnostic: every heading in main_nodes (kind+idx+level+preview).
+			# Combined with `substantial` this gives the full picture of what
+			# the cascade saw.
+			headings = [
+				(i, n.level, n.text_preview[:40])
+				for i, n in enumerate(summary.main_nodes)
+				if n.kind == "heading"
+			]
 			log.debug(
 				f"[TMTS] moved caret to idx={idx} kind={landed_node.kind} "
 				f"len={landed_node.text_length} preview={landed_node.text_preview[:60]!r} "
-				f"first_8={first_eight} url={summary.url!r} retry={is_retry}"
+				f"first_8={first_eight} substantial={substantial} headings={headings} "
+				f"nodes={len(summary.main_nodes)} url={summary.url!r} retry={is_retry}"
 			)
-			# Phase 1.5: save the landing position so subsequent Z presses
-			# advance to the next heading instead of re-running detection.
-			self._z_state = {
-				"url": summary.url,
-				"last_idx": idx,
-				"press_count": 0,
-			}
+			# Save the landing textInfo so Shift+Z can snap back to it
+			# later without recalculating. Copy first so the saved object
+			# survives even if the original is mutated by later cursor
+			# moves elsewhere.
+			try:
+				self._last_initial_landing_info = landing_info.copy()
+				self._last_initial_landing_url = summary.url
+			except Exception:
+				log.exception("[TMTS] failed to save Shift+Z return-to-landing position")
+				self._last_initial_landing_info = None
+				self._last_initial_landing_url = None
 			return True
 		except Exception:
 			log.exception("[TMTS] cursor move failed")
@@ -513,48 +532,68 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				"or press Z twice for a one-time detection."
 			).format(hostname=hostname, hotkey=toggle_key))
 			return
-		# Phase 1.5: if we already have a saved landing on this URL, this
-		# is a "continue the sequence" press — advance to the next heading
-		# rather than re-running detection from scratch.
-		if self._z_state is not None and self._z_state.get("url") == url:
-			self._advance_z_sequence(focus)
-			return
-		# First Z press on this page (or the saved state was cleared by a
-		# new TI). Run detection from scratch.
-		self._maybe_fire(focus)
+		# Z = scan forward from the user's current cursor position for the
+		# next substantial content paragraph. Independent of whether or
+		# where the addon previously landed: Z always starts from where
+		# the user actually is right now. NVDA's H handles next-heading
+		# already; Z deliberately skips headings to add value NVDA's
+		# built-in keys don't.
+		self._scan_forward_from_caret(focus)
 
-	def _advance_z_sequence(self, focus):
-		# Build a fresh tree summary, find the next heading after the last
-		# landing, move the caret there, and speak it. Reuses the same
-		# updateCaret + cancelSpeech + speakTextInfo pattern as the initial
-		# landing so the user gets the same UX. If there is no next heading,
-		# announce that and reset the sequence state so the next Z press
-		# starts over.
+	def _scan_forward_from_caret(self, focus):
+		# Build a fresh tree summary, find the next content paragraph
+		# strictly after the current caret position, and move there. The
+		# scan uses the same chrome filters as the article-landing cascade
+		# (tag lists, share-link payloads, accessibility-instruction text,
+		# PDF-viewer disclaimers) so Z lands on content, not chrome.
+		#
+		# If no eligible paragraph is found below the cursor, "Nothing else
+		# to land on" is announced and the cursor stays put. No wrapping.
 		ti = getattr(focus, "treeInterceptor", None) if focus is not None else None
 		if ti is None or not getattr(ti, "isReady", False):
 			return
-		# Audible acknowledgment that the Z keypress was received. Without
-		# this, the advance path runs silently until either the heading is
-		# spoken (which can be delayed by the tree walk) or "No more
-		# sections" fires — users perceive Z as "not working."
+		# Audible acknowledgment that Z was received, before the (potentially
+		# slow) tree walk and caret-position search.
 		fb_mod.working()
-		last_idx = self._z_state["last_idx"]
 		try:
 			summary = ts_mod.build_tree_summary(ti)
 			try:
-				next_idx = web_mod.find_next_heading_landing(summary, last_idx)
+				try:
+					caret_info = ti.makeTextInfo(textInfos.POSITION_CARET)
+				except Exception:
+					log.exception("[TMTS] Z: failed to read caret position")
+					# Translators: spoken when Z can't determine the current
+					# cursor position (rare).
+					ui.message(_("Cannot scan from the current position."))
+					return
+				# Find the highest main_node index whose textInfo starts at
+				# or before the current caret. That's the user's "current"
+				# position — the next content scan starts at index+1.
+				current_idx = -1
+				for i in range(len(summary.main_nodes)):
+					node_info = ts_mod.get_landing_textinfo(summary, i)
+					if node_info is None:
+						continue
+					try:
+						cmp = node_info.compareEndPoints(caret_info, "startToStart")
+					except Exception:
+						continue
+					if cmp <= 0:
+						current_idx = i
+					else:
+						break
+				next_idx = web_mod.find_next_content_landing(summary, current_idx)
 				if next_idx is None:
-					# Translators: spoken when Z is pressed at the end of
-					# the section sequence — no more headings on the page.
-					ui.message(_("No more sections on this page."))
-					self._z_state = None
+					# Translators: spoken when Z is pressed and no more
+					# content paragraphs exist below the cursor.
+					ui.message(_("Nothing else to land on."))
 					return
 				landing_info = ts_mod.get_landing_textinfo(summary, next_idx)
 				if landing_info is None:
-					# Translators: spoken when the next-section position
+					# Translators: spoken when the next-content position
 					# could not be resolved (rare — usually means the
 					# tree changed underneath us).
-					ui.message(_("Cannot move to the next section."))
+					ui.message(_("Cannot move to the next content paragraph."))
 					return
 				landing_info.updateCaret()
 				speech.cancelSpeech()
@@ -563,16 +602,61 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				speech.speakTextInfo(speech_info, reason=controlTypes.OutputReason.CARET)
 				landed_node = summary.main_nodes[next_idx]
 				log.debug(
-					f"[TMTS] Z-sequence advance to idx={next_idx} kind={landed_node.kind} "
+					f"[TMTS] Z scan-from-caret to idx={next_idx} kind={landed_node.kind} "
 					f"len={landed_node.text_length} preview={landed_node.text_preview[:60]!r} "
-					f"url={summary.url!r}"
+					f"current_idx={current_idx} url={summary.url!r}"
 				)
-				self._z_state["last_idx"] = next_idx
-				self._z_state["press_count"] = self._z_state.get("press_count", 0) + 1
 			finally:
 				ts_mod.release_summary(summary)
 		except Exception:
-			log.exception("[TMTS] Z-sequence advance failed")
+			log.exception("[TMTS] Z scan-from-caret failed")
+
+	@script(
+		# Translators: input help for the Shift+Z return-to-landing gesture.
+		description=_("Return the cursor to the add-on's last detected landing position on this page."),
+		gesture="kb:shift+z",
+		category=_CATEGORY,
+	)
+	def script_returnToLanding(self, gesture):
+		# Snap back to the position the addon's initial detection chose.
+		# No recalculation — uses the textInfo captured at detection time.
+		# Outside browse mode, pass through (uppercase Z).
+		focus = api.getFocusObject()
+		ti = getattr(focus, "treeInterceptor", None) if focus is not None else None
+		if (
+			ti is None
+			or not isinstance(ti, browseMode.BrowseModeDocumentTreeInterceptor)
+			or getattr(ti, "passThrough", False)
+		):
+			gesture.send()
+			return
+		# Verify the saved landing is for the page we're currently on.
+		url = ""
+		try:
+			url = str(getattr(ti, "documentConstantIdentifier", "") or "")
+		except Exception:
+			url = ""
+		if (
+			self._last_initial_landing_info is None
+			or self._last_initial_landing_url != url
+		):
+			# Translators: spoken when Shift+Z has no saved landing for
+			# the current page (no detection has run, or URL changed).
+			ui.message(_("No saved landing on this page."))
+			return
+		fb_mod.working()
+		try:
+			self._last_initial_landing_info.updateCaret()
+			speech.cancelSpeech()
+			speech_info = self._last_initial_landing_info.copy()
+			speech_info.expand(textInfos.UNIT_PARAGRAPH)
+			speech.speakTextInfo(speech_info, reason=controlTypes.OutputReason.CARET)
+			log.debug(f"[TMTS] Shift+Z return-to-landing on url={url!r}")
+		except Exception:
+			log.exception("[TMTS] Shift+Z failed")
+			# Translators: spoken when the saved landing position could not
+			# be restored (rare — usually means the page changed).
+			ui.message(_("Could not return to the saved landing."))
 
 	@script(
 		# Translators: input help for the NVDA+Z site-exclusion toggle.

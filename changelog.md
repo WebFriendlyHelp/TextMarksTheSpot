@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.0.4
+
+Detection-quality improvements and a usability overhaul of the Z key.
+
+### Landing quality
+
+- Better landings on news articles. When the first paragraph after the headline is a short teaser and the next paragraph is much longer, the cursor lands on the longer one. Catches the CNET-style "X is a huge time saver, once you commit them to memory" then real article opening pattern.
+- Better landings on small directory pages. A short page with one heading and only chrome paragraphs (PDF-viewer disclaimers, share buttons) below now lands on the title heading instead of a footer paragraph. Caught on the Montgomery County Probate Court forms page.
+- News articles no longer get treated as forms. CNET-style pages with a sidebar newsletter signup and a comment box dispatch as articles, not forms.
+- The content-section heading matcher (which looks for "Description", "Features", "Overview" type labels) no longer fires on long sentence-style headings that happen to contain those words. Caught on Thurrott.
+- Share-and-bookmark widget text and PDF-viewer disclaimer paragraphs are now filtered out as chrome.
+
+### Z key reshape
+
+- Z scans forward from the cursor for the next substantial content paragraph. Previously it advanced to the next heading. NVDA's H already handles next-heading; Z is meant to add value built-in keys do not.
+- The scan skips chrome paragraphs (tag lists, share-link URLs, screen-reader instructions, PDF-viewer disclaimers) so Z lands on content.
+- When nothing eligible is below the cursor, the add-on says "Nothing else to land on" and the cursor stays put.
+- Z always plays the short blip when pressed, including on the second and later presses.
+
+### New gesture
+
+- Shift+Z returns the cursor to the add-on's last automatic landing on this page. No recalculation, just a quick jump back.
+
+### Documentation
+
+- Hear it in action: a short audio clip of the add-on flipping through three web pages.
+- New sections: How it works, Tips and tricks, Known limitations, Reporting bugs and getting help.
+- Rewritten add-on description focused on the user experience rather than the internals.
+
 ## 1.0.3
 
 The initial landing on a news article was sometimes a social-share button's URL parameter — text like `share-offsite url=https%3A%2F%2F...` that accessibility tooling exposes as a paragraph. Long enough to clear the "substantial paragraph" bar, but not real prose. Now filtered out alongside the existing tag-list and accessibility-instruction filters.
