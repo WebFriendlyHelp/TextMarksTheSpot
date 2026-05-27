@@ -513,3 +513,24 @@ def test_next_heading_strict_greater_than_after_idx():
 		_node("heading", 0, level=2, preview="B"),
 	]
 	assert web.find_next_heading_landing(_summary_with(nodes), 0) == 2
+
+
+def test_next_heading_returns_none_when_next_heading_is_too_far():
+	# Fox21 case: short article body (~14 paragraphs) followed by a long
+	# gap of paragraphs/cards/links and the next heading is a sidebar
+	# widget hundreds of nodes away. The Z-sequence must stop, not walk
+	# into the sidebar.
+	body = [_node("paragraph", 200) for _ in range(100)]
+	nodes = body + [_node("heading", 0, level=3, preview="Sidebar widget")]
+	# Default max_gap=30 should stop at the article body's edge.
+	assert web.find_next_heading_landing(_summary_with(nodes), 0) is None
+
+
+def test_next_heading_respects_custom_max_gap():
+	# Caller can opt for a stricter or looser gap.
+	body = [_node("paragraph", 200) for _ in range(10)]
+	nodes = body + [_node("heading", 0, level=3, preview="Next section")]
+	# With max_gap=5 the heading at idx 10 is unreachable (gap=10).
+	assert web.find_next_heading_landing(_summary_with(nodes), 0, max_gap=5) is None
+	# With max_gap=15 the same heading is reachable.
+	assert web.find_next_heading_landing(_summary_with(nodes), 0, max_gap=15) == 10

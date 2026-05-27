@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.2
+
+Fixes for the Z-sequence behavior introduced in 1.0.0.
+
+- Z now always plays the short blip when pressed, including on sequence advance. Before, only the first Z press on a page made a sound; subsequent presses ran silently and felt like nothing happened.
+- The Z-sequence stops when the next heading is more than 30 nodes away from the last landing. On a short news article with no internal headings, the next heading in NVDA's tree is often a sidebar widget far down the page. Walking the Z-sequence into that widget was wrong. Now Z says "No more sections on this page" and resets when it would otherwise jump into chrome.
+
+Internal: addon name is `TextMarksTheSpot` in PascalCase (the install path under `%APPDATA%\nvda\addons\`). 1.0.0 used the lowercase form. Users upgrading from 1.0.0 need to uninstall the old `textMarksTheSpot` entry from NVDA's add-on manager before installing 1.0.2.
+
 ## 1.0.0
 
 First public release. Web only for now. Email handling is on the roadmap.
