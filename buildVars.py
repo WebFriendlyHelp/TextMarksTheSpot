@@ -23,7 +23,7 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Jumps the browse cursor to the start of real content when you open a web page. No keypress required. Press Z in browse mode to re-run detection if the automatic pick was wrong, or NVDA+Z to disable the add-on on the current site."""),
 	# version
-	addon_version="0.1.0",
+	addon_version="1.0.0",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
 	addon_changelog=_("""First public release. Web only for now.
