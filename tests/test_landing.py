@@ -534,3 +534,58 @@ def test_next_heading_respects_custom_max_gap():
 	assert web.find_next_heading_landing(_summary_with(nodes), 0, max_gap=5) is None
 	# With max_gap=15 the same heading is reachable.
 	assert web.find_next_heading_landing(_summary_with(nodes), 0, max_gap=15) == 10
+
+
+# ---------------------------------------------------------------------------
+# Share-link payload filter — Fox21 social-share button URL strings
+# ---------------------------------------------------------------------------
+
+def test_share_link_payload_url_equals_pattern():
+	# LinkedIn "share-offsite?url=https%3A%2F%2F..." text exposed by
+	# accessibility tooling. Reads as a paragraph but is really a URL.
+	share = (
+		"share-offsite url=https%3A%2F%2Fwww.fox21news.com%2Fnews%2F"
+		"retro-pizza-hut-revival-see-which-locations-are-returning-to-"
+		"the-1990s-aesthetic"
+	)
+	assert web._looks_like_share_link_payload(share) is True
+
+
+def test_share_link_payload_dense_url_encoding():
+	# Even without "url=", a string with 3+ URL-encoded triplets is
+	# overwhelmingly a URL.
+	encoded = "post%3A%2F%2Fid%3D42%26type%3Dshare"
+	assert web._looks_like_share_link_payload(encoded) is True
+
+
+def test_share_link_payload_negatives():
+	# Normal prose. A paragraph that mentions one URL is still prose.
+	assert web._looks_like_share_link_payload("") is False
+	assert web._looks_like_share_link_payload("Just a normal sentence.") is False
+	assert web._looks_like_share_link_payload(
+		"For more info, see https://example.com which lists details."
+	) is False
+	# Single isolated %20 in an academic context: still prose.
+	assert web._looks_like_share_link_payload(
+		"Encoded as %20 in the URL, the space character is..."
+	) is False
+
+
+def test_article_landing_skips_share_link_payload():
+	# Fox21 case: the social-share LinkedIn URL string is the FIRST
+	# substantial paragraph in main_nodes. Without the filter it would
+	# win the article-landing cascade. With the filter, the next real
+	# body paragraph wins.
+	nodes = [
+		_node("paragraph", 16, preview="Skip to content"),
+		_node("paragraph", 8, preview="News▾"),
+		# The offending share-link payload.
+		_node("paragraph", 220,
+			preview="share-offsite url=https%3A%2F%2Fwww.fox21news.com%2Fnews%2Fretro-pizza-hut"),
+		# Real article body.
+		_node("paragraph", 205,
+			preview="LOUISVILLE, Ky. (WDKY) — Foodies and families looking for"),
+		_node("paragraph", 180, preview="The chain announced a phased rollout..."),
+	]
+	# Expected: idx=3 (article lede), not idx=2 (share-link payload).
+	assert web.find_article_landing(_summary_with(nodes)) == 3

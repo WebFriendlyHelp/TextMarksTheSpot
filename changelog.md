@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3
+
+The initial landing on a news article was sometimes a social-share button's URL parameter — text like `share-offsite url=https%3A%2F%2F...` that accessibility tooling exposes as a paragraph. Long enough to clear the "substantial paragraph" bar, but not real prose. Now filtered out alongside the existing tag-list and accessibility-instruction filters.
+
+Caught on Fox21 News article pages where LinkedIn share buttons sit near the top of `<main>`.
+
 ## 1.0.2
 
 Fixes for the Z-sequence behavior introduced in 1.0.0.

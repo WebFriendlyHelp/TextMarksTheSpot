@@ -113,6 +113,8 @@ def _find_content_section_landing(nodes, min_chars):
 				continue
 			if _looks_like_tag_list(n.text_preview):
 				continue
+			if _looks_like_share_link_payload(n.text_preview):
+				continue
 			if _looks_like_accessibility_instructions(n.text_preview):
 				continue
 			return j
@@ -164,6 +166,36 @@ def _looks_like_tag_list(text: str) -> bool:
 		return False
 	spaced_commas = text.count(", ")
 	return no_space_commas > spaced_commas
+
+
+import re as _re
+_URL_ENCODED_TRIPLET_RE = _re.compile(r"%[0-9A-Fa-f]{2}")
+
+
+def _looks_like_share_link_payload(text: str) -> bool:
+	"""Detect text that's really a URL-parameter string from a social-share
+	button — typically exposed as a "paragraph" when accessibility layers
+	stringify the button's href or data-url attribute.
+
+	Two signals, either is enough on its own:
+
+	  1. Contains "url=http" or "url=https" — the canonical LinkedIn
+	     "share-offsite?url=https%3A%2F%2F..." pattern, and the same
+	     shape Twitter/X, Pinterest, and Facebook share endpoints use.
+	  2. Three or more URL-encoded triplets (%XX) in the text. Real
+	     article prose almost never has more than one or two; a tight
+	     cluster of them is overwhelmingly a URL string.
+
+	On a LinkedIn-share-link-heavy news article (Fox21, many others),
+	these strings would otherwise win the "first substantial paragraph"
+	rule because they're long enough to clear the size threshold.
+	"""
+	if not text:
+		return False
+	lower = text.lower()
+	if "url=http" in lower:
+		return True
+	return len(_URL_ENCODED_TRIPLET_RE.findall(text)) >= 3
 
 
 def find_article_landing(tree: TreeSummary) -> Optional[int]:
@@ -226,6 +258,9 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 		# aren't prose. Skip them so they don't win via the hero shortcut
 		# just because an article heading happens to follow.
 		if _looks_like_tag_list(node.text_preview):
+			continue
+		# URL-parameter payloads from social-share buttons exposed as text.
+		if _looks_like_share_link_payload(node.text_preview):
 			continue
 		# Screen-reader instructional text appended to interactive widgets
 		# (Amazon dropdowns). UI help, not article content.
@@ -299,6 +334,9 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 		if node.kind == "paragraph" and node.text_length >= min_chars:
 			# Skip tag/category rows the same way the primary loop does.
 			if _looks_like_tag_list(node.text_preview):
+				continue
+			# Skip URL-parameter payloads from social-share buttons.
+			if _looks_like_share_link_payload(node.text_preview):
 				continue
 			# Skip screen-reader instructional text the same way.
 			if _looks_like_accessibility_instructions(node.text_preview):
