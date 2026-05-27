@@ -1,0 +1,66 @@
+name: Feature request
+description: Suggest a detection improvement, new landing behavior, accessibility enhancement, or usability improvement
+title: "[FEATURE] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement to Text Marks the Spot.
+
+        Use this form for new detection patterns, landing-position tweaks, accessibility enhancements, new gesture ideas, settings, or workflow suggestions.
+  - type: dropdown
+    id: category
+    attributes:
+      label: Request type
+      description: What kind of improvement are you proposing?
+      options:
+        - Detection accuracy on a specific kind of page
+        - New landing-position behavior (e.g. Z-sequence advance)
+        - Accessibility or screen reader improvement
+        - New gesture or setting
+        - Speech mode behavior change
+        - Performance improvement
+        - Documentation improvement
+        - Release or packaging improvement
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user need, limitation, or frustration would this improve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the change you want to see.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: List any other approaches you considered.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Extra context
+      description: Add example URLs, screenshots, NVDA log snippets, or accessibility context here.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions first.
+          required: true
+        - label: This request describes a concrete improvement, not just a general complaint.
+          required: true

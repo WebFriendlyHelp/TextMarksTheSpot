@@ -1,0 +1,122 @@
+name: Bug report
+description: Report a problem with detection, the Z key, the speech mode response, accessibility, installation, or releases
+title: "[BUG] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem in Text Marks the Spot.
+
+        Use this form for broken detection, wrong landing position, Z key not working, audio cues misbehaving, speech mode regressions, packaging bugs, or anything else that is not working as expected.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: What part of the add-on is affected?
+      options:
+        - Auto detection on page load
+        - Z key (re-run detection)
+        - NVDA+Z (site exclusion)
+        - Landing position on a specific page
+        - Audio cues (working, progress pulse, not_found)
+        - Speech mode behavior (talk, beeps, off, on-demand)
+        - Installation or update
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: addon-version
+    attributes:
+      label: Add-on version
+      description: Which Text Marks the Spot version are you using?
+      placeholder: "Example: 0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: nvda-version
+    attributes:
+      label: NVDA version
+      description: Which NVDA version are you using?
+      placeholder: "Example: 2026.1.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser
+      description: Which browser was open when the problem occurred?
+      options:
+        - Firefox
+        - Chrome
+        - Edge
+        - Other Chromium-based browser
+        - Not browser-related
+    validations:
+      required: false
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Windows version
+      description: Which Windows version are you using?
+      options:
+        - Windows 11
+        - Windows 10
+        - Other
+    validations:
+      required: false
+  - type: input
+    id: page-url
+    attributes:
+      label: Page URL (if applicable)
+      description: If the bug is page-specific, paste the URL. Skip if it does not apply.
+      placeholder: "https://example.com/path"
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Tell us how to reproduce the problem.
+      placeholder: |
+        1. Open the page at the URL above in Firefox.
+        2. Wait for the page to finish loading.
+        3. Listen to where the cursor landed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: NVDA log lines or perf data
+      description: |
+        If possible, open the NVDA log viewer (NVDA+F1) and paste any `[TMTS]` lines from around the time of the bug.
+        The persistent perf log at `%APPDATA%\nvda\textMarksTheSpot-perf.log` may also have relevant lines.
+        Note: log lines include URLs, so redact anything you do not want public before pasting.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I included enough detail to reproduce the problem.
+          required: true

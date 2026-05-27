@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and community discussion
+    url: https://github.com/WebFriendlyHelp/textMarksTheSpot/discussions
+    about: Ask setup questions, share ideas, or start a general discussion.
+  - name: NVDA Add-on Store page
+    url: https://addonstore.nvaccess.org/
+    about: Browse or update the add-on from the official NVDA Add-on Store.
+  - name: Web Friendly Help
+    url: https://webfriendlyhelp.com/
+    about: Contact info and other accessibility resources from the author.
