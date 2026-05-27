@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-NVDA screen-reader add-on (`textMarksTheSpot`) that auto-jumps the browse cursor to where real content starts on web pages and email messages, then speaks that single paragraph so the user knows where they landed — no keypress needed, and no `sayAll`. From there the user reads on with normal NVDA navigation (Down Arrow, `h`, etc.). Pure heuristic, no AI, no network. Targets NVDA 2024.1+ (Python 3.11+), pure Python so it runs in both 32-bit and 64-bit NVDA. GPL v2.
+NVDA screen-reader add-on (`TextMarksTheSpot`) that auto-jumps the browse cursor to where real content starts on web pages and email messages, then speaks that single paragraph so the user knows where they landed — no keypress needed, and no `sayAll`. From there the user reads on with normal NVDA navigation (Down Arrow, `h`, etc.). Pure heuristic, no AI, no network. Targets NVDA 2024.1+ (Python 3.11+), pure Python so it runs in both 32-bit and 64-bit NVDA. GPL v2.
 
 The only key the add-on binds is `Z` (browse mode). Every other NVDA key keeps its built-in behavior — this is guardrail #1 and overrides any feature idea that would conflict.
 
@@ -27,7 +27,7 @@ If a proposed change weakens any of these, push back instead of implementing.
 
 ## Architecture
 
-The add-on is one NVDA `GlobalPlugin` at `addon/globalPlugins/textMarksTheSpot/`. The SPEC describes more files than currently carry weight — the load-bearing modules right now are `__init__.py`, `classifier.py`, `tree_summary.py`, `detection/web.py`, and `feedback.py`. The other files exist as stubs or scaffolds for future phases.
+The add-on is one NVDA `GlobalPlugin` at `addon/globalPlugins/TextMarksTheSpot/`. The SPEC describes more files than currently carry weight — the load-bearing modules right now are `__init__.py`, `classifier.py`, `tree_summary.py`, `detection/web.py`, and `feedback.py`. The other files exist as stubs or scaffolds for future phases.
 
 Load-bearing modules:
 
@@ -58,17 +58,17 @@ Every call to `build_tree_summary` emits a `[TMTS perf]` line with per-phase tim
 The perf line goes to two places:
 
 - **NVDA's session log** (`%TEMP%\nvda.log`, viewable live via `NVDA+F1`). Rotates to `nvda-old.log` on NVDA restart, lost on the next restart after that.
-- **Persistent perf log** (`%APPDATA%\nvda\textMarksTheSpot-perf.log`) — append-only, ISO-timestamped, survives NVDA and Windows restarts. Self-rotates at 1 MB to `textMarksTheSpot-perf.log.old` (one generation of history kept). Use this when collecting data across multiple sessions or asking a fresh AI session to analyze patterns. Write errors are swallowed silently so a locked or unwritable file can never break detection.
+- **Persistent perf log** (`%APPDATA%\nvda\TextMarksTheSpot-perf.log`) — append-only, ISO-timestamped, survives NVDA and Windows restarts. Self-rotates at 1 MB to `TextMarksTheSpot-perf.log.old` (one generation of history kept). Use this when collecting data across multiple sessions or asking a fresh AI session to analyze patterns. Write errors are swallowed silently so a locked or unwritable file can never break detection.
 
 ## Build and packaging
 
-The project uses NV Access's official addon template structure. Build is done by **SCons**. The Python code under `addon/globalPlugins/textMarksTheSpot/` is the source of truth; edit there, rebuild the `.nvda-addon`, reinstall in NVDA.
+The project uses NV Access's official addon template structure. Build is done by **SCons**. The Python code under `addon/globalPlugins/TextMarksTheSpot/` is the source of truth; edit there, rebuild the `.nvda-addon`, reinstall in NVDA.
 
 **Archive layout (still important even with SCons):** the `.nvda-addon` zip must have `manifest.ini` at the root AND the *contents* of `addon/` at the root — NOT the `addon/` folder itself. So the zip looks like:
 
 ```
 manifest.ini
-globalPlugins/textMarksTheSpot/__init__.py
+globalPlugins/TextMarksTheSpot/__init__.py
 doc/en/readme.md
 ```
 
@@ -109,7 +109,7 @@ scons -c
 scons pot
 ```
 
-Output: `textMarksTheSpot-<version>.nvda-addon` at the project root, named from `buildVars.py:addon_info["addon_version"]`.
+Output: `TextMarksTheSpot-<version>.nvda-addon` at the project root, named from `buildVars.py:addon_info["addon_version"]`.
 
 **Note**: scons might fail to install in your default Python; if so, the `scons.exe` from `python -m pip install --user scons` lives in `C:\Users\<you>\AppData\Roaming\Python\Python313\Scripts\`. Make sure that directory is on PATH or call it by full path.
 
@@ -117,7 +117,7 @@ Output: `textMarksTheSpot-<version>.nvda-addon` at the project root, named from 
 
 ```
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$z = [System.IO.Compression.ZipFile]::OpenRead("C:\OneDrive\Downloads\Text Marks the Spot\textMarksTheSpot-0.1.0.nvda-addon")
+$z = [System.IO.Compression.ZipFile]::OpenRead("C:\OneDrive\Downloads\Text Marks the Spot\TextMarksTheSpot-0.1.0.nvda-addon")
 $z.Entries | ForEach-Object { $_.FullName } | Sort-Object
 $z.Dispose()
 ```
@@ -128,7 +128,7 @@ Top-level entries should be `doc/...`, `globalPlugins/...`, `manifest.ini`. If y
 
 - `NVDA+Ctrl+F3` — reload all add-ons in the running NVDA.
 - `NVDA+F1` — open the NVDA log viewer (where probes and the add-on log to).
-- Installed-copy path (Windows, for reference): `%APPDATA%\nvda\addons\textMarksTheSpot\`.
+- Installed-copy path (Windows, for reference): `%APPDATA%\nvda\addons\TextMarksTheSpot\`.
 
 ### Tests
 

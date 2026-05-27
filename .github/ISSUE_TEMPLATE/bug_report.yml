@@ -106,7 +106,7 @@ body:
       label: NVDA log lines or perf data
       description: |
         If possible, open the NVDA log viewer (NVDA+F1) and paste any `[TMTS]` lines from around the time of the bug.
-        The persistent perf log at `%APPDATA%\nvda\textMarksTheSpot-perf.log` may also have relevant lines.
+        The persistent perf log at `%APPDATA%\nvda\TextMarksTheSpot-perf.log` may also have relevant lines.
         Note: log lines include URLs, so redact anything you do not want public before pasting.
       render: shell
     validations:

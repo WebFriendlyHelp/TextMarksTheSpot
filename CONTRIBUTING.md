@@ -12,7 +12,7 @@ Have a look at:
 - `SPEC.md` for the design: guardrails, the intent classifier, the per-intent landing strategies, known limitations, and how we test.
 - `CLAUDE.md` for the codebase tour, the build workflow, and which modules carry the weight today.
 
-Then check existing [Issues](https://github.com/WebFriendlyHelp/textMarksTheSpot/issues) and [Discussions](https://github.com/WebFriendlyHelp/textMarksTheSpot/discussions) before opening something new. Discussions are for questions, ideas, and feedback. Issues are for confirmed bugs, regressions, and concrete feature work.
+Then check existing [Issues](https://github.com/WebFriendlyHelp/TextMarksTheSpot/issues) and [Discussions](https://github.com/WebFriendlyHelp/TextMarksTheSpot/discussions) before opening something new. Discussions are for questions, ideas, and feedback. Issues are for confirmed bugs, regressions, and concrete feature work.
 
 ## Drive-by contributions
 
@@ -50,7 +50,7 @@ python -m pytest tests/ -q
 scons -c
 ```
 
-Install the resulting `textMarksTheSpot-<version>.nvda-addon` in NVDA via Tools, Manage add-ons, Install.
+Install the resulting `TextMarksTheSpot-<version>.nvda-addon` in NVDA via Tools, Manage add-ons, Install.
 
 ## Accessibility
 
@@ -124,4 +124,4 @@ Match the existing style. Prefer small readable changes over broad refactors. Do
 
 If you are not sure whether something is an issue, a discussion, or a PR, start with a discussion:
 
-https://github.com/WebFriendlyHelp/textMarksTheSpot/discussions
+https://github.com/WebFriendlyHelp/TextMarksTheSpot/discussions

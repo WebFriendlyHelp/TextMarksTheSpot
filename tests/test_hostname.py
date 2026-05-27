@@ -10,7 +10,7 @@ from pathlib import Path
 
 # __init__.py at the addon root isn't named as a normal module; import
 # the helper function directly from its source file.
-PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "addon" / "globalPlugins" / "textMarksTheSpot"
+PLUGIN_ROOT = Path(__file__).resolve().parent.parent / "addon" / "globalPlugins" / "TextMarksTheSpot"
 
 
 def _load_hostname_helper():

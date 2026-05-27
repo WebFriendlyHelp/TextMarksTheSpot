@@ -3,8 +3,8 @@
 # Trigger: push a tag matching v*.*.* (e.g. v1.0.1, v1.1.0, v2.0.0).
 #
 # Result: a GitHub release at that tag with two .nvda-addon assets attached:
-#   - textMarksTheSpot-<version>.nvda-addon (versioned, for archival)
-#   - textMarksTheSpot.nvda-addon (unversioned — keeps the "always latest"
+#   - TextMarksTheSpot-<version>.nvda-addon (versioned, for archival)
+#   - TextMarksTheSpot.nvda-addon (unversioned — keeps the "always latest"
 #     download URL stable across releases)
 #
 # Manual fallback: if this workflow ever fails, the same build can be done
@@ -50,7 +50,7 @@ jobs:
       - name: Verify built filename matches the pushed tag
         run: |
           $tag = "${{ github.ref_name }}".TrimStart("v")
-          $expected = "textMarksTheSpot-$tag.nvda-addon"
+          $expected = "TextMarksTheSpot-$tag.nvda-addon"
           if (-not (Test-Path $expected)) {
             Write-Error "Built file not found: $expected (tag=${{ github.ref_name }}). Make sure buildVars.py addon_version matches the tag."
             exit 1
@@ -60,7 +60,7 @@ jobs:
       - name: Create unversioned copy for the stable Latest URL
         run: |
           $tag = "${{ github.ref_name }}".TrimStart("v")
-          Copy-Item "textMarksTheSpot-$tag.nvda-addon" "textMarksTheSpot.nvda-addon" -Force
+          Copy-Item "TextMarksTheSpot-$tag.nvda-addon" "TextMarksTheSpot.nvda-addon" -Force
 
       - name: Create GitHub release
         env:
@@ -69,7 +69,7 @@ jobs:
           $tag = "${{ github.ref_name }}"
           $stripped = $tag.TrimStart("v")
           gh release create $tag `
-            "textMarksTheSpot-$stripped.nvda-addon" `
-            "textMarksTheSpot.nvda-addon" `
+            "TextMarksTheSpot-$stripped.nvda-addon" `
+            "TextMarksTheSpot.nvda-addon" `
             --title "$tag" `
             --notes-file changelog.md

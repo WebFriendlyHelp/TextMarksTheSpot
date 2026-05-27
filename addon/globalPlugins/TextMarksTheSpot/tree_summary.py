@@ -137,13 +137,21 @@ def _perf_log_path() -> Optional[str]:
 	appdata = os.environ.get("APPDATA")
 	if not appdata:
 		return None
-	_PERF_LOG_PATH_CACHE = os.path.join(appdata, "nvda", "textMarksTheSpot-perf.log")
+	_PERF_LOG_PATH_CACHE = os.path.join(appdata, "nvda", "TextMarksTheSpot-perf.log")
 	return _PERF_LOG_PATH_CACHE
 
 
 def _append_perf_line(line: str) -> None:
 	# Append one timestamped line to the persistent perf log. Swallows all
 	# IO errors so a locked / unwritable log can never break detection.
+	#
+	# Only writes when NVDA's logging level is DEBUG. Users in normal
+	# operation should not accumulate a perf log file in their AppData;
+	# the file is for troubleshooting, and troubleshooting users set
+	# NVDA's log level explicitly to capture data.
+	import logging
+	if not log.isEnabledFor(logging.DEBUG):
+		return
 	path = _perf_log_path()
 	if path is None:
 		return
@@ -264,7 +272,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		f"article={summary.article_count} forms={summary.form_input_count} "
 		f"interactive={summary.interactive_control_count} url={summary.url!r}"
 	)
-	log.info(perf_line)
+	log.debug(perf_line)
 	_append_perf_line(perf_line)
 	return summary
 
@@ -568,7 +576,7 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	# WHY the walk failed: did it visit no chunks at all, did it visit
 	# chunks but they had no obj/text, or did everything filter out?
 	if not result:
-		log.info(
+		log.debug(
 			f"[TMTS walk-empty] raw_seen={raw_seen} raw_with_obj={raw_with_obj} "
 			f"raw_with_text={raw_with_text} main_obj_set={main_obj is not None}"
 		)
