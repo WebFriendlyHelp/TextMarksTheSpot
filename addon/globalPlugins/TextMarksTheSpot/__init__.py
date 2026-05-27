@@ -154,7 +154,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		super().terminate()
 
 	def event_documentLoadComplete(self, obj, nextHandler):
-		log.info(f"[TMTS event] documentLoadComplete obj={obj!r}")
+		log.debug(f"[TMTS event] documentLoadComplete obj={obj!r}")
 		try:
 			self._maybe_fire(obj)
 		finally:
@@ -171,7 +171,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# On alt-tab back: same TI regains focus → fires, but the URL
 		# matches and the cooldown might NOT have elapsed if recent. The
 		# TI-identity check in _maybe_fire catches the same-TI case.
-		log.info(f"[TMTS event] treeInterceptor_gainFocus ti={treeInterceptor!r}")
+		log.debug(f"[TMTS event] treeInterceptor_gainFocus ti={treeInterceptor!r}")
 		try:
 			self._maybe_fire_ti(treeInterceptor)
 		finally:
@@ -183,7 +183,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def _maybe_fire_ti(self, ti, bypass_exclusion=False):
 		if ti is None or not getattr(ti, "isReady", False):
-			log.info(f"[TMTS] _maybe_fire_ti: ti not ready ({ti!r})")
+			log.debug(f"[TMTS] _maybe_fire_ti: ti not ready ({ti!r})")
 			return
 		# A new detection cycle invalidates any pending retry from a prior
 		# load — the page state we'd have retried against is gone.
@@ -202,7 +202,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			url = ""
 		hostname = _hostname_from_url(url)
 		if not bypass_exclusion and hostname and cfg_mod.is_site_disabled(hostname):
-			log.info(f"[TMTS] _maybe_fire_ti: site {hostname!r} is on exclusion list — skip")
+			log.debug(f"[TMTS] _maybe_fire_ti: site {hostname!r} is on exclusion list — skip")
 			return
 		# TI-identity check: on alt-tab back to a browser tab, NVDA reuses
 		# the existing TreeInterceptor Python object — same object identity
@@ -210,7 +210,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# (different identity). If your NVDA version does the opposite,
 		# log lines below tell us which.
 		if ti is self._last_ti:
-			log.info(f"[TMTS] _maybe_fire_ti: same TI as last fire — skip")
+			log.debug(f"[TMTS] _maybe_fire_ti: same TI as last fire — skip")
 			return
 		# URL + cooldown catches the SPA-ish case where NVDA gives us a
 		# fresh TI for what is actually still the same logical page load
@@ -223,10 +223,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			and url == self._last_url
 			and elapsed < self._REFIRE_COOLDOWN_SEC
 		):
-			log.info(f"[TMTS] _maybe_fire_ti: cooldown blocking url={url!r} elapsed={elapsed:.2f}s")
+			log.debug(f"[TMTS] _maybe_fire_ti: cooldown blocking url={url!r} elapsed={elapsed:.2f}s")
 			self._last_ti = ti
 			return
-		log.info(f"[TMTS] _maybe_fire_ti: PROCEEDING url={url!r} elapsed={elapsed:.2f}s ti_changed={ti is not self._last_ti}")
+		log.debug(f"[TMTS] _maybe_fire_ti: PROCEEDING url={url!r} elapsed={elapsed:.2f}s ti_changed={ti is not self._last_ti}")
 		self._last_ti = ti
 		self._last_url = url
 		self._last_fire_time = now
@@ -236,7 +236,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# would otherwise catch this too, but only AFTER we'd already played
 		# the working tone, which is exactly what was firing on DDG.
 		if ts_mod.is_focus_editable():
-			log.info(f"[TMTS] _maybe_fire_ti: focus editable — skip")
+			log.debug(f"[TMTS] _maybe_fire_ti: focus editable — skip")
 			return
 		# Do NOT pre-cancel speech here. Detection runs silently while NVDA
 		# does its normal page-load chatter (title, URL, focus). The only
@@ -281,7 +281,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			expected_url = str(getattr(ti, "documentConstantIdentifier", "") or "")
 		except Exception:
 			expected_url = ""
-		log.info(f"[TMTS] scheduling retry in {self._RETRY_DELAY_MS}ms for url={expected_url!r}")
+		log.debug(f"[TMTS] scheduling retry in {self._RETRY_DELAY_MS}ms for url={expected_url!r}")
 		try:
 			self._pending_retry = wx.CallLater(
 				self._RETRY_DELAY_MS,
@@ -307,16 +307,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Runs on the wx main thread after _RETRY_DELAY_MS.
 		self._pending_retry = None
 		if not getattr(ti, "isReady", False):
-			log.info("[TMTS] retry: TI no longer ready — abandon")
+			log.debug("[TMTS] retry: TI no longer ready — abandon")
 			return
 		try:
 			current_url = str(getattr(ti, "documentConstantIdentifier", "") or "")
 		except Exception:
 			current_url = ""
 		if current_url != expected_url:
-			log.info(f"[TMTS] retry: url changed (was {expected_url!r}, now {current_url!r}) — abandon")
+			log.debug(f"[TMTS] retry: url changed (was {expected_url!r}, now {current_url!r}) — abandon")
 			return
-		log.info("[TMTS] retry: firing")
+		log.debug("[TMTS] retry: firing")
 		try:
 			self._run_detection(ti, is_retry=True)
 		except Exception:
@@ -363,7 +363,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				except Exception:
 					log.exception("[TMTS] FORM ui.message failed")
 			focus_set = ts_mod.set_focus_on_first_form_input(ti)
-			log.info(
+			log.debug(
 				f"[TMTS] FORM: title={title_text!r} focus_set={focus_set} "
 				f"url={summary.url!r} retry={is_retry}"
 			)
@@ -380,7 +380,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		elif result.intent == cls_mod.Intent.KEY_RESULT:
 			idx = web_mod.find_key_result_landing(summary)
 		else:
-			log.info(
+			log.debug(
 				f"[TMTS] no-action: {result.intent.value}({result.confidence:.2f}) "
 				f"main={summary.has_main_landmark} nodes={len(summary.main_nodes)} "
 				f"art={summary.article_count} form={summary.form_input_count} "
@@ -394,7 +394,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				fb_mod.not_found()
 			return False
 		if idx is None:
-			log.info(
+			log.debug(
 				f"[TMTS] {result.intent.value} but no landing index "
 				f"main={summary.has_main_landmark} nodes={len(summary.main_nodes)} "
 				f"first_nodes={[(n.kind, n.text_length, n.text_preview[:40]) for n in summary.main_nodes[:6]]} "
@@ -405,7 +405,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return False
 		landing_info = ts_mod.get_landing_textinfo(summary, idx)
 		if landing_info is None:
-			log.info(
+			log.debug(
 				f"[TMTS] {result.intent.value} idx={idx} but no textinfo found "
 				f"main={summary.has_main_landmark} nodes={len(summary.main_nodes)} "
 				f"url={summary.url!r} retry={is_retry}"
@@ -433,7 +433,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				(n.kind, n.text_length, n.text_preview[:40])
 				for n in summary.main_nodes[:8]
 			]
-			log.info(
+			log.debug(
 				f"[TMTS] moved caret to idx={idx} kind={landed_node.kind} "
 				f"len={landed_node.text_length} preview={landed_node.text_preview[:60]!r} "
 				f"first_8={first_eight} url={summary.url!r} retry={is_retry}"
@@ -557,7 +557,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				speech_info.expand(textInfos.UNIT_PARAGRAPH)
 				speech.speakTextInfo(speech_info, reason=controlTypes.OutputReason.CARET)
 				landed_node = summary.main_nodes[next_idx]
-				log.info(
+				log.debug(
 					f"[TMTS] Z-sequence advance to idx={next_idx} kind={landed_node.kind} "
 					f"len={landed_node.text_length} preview={landed_node.text_preview[:60]!r} "
 					f"url={summary.url!r}"

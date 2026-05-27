@@ -13,7 +13,7 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "addon", "globalPlugins", "textMarksTheSpot"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "addon", "globalPlugins", "TextMarksTheSpot"))
 
 from classifier import TreeSummary, MainNode, Intent
 

@@ -14,7 +14,7 @@ from site_scons.site_tools.NVDATool.utils import _
 # Add-on information variables
 addon_info = AddonInfo(
 	# add-on Name/identifier, internal for NVDA
-	addon_name="textMarksTheSpot",
+	addon_name="TextMarksTheSpot",
 	# Add-on summary/title, usually the user visible name of the add-on
 	# Translators: Summary/title for this add-on
 	# to be shown on installation and add-on information found in add-on store
@@ -23,7 +23,7 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Jumps the browse cursor to the start of real content when you open a web page. No keypress required. Press Z in browse mode to re-run detection if the automatic pick was wrong, or NVDA+Z to disable the add-on on the current site."""),
 	# version
-	addon_version="1.0.0",
+	addon_version="1.0.1",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
 	addon_changelog=_("""First public release. Web only for now.
@@ -36,9 +36,9 @@ Speech mode is respected automatically across talk, beeps, off, and on-demand.""
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support
-	addon_url="https://github.com/WebFriendlyHelp/textMarksTheSpot",
+	addon_url="https://github.com/WebFriendlyHelp/TextMarksTheSpot",
 	# URL for the add-on repository where the source code can be found
-	addon_sourceURL="https://github.com/WebFriendlyHelp/textMarksTheSpot",
+	addon_sourceURL="https://github.com/WebFriendlyHelp/TextMarksTheSpot",
 	# Documentation file name
 	addon_docFileName="readme.html",
 	# Minimum NVDA version supported (e.g. "2019.3.0", minor version is optional)
@@ -64,8 +64,8 @@ Speech mode is respected automatically across talk, beeps, off, and on-demand.""
 # For more information on SCons Glob expressions please take a look at:
 # https://scons.org/doc/production/HTML/scons-user/apd.html
 pythonSources: list[str] = [
-	"addon/globalPlugins/textMarksTheSpot/*.py",
-	"addon/globalPlugins/textMarksTheSpot/detection/*.py",
+	"addon/globalPlugins/TextMarksTheSpot/*.py",
+	"addon/globalPlugins/TextMarksTheSpot/detection/*.py",
 ]
 
 # Files that contain strings for translation. Usually your python sources

@@ -15,7 +15,7 @@ except ImportError:
 	_NVDA_AVAILABLE = False
 
 
-CONFIG_SECTION = "textMarksTheSpot"
+CONFIG_SECTION = "TextMarksTheSpot"
 
 confspec = {
 	"autoRead": "boolean(default=True)",

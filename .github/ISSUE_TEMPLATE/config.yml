@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions and community discussion
-    url: https://github.com/WebFriendlyHelp/textMarksTheSpot/discussions
+    url: https://github.com/WebFriendlyHelp/TextMarksTheSpot/discussions
     about: Ask setup questions, share ideas, or start a general discussion.
   - name: NVDA Add-on Store page
     url: https://addonstore.nvaccess.org/

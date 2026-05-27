@@ -10,5 +10,5 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PLUGIN = ROOT / "addon" / "globalPlugins" / "textMarksTheSpot"
+PLUGIN = ROOT / "addon" / "globalPlugins" / "TextMarksTheSpot"
 sys.path.insert(0, str(PLUGIN))

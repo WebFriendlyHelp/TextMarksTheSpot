@@ -154,7 +154,7 @@ Text Marks the Spot/
 ├── .gitignore
 ├── addon/
 │   ├── doc/en/readme.md                   user-facing docs (shown in store)
-│   └── globalPlugins/textMarksTheSpot/
+│   └── globalPlugins/TextMarksTheSpot/
 │       ├── __init__.py                    GlobalPlugin entry, event hooks
 │       ├── classifier.py                  pure-logic intent classifier
 │       ├── tree_summary.py                NVDA-binding: tree → TreeSummary
@@ -187,7 +187,7 @@ Text Marks the Spot/
 
 1. **Investigate "Content priority reading"** (NVDA store, v0.3, publisher "lamb"). Fetch its actual repo / detail page and confirm what it does. If it overlaps with this add-on, decide: pivot, differentiate, or proceed with awareness. Store page only listed it in the index — the detail page or its GitHub repo will have the real description.
 2. **Confirm `Z` is also unused by JAWS quick-nav** in case we port later. Casey is JAWS Certified — a future JAWS script pack would want consistent keys.
-3. **Pick a final add-on ID slug** for the manifest. Current proposal: `textMarksTheSpot`. The store uses this as the addon ID URL slug.
+3. **Pick a final add-on ID slug** for the manifest. Current proposal: `TextMarksTheSpot`. The store uses this as the addon ID URL slug.
 
 ## Phase 1 — what shipped in 0.1.0
 
@@ -254,7 +254,7 @@ Status: working build, end-to-end, in Firefox and Chrome browse mode against a v
 
 ## Build / test workflow — chosen: edit in the project folder, rebuild with SCons
 
-Project uses NV Access's official addon template. SCons handles the build. The project folder is the source of truth — edit Python files in `addon/globalPlugins/textMarksTheSpot/`, rebuild the `.nvda-addon`, reinstall in NVDA.
+Project uses NV Access's official addon template. SCons handles the build. The project folder is the source of truth — edit Python files in `addon/globalPlugins/TextMarksTheSpot/`, rebuild the `.nvda-addon`, reinstall in NVDA.
 
 ### Required tools (one-time setup)
 
@@ -271,7 +271,7 @@ From the project root (PowerShell):
 scons
 ```
 
-Produces `textMarksTheSpot-<version>.nvda-addon` at the project root. Version comes from `buildVars.py:addon_info["addon_version"]`.
+Produces `TextMarksTheSpot-<version>.nvda-addon` at the project root. Version comes from `buildVars.py:addon_info["addon_version"]`.
 
 Clean build artifacts (the generated `addon/manifest.ini`, `addon/doc/<lang>/readme.{md,html}`, `addon/doc/style.css`, and the `.nvda-addon` itself):
 
@@ -296,7 +296,7 @@ NVDA → Tools → Manage add-ons → Install → pick the `.nvda-addon`. Acknow
 
 Daily loop:
 
-1. Edit Python files in `addon/globalPlugins/textMarksTheSpot/`.
+1. Edit Python files in `addon/globalPlugins/TextMarksTheSpot/`.
 2. `scons` to rebuild.
 3. Reinstall the `.nvda-addon` in NVDA (or just restart NVDA — it'll pick up the new version).
 4. Test, observe in `NVDA+F1` log viewer.
