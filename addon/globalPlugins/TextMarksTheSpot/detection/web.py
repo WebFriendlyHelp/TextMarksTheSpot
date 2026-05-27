@@ -433,17 +433,32 @@ def find_list_landing(tree: TreeSummary) -> Optional[int]:
 	return best_start
 
 
-def find_next_heading_landing(tree: TreeSummary, after_idx: int) -> Optional[int]:
+_Z_SEQUENCE_MAX_GAP = 30
+"""Maximum number of main_nodes between the last Z-sequence landing and the
+next eligible heading. Beyond this we treat the next heading as out of the
+article body — typically a sidebar widget heading or a related-content rail.
+30 covers even long news article subsections; a longer gap is a strong signal
+that the cursor has walked off the article and into chrome."""
+
+
+def find_next_heading_landing(
+	tree: TreeSummary,
+	after_idx: int,
+	max_gap: int = _Z_SEQUENCE_MAX_GAP,
+) -> Optional[int]:
 	"""Phase 1.5 Z-sequence: return the index of the next heading in
-	main_nodes strictly after `after_idx`. Returns None if there is no
-	further heading.
+	main_nodes strictly after `after_idx`, provided it sits within
+	`max_gap` nodes. Returns None if there is no further heading OR if
+	the next heading is too far away to plausibly belong to the same
+	article body (sidebar / related-content territory).
 
 	Used by the multi-press Z behavior: first Z press lands at the page's
 	primary landing, subsequent presses advance to the next section
 	(next heading) so the user can walk through major sections without
 	leaving the add-on's gesture.
 	"""
-	for i in range(after_idx + 1, len(tree.main_nodes)):
+	max_idx = min(after_idx + 1 + max_gap, len(tree.main_nodes))
+	for i in range(after_idx + 1, max_idx):
 		if tree.main_nodes[i].kind == "heading":
 			return i
 	return None

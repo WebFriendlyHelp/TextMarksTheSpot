@@ -533,6 +533,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		ti = getattr(focus, "treeInterceptor", None) if focus is not None else None
 		if ti is None or not getattr(ti, "isReady", False):
 			return
+		# Audible acknowledgment that the Z keypress was received. Without
+		# this, the advance path runs silently until either the heading is
+		# spoken (which can be delayed by the tree walk) or "No more
+		# sections" fires — users perceive Z as "not working."
+		fb_mod.working()
 		last_idx = self._z_state["last_idx"]
 		try:
 			summary = ts_mod.build_tree_summary(ti)
