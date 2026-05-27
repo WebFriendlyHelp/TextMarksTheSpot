@@ -227,10 +227,21 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# text accumulates into a "hero" run. Real-article body cluster still
 	# blocks FORM (a sidebar form widget on a news article shouldn't win).
 	strong_form_signal = tree.form_input_count >= STRONG_FORM_INPUT_COUNT
+	# Any <article> element on the page is a strong editorial-content
+	# signal. A news article (CNET, Wired, NYT, etc.) commonly wraps the
+	# story body in <article> AND has 5+ form fields scattered around the
+	# page (newsletter signup, search, comment box). The strong_form_signal
+	# check would otherwise dispatch these as FORM and move keyboard focus
+	# to whichever input came first — usually the newsletter signup box.
+	# Block FORM whenever <article> is present unless the URL explicitly
+	# looks like a form (/signup, /register, /apply, /intake, /contact).
+	# Legitimate signup pages match that URL pattern.
+	has_editorial_content = tree.article_count >= 1
 	form_blocked = (
 		strong_article_cluster
 		or has_body_cluster_strong
 		or (has_hero and not strong_form_signal)
+		or (has_editorial_content and not _url_matches(url, Intent.FORM))
 	)
 	if tree.form_input_count >= FORM_INPUT_THRESHOLD and not form_blocked:
 		confidence = min(0.6 + 0.08 * (tree.form_input_count - FORM_INPUT_THRESHOLD), 0.9)

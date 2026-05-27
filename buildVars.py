@@ -21,18 +21,18 @@ addon_info = AddonInfo(
 	addon_summary=_("Text Marks the Spot"),
 	# Add-on description
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
-	addon_description=_("""Jumps the browse cursor to the start of real content when you open a web page. No keypress required. Press Z in browse mode to re-run detection if the automatic pick was wrong, or NVDA+Z to disable the add-on on the current site."""),
+	addon_description=_("""Get to the actual content on a web page without working so hard to find it. Hands off. Let the page load, listen for the short beeps, and you're at the start of the article. NVDA reads the first paragraph. Press Z to skim forward, Shift+Z to jump back to the start, NVDA+Z to turn the add-on off on a specific site. Runs locally, no network calls."""),
 	# version
-	addon_version="1.0.3",
+	addon_version="1.0.4",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""First public release. Web only for now.
+	addon_changelog=_("""Detection quality improvements and a usability overhaul of the Z key.
 
-When a page finishes loading, the cursor moves to the first real paragraph and NVDA reads it. Form pages announce the form title and move focus to the first input. Single-status pages land on the status sentence. Key-result widgets (speed test, weather, stock price) land on the label so the value reads on the next arrow press.
+Landing quality: better picks on news articles (CNET teaser-skip), directory pages (Montgomery probate forms), and articles whose chrome included sidebar forms (CNET-style pages no longer dispatch as forms). Tightened the content-section heading matcher so long sentence-style headings no longer misfire.
 
-Press Z to re-run detection. Press NVDA+Z to add or remove the current site from the exclusion list. Press Z twice on an excluded site for a one-time detection without changing the list.
+Z key reshaped: Z now scans forward from the cursor for the next substantial content paragraph, skipping headings (NVDA's H already handles those) and chrome (share buttons, PDF-viewer disclaimers). Says "Nothing else to land on" when there is nothing more below.
 
-Speech mode is respected automatically across talk, beeps, off, and on-demand."""),
+New: Shift+Z snaps the cursor back to the add-on's last automatic landing without recalculating."""),
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support

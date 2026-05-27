@@ -79,6 +79,23 @@ _ACCESSIBILITY_INSTRUCTION_PHRASES = (
 	# Generic "press [modifier] to ..." instructional pattern.
 	"press alt+",
 	"press shift+",
+	# Share/menu widget instructional text on government & municipal
+	# sites (montgomeryprobatecourtal and many others). The widget
+	# exposes "Share & Bookmark, Press Enter to show all options,
+	# press Tab go to next option" as a paragraph; it's not content.
+	"share & bookmark",
+	"press enter to show",
+	"press tab to",
+	# PDF-viewer disclaimers — pages that link to PDF forms commonly
+	# carry text like "Free viewers are required for some of the
+	# attached documents..." or "You may need Adobe Reader to view
+	# these forms." These read as substantial paragraphs (50-150
+	# chars) but are page chrome, not real content. Montgomery probate
+	# forms page is the canonical case.
+	"free viewers are required",
+	"adobe reader",
+	"adobe acrobat",
+	"pdf reader",
 )
 
 
@@ -100,6 +117,15 @@ def _find_content_section_landing(nodes, min_chars):
 			continue
 		heading_text = (node.text_preview or "").strip().lower()
 		if not heading_text:
+			continue
+		# Tight match only. Real product/recipe section headings are short
+		# labels ("Description", "Features", "Overview", "Specifications",
+		# "About this item"). News article headings with words like
+		# "features" embedded in a longer sentence ("No additional security
+		# features included") should NOT match. Cap at 25 chars: the longest
+		# canonical phrase is "what is in the box" (18 chars), so 25 covers
+		# all real cases with a small buffer.
+		if len(heading_text) > 25:
 			continue
 		if not any(phrase in heading_text for phrase in _CONTENT_SECTION_HEADING_PHRASES):
 			continue
@@ -285,6 +311,20 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 		nxt = nodes[i + 1]
 		# A: cluster start — immediately adjacent substantial paragraph.
 		if nxt.kind == "paragraph" and nxt.text_length >= min_chars:
+			# Teaser-skip: when the candidate is short (<100 chars) and the
+			# next paragraph is substantially longer (>2x AND >=150 chars),
+			# prefer the next. CNET news articles commonly carry an 80-char
+			# TLDR-style teaser between the H1 and the actual narrative
+			# opening — "X can be a huge time saver, once you commit them
+			# to memory." (82 chars) followed by "When I first started
+			# using an iMac all the way back in 2008..." (209 chars). The
+			# narrative paragraph is where a reader actually wants to be.
+			if (
+				node.text_length < 100
+				and nxt.text_length >= 150
+				and nxt.text_length > node.text_length * 2
+			):
+				return i + 1
 			return i
 		# B: hero / section-intro — a heading appears within hero_lookahead
 		# nodes BEFORE any other substantial paragraph. The hero shortcut
@@ -328,9 +368,18 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 	# detection 1500 ms later, by which time the real content is in the
 	# virtual buffer. We do NOT add a thin-walk gate here because it would
 	# be a site-symptom band-aid; the retry is the principled fix.
+	#
+	# Also track substantial-paragraph count and the first-heading index so
+	# we can detect a "directory page" pattern below — small pages where
+	# the only substantial paragraph is a footer (address / copyright) and
+	# the right landing is the page title heading near the top.
 	best_idx = None
 	best_len = 0
+	substantial_count = 0
+	first_heading_idx = None
 	for i, node in enumerate(nodes):
+		if node.kind == "heading" and first_heading_idx is None:
+			first_heading_idx = i
 		if node.kind == "paragraph" and node.text_length >= min_chars:
 			# Skip tag/category rows the same way the primary loop does.
 			if _looks_like_tag_list(node.text_preview):
@@ -341,9 +390,28 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 			# Skip screen-reader instructional text the same way.
 			if _looks_like_accessibility_instructions(node.text_preview):
 				continue
+			substantial_count += 1
 			if node.text_length > best_len:
 				best_len = node.text_length
 				best_idx = i
+
+	# Directory-page redirect: a small page (≤30 nodes) with exactly one
+	# substantial paragraph far past an earlier heading is almost always
+	# a navigation/listing page where the "substantial" paragraph is the
+	# footer (courthouse address, business hours, copyright). The user
+	# wants to land at the title heading, not the footer.
+	# montgomeryprobatecourtal.gov/resources/all-probate-forms is the
+	# canonical case: H "All Probate Forms" at idx 7, courthouse address
+	# paragraph at idx 21, no other substantial text. Land at idx 7.
+	if (
+		best_idx is not None
+		and substantial_count == 1
+		and first_heading_idx is not None
+		and first_heading_idx < best_idx
+		and (best_idx - first_heading_idx) >= 5
+		and len(nodes) <= 30
+	):
+		return first_heading_idx
 	return best_idx
 
 
@@ -477,6 +545,43 @@ next eligible heading. Beyond this we treat the next heading as out of the
 article body — typically a sidebar widget heading or a related-content rail.
 30 covers even long news article subsections; a longer gap is a strong signal
 that the cursor has walked off the article and into chrome."""
+
+
+def find_next_content_landing(
+	tree: TreeSummary,
+	after_idx: int,
+) -> Optional[int]:
+	"""Z-key forward scan: return the index of the next substantial
+	content paragraph in main_nodes strictly after `after_idx`. Skips
+	headings (NVDA's H key handles those) and the same chrome paragraphs
+	the article-landing cascade skips (tag lists, share-link payloads,
+	accessibility instructions, PDF-viewer disclaimers).
+
+	Returns None if no eligible paragraph exists past `after_idx`. The
+	caller speaks a "nothing else to land on" message and leaves the
+	cursor where it is.
+
+	This is the Z key's "find me the next interesting thing to read"
+	behavior, scanning from wherever the user currently is. It deliberately
+	does NOT track or use the previous addon-landing index — Z is meant
+	to advance from the user's CURRENT position, not from the last place
+	the addon dropped them.
+	"""
+	for i in range(after_idx + 1, len(tree.main_nodes)):
+		node = tree.main_nodes[i]
+		if node.kind != "paragraph":
+			continue
+		if node.text_length < LANDING_MIN_PARAGRAPH_CHARS:
+			continue
+		text = node.text_preview or ""
+		if _looks_like_tag_list(text):
+			continue
+		if _looks_like_share_link_payload(text):
+			continue
+		if _looks_like_accessibility_instructions(text):
+			continue
+		return i
+	return None
 
 
 def find_next_heading_landing(

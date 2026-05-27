@@ -571,6 +571,213 @@ def test_share_link_payload_negatives():
 	) is False
 
 
+def test_article_landing_directory_page_picks_first_heading():
+	# Regression: montgomeryprobatecourtal.gov/resources/all-probate-forms.
+	# A small directory page (25 main_nodes) — title heading near the top,
+	# short link/list paragraphs through the body, a 78-char Share &
+	# Bookmark widget instructional paragraph (which the existing
+	# accessibility-instruction filter must catch), and the only other
+	# substantial paragraph is the courthouse address at the bottom.
+	# Without filtering Share & Bookmark, substantial_count is 2 and the
+	# directory-page redirect would not fire. WITH the filter,
+	# substantial_count drops to 1 and the redirect lands at the heading.
+	nodes = [
+		_node("paragraph", 20, preview="Skip to Main Content"),
+		_node("paragraph", 18, preview="Home ProbateOffice"),
+		_node("paragraph", 19, preview="Click to open About"),
+		_node("paragraph", 17, preview="Probate Resources"),
+		_node("paragraph", 25, preview="Records & Recording Forms"),
+		_node("paragraph", 26, preview="Internet Tag/Boat Renewals"),
+		_node("paragraph", 10, preview="Contact Us"),
+		_node("heading", 17, level=1, preview="All Probate Forms"),  # idx 7
+		# Share & Bookmark widget — accessibility-instruction text. Must be
+		# filtered out by _looks_like_accessibility_instructions.
+		_node("paragraph", 78,
+			preview="Share & Bookmark, Press Enter to show all options, press Tab"),
+		_node("paragraph", 22, preview="Adoption Forms"),
+		_node("paragraph", 20, preview="Will Forms"),
+		_node("paragraph", 28, preview="Estate Administration Forms"),
+		_node("paragraph", 22, preview="Guardianship Forms"),
+		_node("paragraph", 21, preview="Conservatorship Forms"),
+		_node("paragraph", 18, preview="Probate Court Fees"),
+		_node("paragraph", 22, preview="Filing Instructions"),
+		_node("paragraph", 17, preview="Records Request"),
+		_node("paragraph", 12, preview="Office Hours"),
+		_node("paragraph", 14, preview="Phone Numbers"),
+		_node("paragraph", 13, preview="Email Contact"),
+		_node("paragraph", 18, preview="Holiday Schedule"),
+		# The courthouse address — the only OTHER ≥50-char paragraph.
+		_node("paragraph", 112,
+			preview="|Courthouse Annex III, 101 S Lawrence St. Montgomery, AL 361"),
+		_node("paragraph", 30, preview="Office hours: 8am to 5pm"),
+		_node("paragraph", 15, preview="© 2026 County"),
+		_node("paragraph", 18, preview="Site by Webmaster"),
+	]
+	# Expected: idx 7 (heading "All Probate Forms"), not 8 (Share &
+	# Bookmark) and not 22 (courthouse address).
+	assert web.find_article_landing(_summary_with(nodes)) == 7
+
+
+def test_share_and_bookmark_widget_text_is_filtered():
+	# Direct unit test for the accessibility-instruction filter.
+	assert web._looks_like_accessibility_instructions(
+		"Share & Bookmark, Press Enter to show all options, press Tab go to next option"
+	) is True
+	assert web._looks_like_accessibility_instructions(
+		"Press Tab to navigate between fields"
+	) is True
+	# Negative: real prose that happens to mention these words.
+	assert web._looks_like_accessibility_instructions(
+		"The bookmark contains a tab character."
+	) is False
+
+
+def test_content_section_matcher_ignores_long_headings():
+	# Thurrott bug: "No additional security features included" (38 chars)
+	# matched "features" as a substring and dispatched the content-section
+	# landing to look past this heading. Real "Features" / "Description" /
+	# "Overview" headings are short — restrict the matcher to ≤25 chars.
+	nodes = [
+		_node("heading", 30, level=1, preview="2026 Security Checkup"),
+		# Real article lede — should win.
+		_node("paragraph", 341,
+			preview="Sometimes I'll see a terrible headline in a news feed"),
+		_node("paragraph", 120, preview="And holy crap, this is among the worst"),
+		# A long sentence-style heading that contains the substring "features".
+		_node("heading", 38, level=2,
+			preview="No additional security features included"),
+		# Body paragraph after the wrongly-matched heading.
+		_node("paragraph", 164,
+			preview="And more … Microsoft's post warns that"),
+	]
+	# Expected: idx 1 (the real lede), via the very-substantial rule.
+	# NOT idx 4 (the post-section body) which would mean the matcher
+	# misfired on "features".
+	assert web.find_article_landing(_summary_with(nodes)) == 1
+
+
+def test_content_section_matcher_still_works_for_short_headings():
+	# Guard: legitimate short product/recipe section headings should
+	# still match. "Description" alone, "About this item", etc.
+	nodes = [
+		_node("paragraph", 20, preview="Skip to content"),
+		_node("heading", 60, level=1, preview="Some Product Name"),
+		_node("paragraph", 80, preview="Marketing tagline that is just chrome"),
+		_node("heading", 11, level=2, preview="Description"),
+		_node("paragraph", 220,
+			preview="The real product description that we want to land on"),
+	]
+	# Expected: idx 4 (real description paragraph), via content-section match.
+	assert web.find_article_landing(_summary_with(nodes)) == 4
+
+
+def test_article_landing_prefers_longer_neighbor_when_first_is_teaser():
+	# CNET case: an 82-char teaser sits right after the H1, followed by
+	# a 209-char narrative opener. The teaser is too "thin" to be where
+	# a reader wants to start. Prefer the longer neighbor.
+	nodes = [
+		_node("paragraph", 10, preview="YOUR GUIDE"),
+		_node("heading", 51, level=1, preview="MacOS Keyboard Shortcuts Make Typing"),
+		_node("paragraph", 82,
+			preview="MacOS keyboard shortcuts can be a huge time saver, once you"),
+		_node("paragraph", 209,
+			preview="When I first started using an iMac all the way back in 2008"),
+		_node("paragraph", 72, preview="If you think you already know them all, read on."),
+	]
+	# Expected: idx 3 (the 209-char narrative opener), not idx 2 (teaser).
+	assert web.find_article_landing(_summary_with(nodes)) == 3
+
+
+def test_article_landing_does_not_skip_substantial_first_paragraph():
+	# Guard: when the first cluster paragraph is already ≥100 chars, do
+	# not switch to a longer neighbor. Wikipedia ledes commonly run
+	# 200-500 chars; we want to land on the first one.
+	nodes = [
+		_node("heading", 20, level=1, preview="Article Title"),
+		_node("paragraph", 280, preview="A substantial lede paragraph that is the real start"),
+		_node("paragraph", 420, preview="An even longer second paragraph continuing the lede"),
+	]
+	# Expected: idx 1 (the first substantial paragraph), unchanged.
+	assert web.find_article_landing(_summary_with(nodes)) == 1
+
+
+# ---------------------------------------------------------------------------
+# find_next_content_landing — Z scan-from-cursor
+# ---------------------------------------------------------------------------
+
+def test_next_content_skips_headings():
+	# Z is meant to advance through substantial content paragraphs, NOT
+	# headings (NVDA's H key already handles those). A heading in the
+	# scan range should be skipped.
+	nodes = [
+		_node("paragraph", 200, preview="Intro paragraph"),
+		_node("heading", 20, level=2, preview="Section heading"),
+		_node("paragraph", 180, preview="Body of the section"),
+	]
+	assert web.find_next_content_landing(_summary_with(nodes), 0) == 2
+
+
+def test_next_content_skips_chrome_paragraphs():
+	# Tag list, share link, accessibility instruction text all skipped.
+	nodes = [
+		_node("paragraph", 200, preview="The intro paragraph"),
+		_node("paragraph", 126,
+			preview="CoPilot,Microsoft 365,Microsoft Excel,Microsoft Office,Mic"),
+		_node("paragraph", 78,
+			preview="Share & Bookmark, Press Enter to show all options, press Tab"),
+		_node("paragraph", 61,
+			preview="Free viewers are required for some of the attached documents"),
+		_node("paragraph", 180, preview="The body of the next section"),
+	]
+	# All three chrome paragraphs at idx 1, 2, 3 must be skipped. Landing
+	# at idx 4 (the real body paragraph).
+	assert web.find_next_content_landing(_summary_with(nodes), 0) == 4
+
+
+def test_next_content_returns_none_when_nothing_below():
+	# Cursor at the last substantial paragraph — nothing else to land on.
+	nodes = [
+		_node("paragraph", 200, preview="Last body paragraph"),
+		_node("heading", 20, level=2, preview="No content past this"),
+		_node("paragraph", 30, preview="Short footer line"),
+	]
+	assert web.find_next_content_landing(_summary_with(nodes), 0) is None
+
+
+def test_pdf_viewer_disclaimer_is_filtered():
+	# Government / municipal sites that link to PDF forms often carry a
+	# disclaimer paragraph. Montgomery probate forms page is the canonical
+	# case — the disclaimer is 61 chars and was sneaking past the filter,
+	# preventing the directory-page redirect from firing.
+	assert web._looks_like_accessibility_instructions(
+		"Free viewers are required for some of the attached documents."
+	) is True
+	assert web._looks_like_accessibility_instructions(
+		"You may need Adobe Reader to view these forms."
+	) is True
+	# Negative: prose mentioning PDFs without the disclaimer phrasing.
+	assert web._looks_like_accessibility_instructions(
+		"The library catalog is available as a PDF download."
+	) is False
+
+
+def test_article_landing_short_page_with_real_body_still_picks_paragraph():
+	# Guard: don't redirect a SHORT article to its heading just because the
+	# directory check is in town. A short page with a real body paragraph
+	# right after the heading should still land at the paragraph.
+	nodes = [
+		_node("paragraph", 15, preview="Skip to content"),
+		_node("paragraph", 10, preview="Nav"),
+		_node("heading", 30, level=1, preview="Article Title"),
+		_node("paragraph", 250, preview="The body of the article starts here, plenty of words"),
+		_node("paragraph", 200, preview="And here's the second paragraph also substantial"),
+	]
+	# The heading is at idx 2, the substantial paragraph at idx 3.
+	# Gap is only 1, NOT > 5 — directory redirect should not trigger.
+	# Cluster of two substantial paragraphs wins on its own anyway.
+	assert web.find_article_landing(_summary_with(nodes)) == 3
+
+
 def test_article_landing_skips_share_link_payload():
 	# Fox21 case: the social-share LinkedIn URL string is the FIRST
 	# substantial paragraph in main_nodes. Without the filter it would
