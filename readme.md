@@ -2,6 +2,20 @@
 
 An NVDA add-on that jumps the browse cursor to the start of real content when you open a web page. Pure heuristic; nothing runs over the network.
 
+## Download and install
+
+Latest stable build, always current:
+
+https://github.com/WebFriendlyHelp/TextMarksTheSpot/releases/latest/download/TextMarksTheSpot.nvda-addon
+
+Download that file. Open it (double-click in File Explorer, or `Enter` on it from a focused list). NVDA prompts to install — accept and restart NVDA when it asks.
+
+To uninstall later: NVDA → Tools → Manage add-ons → select Text Marks the Spot → Uninstall → restart NVDA.
+
+If you would rather pick a specific version, the [releases page](https://github.com/WebFriendlyHelp/TextMarksTheSpot/releases) lists them all.
+
+The add-on is also being submitted to the NVDA Add-on Store. Once accepted there, NVDA's own auto-update mechanism will keep it current for you.
+
 ## What it does
 
 When a web page finishes loading in browse mode, the add-on looks at the structure and picks a place to land. What that means depends on the kind of page.
