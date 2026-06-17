@@ -224,6 +224,67 @@ def _looks_like_share_link_payload(text: str) -> bool:
 	return len(_URL_ENCODED_TRIPLET_RE.findall(text)) >= 3
 
 
+# Label nodes that mark a Jetpack "Daily writing prompt" widget. WordPress.com
+# injects this block at the top of any post written from a daily prompt, and it
+# renders as three consecutive nodes: this label, the prompt question, then a
+# "View all responses" link. The question frames the whole post and is the best
+# orientation line on these pages — but it's commonly a lone 50-99 char
+# paragraph that loses both the cluster gate (its neighbor is the short "View
+# all responses" link) and the hero gate (under HERO_PATTERN_MIN_CHARS). Match
+# is on the widget's label text, so this fires across every blog that uses the
+# feature — it is a cross-site shape rule, not a per-site special case.
+_BLOGGING_PROMPT_LABELS = (
+	"daily writing prompt",
+)
+
+
+def _find_blogging_prompt_landing(nodes):
+	"""If a Jetpack daily-writing-prompt widget is present, return the index
+	of the prompt question (the node immediately after the label). Returns
+	None when no such widget is found, so the caller falls through to the
+	normal article-shape heuristics.
+	"""
+	count = len(nodes)
+	for i, node in enumerate(nodes):
+		text = (node.text_preview or "").strip().lower()
+		if not text:
+			continue
+		if not any(text == lbl or text.startswith(lbl) for lbl in _BLOGGING_PROMPT_LABELS):
+			continue
+		if i + 1 < count:
+			nxt = nodes[i + 1]
+			# The question should be the next text node, not another label or
+			# a stray short fragment. 15 chars clears "View all responses"-style
+			# link text while admitting any real question.
+			if nxt.kind == "paragraph" and nxt.text_length >= 15:
+				return i + 1
+	return None
+
+
+def _first_substantial_paragraph(nodes, min_chars) -> Optional[int]:
+	"""Return the index of the first paragraph >= min_chars, skipping the same
+	chrome shapes the main cascade skips (tag lists, share-link payloads,
+	accessibility instructions). Returns None if none qualifies.
+
+	Used only when the tree is positionally scoped to a single <article>: the
+	nav/comments/footer have already been excluded by position, so the first
+	real paragraph is the genuine opening line and we don't need the defensive
+	hero/cluster gates that guard noisy unscoped trees.
+	"""
+	for i, node in enumerate(nodes):
+		if node.kind != "paragraph" or node.text_length < min_chars:
+			continue
+		text = node.text_preview or ""
+		if _looks_like_tag_list(text):
+			continue
+		if _looks_like_share_link_payload(text):
+			continue
+		if _looks_like_accessibility_instructions(text):
+			continue
+		return i
+	return None
+
+
 def find_article_landing(tree: TreeSummary) -> Optional[int]:
 	"""Pick the best landing index in tree.main_nodes for an ARTICLE-classified
 	page. The browse cursor will be moved to that paragraph and NVDA will
@@ -256,7 +317,25 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 	count = len(nodes)
 	min_chars = LANDING_MIN_PARAGRAPH_CHARS
 
-	# First: look for a heading whose text matches a known content-section
+	# First: the Jetpack daily-writing-prompt widget, if present. The prompt
+	# question is the best orientation line on these posts but reliably loses
+	# the cluster/hero gates below, so match the widget shape and land on it.
+	idx = _find_blogging_prompt_landing(nodes)
+	if idx is not None:
+		return idx
+
+	# When the walk was positionally scoped to a single <article>, the tree is
+	# already chrome-free, so the first substantial paragraph is the real
+	# opening line. The hero/cluster gates below exist to skip pre-content
+	# chrome in noisy unscoped trees; on a clean tree they overshoot the genuine
+	# first paragraph (e.g. a 64-char prompt question followed by a short intro
+	# line, which the gates skip in favor of a later list cluster).
+	if getattr(tree, "positionally_scoped", False):
+		idx = _first_substantial_paragraph(nodes, min_chars)
+		if idx is not None:
+			return idx
+
+	# Next: look for a heading whose text matches a known content-section
 	# label ("About this item", "Description", "Overview", "Features",
 	# etc.) and land on the first substantial paragraph after it. This is
 	# the strongest signal we have on heavily-chromed pages (Amazon

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.6
+
+Better landings on blog posts and articles that don't mark where their main content begins.
+
+- A lot of blogs and news sites never tell NVDA where the article starts. There's no "main" region for the add-on to aim at. On those pages it used to wade through the site menu, the comment thread, and the footer right along with the post, and the cursor often came down partway through instead of at the top. Now, when a page has exactly one article and no main region, the add-on reads just that article, with the menu, comments, and footer left out, and lands on the article's real opening line.
+- On those same pages the cursor used to skip a short opening line and land further down, on the first item of a list or a later section. Now it stops on the opening line where the post actually begins.
+- Checked against the NVDA 2026.2 beta. Nothing needed to change; it runs fine there.
+
 ## 1.0.5
 
 Documentation pass. No code changes from 1.0.4.

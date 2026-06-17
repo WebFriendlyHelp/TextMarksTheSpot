@@ -12,7 +12,7 @@ Everything runs locally. No network calls, no AI, no telemetry.
 
 ## Download and install
 
-[Download the latest version](https://github.com/WebFriendlyHelp/TextMarksTheSpot/releases/latest/download/TextMarksTheSpot.nvda-addon).
+[Get Text Marks the Spot](https://github.com/WebFriendlyHelp/TextMarksTheSpot/releases/latest/download/TextMarksTheSpot.nvda-addon).
 
 Open the downloaded file. NVDA prompts to install. Accept and restart NVDA when it asks.
 
