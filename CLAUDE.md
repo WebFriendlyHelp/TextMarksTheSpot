@@ -113,6 +113,24 @@ Output: `TextMarksTheSpot-<version>.nvda-addon` at the project root, named from 
 
 **Note**: scons might fail to install in your default Python; if so, the `scons.exe` from `python -m pip install --user scons` lives in `C:\Users\<you>\AppData\Roaming\Python\Python313\Scripts\`. Make sure that directory is on PATH or call it by full path.
 
+Running `scons` by hand is for **local smoke-testing only**, not for publishing — see "Releasing" below.
+
+### Releasing (CI publishes — do NOT create the release by hand)
+
+Releases are published automatically by `.github/workflows/release.yml`. Pushing a tag matching `v*.*.*` triggers a windows-latest job that runs the tests, builds with SCons, and creates the GitHub release with two assets: `TextMarksTheSpot-<version>.nvda-addon` (versioned/archival) and `TextMarksTheSpot.nvda-addon` (unversioned — backs the stable "Latest" download URL).
+
+The release flow is:
+
+1. Bump `addon_version` in `buildVars.py` and update `changelog.md`.
+2. Commit.
+3. `git tag vX.Y.Z` — must match `addon_version` (CI verifies the built filename against the tag and fails the run if they differ).
+4. `git push origin main`, then `git push origin vX.Y.Z`.
+5. Stop. CI builds and publishes. Watch it with `gh run watch <run-id> --exit-status`.
+
+**Do NOT also run `gh release create` after pushing the tag.** CI already creates the release; a manual one collides (CI fails with "a release with the same tag name already exists") and omits the unversioned asset the Latest URL depends on. If a manual release got created by mistake: `gh release delete vX.Y.Z --yes` (keeps the tag), then `gh run rerun <run-id>` to let CI publish properly.
+
+The manual `scons` + `gh release create` path is the **fallback for when CI is broken** (release.yml says so in its header) — not the normal flow.
+
 ### Verify the build
 
 ```
