@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.7
+
+Declares NVDA 2026.2 as a tested version. No code changes from 1.0.6 — the same article-page landing improvements, now with 2026.2 marked as tested after a real run on the beta.
+
 ## 1.0.6
 
 Better landings on blog posts and articles that don't mark where their main content begins.

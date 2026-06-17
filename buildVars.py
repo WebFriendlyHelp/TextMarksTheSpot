@@ -23,14 +23,14 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Get to the actual content on a web page without working so hard to find it. Hands off. Let the page load, listen for the short beeps, and you're at the start of the article. NVDA reads the first paragraph. Press Z to skim forward, Shift+Z to jump back to the start, NVDA+Z to turn the add-on off on a specific site. Runs locally, no network calls."""),
 	# version
-	addon_version="1.0.6",
+	addon_version="1.0.7",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
 	addon_changelog=_("""Better landings on blog posts and articles that don't mark where their main content begins.
 
 A lot of blogs and news sites never tell NVDA where the article starts, so the add-on used to get tangled up in the site menu, the comments, and the footer, and the cursor often landed partway down the post. Now, on a page with a single article and no marked main region, it reads just the article, skips the menu, comments, and footer, and lands on its real opening line.
 
-Also checked against the NVDA 2026.2 beta: no changes needed."""),
+Now tested on NVDA 2026.2."""),
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support
