@@ -31,6 +31,82 @@ def test_article_landing_picks_cluster_start():
 	assert web.find_article_landing(_summary_with(nodes)) == 0
 
 
+def test_article_landing_skips_photo_caption_before_lede():
+	# Regression: fox21news.com article. The hero image's caption sits between
+	# the H1 and the opening line and clears the substantial bar, so it used to
+	# win the cluster gate and the cursor landed on the photo credit. The lede's
+	# own leading "(KDVR)" parenthetical must NOT trip the caption filter.
+	caption = "Colorado State Capitol Building from the pathways of Civic Center Park In downtown Denver (Getty Images)"
+	lede = "DENVER (KDVR) - A handful of Colorado laws are set to go into effect starting in July."
+	# Long second paragraph (>150 chars and >2x the lede) — without the dateline
+	# guard the teaser-skip rule would treat the short lede as a teaser and
+	# overshoot to here.
+	body = (
+		"While Colorado laws get passed all the time, the effective date is sometimes "
+		"delayed to make sure people have time to comply with the law before there are "
+		"penalties for non-compliance across the state."
+	)
+	assert len(body) > 150 and len(body) > len(lede) * 2
+	nodes = [
+		_node("heading", 45, level=1, preview="These Colorado laws are going into effect in July"),
+		_node("paragraph", len(caption), preview=caption),
+		_node("paragraph", len(lede), preview=lede),
+		_node("paragraph", len(body), preview=body),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_article_landing_skips_caption_via_flag_when_credit_truncated():
+	# Production path: tree_summary truncates text_preview to 60 chars, so the
+	# trailing "(Getty Images)" credit is GONE from the preview and only the
+	# is_caption flag (computed over full text at walk time) marks the node.
+	# The landing must still skip it.
+	caption = cls.MainNode(
+		kind="paragraph",
+		text_length=103,
+		text_preview="Colorado State Capitol Building from the pathways of Civic Ce",  # 60 chars, no credit
+		is_caption=True,
+	)
+	lede = cls.MainNode(kind="paragraph", text_length=85, text_preview="DENVER (KDVR) - A handful of Colorado laws set to take effect")
+	# Long second paragraph so teaser-skip is in play; the dateline guard must
+	# still keep the landing on the lede.
+	body = cls.MainNode(kind="paragraph", text_length=190, text_preview="While Colorado laws get passed all the time, the effective da")
+	nodes = [
+		_node("heading", 45, level=1, preview="These Colorado laws are going into effect in July"),
+		caption,
+		lede,
+		body,
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_image_caption_filter_matches_credits_not_datelines():
+	# Trailing photo-credit parenthetical → caption.
+	assert web._looks_like_image_caption("A scenic overlook at sunset (Getty Images)")
+	assert web._looks_like_image_caption("City hall downtown. (Photo: Jane Doe)")
+	assert web._looks_like_image_caption("Image courtesy of the city of Denver")
+	# Leading non-credit parenthetical (news dateline) → NOT a caption.
+	assert not web._looks_like_image_caption(
+		"DENVER (KDVR) - A handful of Colorado laws take effect in July."
+	)
+	# Ordinary prose with an aside in parentheses → NOT a caption.
+	assert not web._looks_like_image_caption(
+		"The bill (which passed in May) raises the minimum wage statewide."
+	)
+
+
+def test_news_dateline_detection():
+	# AP-style datelines → True (em-dash, en-dash, and spaced-hyphen separators).
+	assert web._looks_like_news_dateline("DENVER (KDVR) — A handful of Colorado laws take effect.")
+	assert web._looks_like_news_dateline("DENVER (KDVR) - A handful of Colorado laws take effect.")
+	assert web._looks_like_news_dateline("WASHINGTON — The Senate voted Tuesday.")
+	assert web._looks_like_news_dateline("NEW YORK (AP) — Stocks rose.")
+	# Sentence-case prose (a CNET-style teaser) and ordinary openers → False.
+	assert not web._looks_like_news_dateline("When I first started using an iMac back in 2008.")
+	assert not web._looks_like_news_dateline("Keyboard shortcuts can be a huge time saver.")
+	assert not web._looks_like_news_dateline("The Senate voted Tuesday to advance the bill.")
+
+
 def test_article_landing_picks_hero_before_heading():
 	# Hero pattern: substantial paragraph followed by a heading within lookahead.
 	nodes = [

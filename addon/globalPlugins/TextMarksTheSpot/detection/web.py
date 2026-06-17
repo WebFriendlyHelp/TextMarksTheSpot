@@ -143,6 +143,8 @@ def _find_content_section_landing(nodes, min_chars):
 				continue
 			if _looks_like_accessibility_instructions(n.text_preview):
 				continue
+			if _node_is_caption(n):
+				continue
 			return j
 	return None
 
@@ -224,6 +226,96 @@ def _looks_like_share_link_payload(text: str) -> bool:
 	return len(_URL_ENCODED_TRIPLET_RE.findall(text)) >= 3
 
 
+# Photo/image-credit signature. News and blog articles place a figure caption
+# right next to the hero image, directly above the opening line. NVDA exposes
+# that caption as a paragraph that commonly clears the 50-char "substantial"
+# bar and sits immediately before the real lede — so it wins the cluster gate
+# and the cursor lands on the caption instead of the article. The defining
+# signal is a photo-credit attribution: a stock-agency / wire-service name or
+# "Photo:/Image:/Courtesy" phrasing, almost always as a TRAILING parenthetical.
+# Real article prose effectively never ends this way. fox21news.com
+# ("...in downtown Denver (Getty Images)" — 103 chars — beating the 85-char
+# "DENVER (KDVR) — ..." lede) is the canonical case. The end-anchor is what
+# keeps the dateline's own leading "(KDVR)" parenthetical from matching.
+_PHOTO_CREDIT_END_RE = _re.compile(
+	r"\(\s*(?:photo|image|getty|ap|reuters|afp|epa|bloomberg|"
+	r"istock(?:photo)?|shutterstock|adobe\s+stock|unsplash|pexels|pixabay|"
+	r"dreamstime|depositphotos|wikimedia|file\s+photo|courtesy)\b[^)]*\)\s*\.?\s*$",
+	_re.IGNORECASE,
+)
+# Agency / credit tokens that essentially never occur in legitimate article
+# body prose, regardless of position. Caught even without the trailing-paren
+# shape (e.g. "Photo credit: Jane Doe", "Image courtesy of the city").
+_PHOTO_CREDIT_PHRASES = (
+	"getty images",
+	"associated press",
+	"photo credit",
+	"image credit",
+	"photo courtesy",
+	"image courtesy",
+	"via getty",
+)
+
+
+def _looks_like_image_caption(text: str) -> bool:
+	"""Detect a figure caption / photo credit masquerading as a body paragraph.
+
+	Two signals, either is enough:
+	  1. A trailing parenthetical naming a photo agency / wire service or
+	     starting with Photo/Image/Courtesy (the "...(Getty Images)" shape).
+	  2. An unambiguous credit phrase anywhere ("getty images", "photo
+	     credit", "photo courtesy", etc.).
+
+	Conservative by design — real article prose doesn't carry these — so a
+	false positive that skips a genuine paragraph is very unlikely.
+	"""
+	if not text:
+		return False
+	if _PHOTO_CREDIT_END_RE.search(text):
+		return True
+	lower = text.lower()
+	return any(phrase in lower for phrase in _PHOTO_CREDIT_PHRASES)
+
+
+def _node_is_caption(node) -> bool:
+	"""True if a node is a figure caption / photo credit.
+
+	Prefers the precomputed ``is_caption`` flag, which tree_summary sets at
+	walk time over the FULL chunk text — the only place the trailing credit
+	is visible, since text_preview is truncated to 60 chars. Falls back to
+	re-checking text_preview so unit-test fixtures (which carry full text in
+	the preview and don't set the flag) and the rare credit-within-60-chars
+	case are still caught.
+	"""
+	if getattr(node, "is_caption", False):
+		return True
+	return _looks_like_image_caption(node.text_preview or "")
+
+
+# News-article dateline: an AP-style "CITY (SOURCE) - " / "CITY - " opener that
+# marks the genuine first line of the story body. The location is in capitals,
+# optionally followed by a parenthetical wire-service / station tag, then an
+# em-dash, en-dash, or spaced hyphen. It lives in the first ~30 chars, so the
+# 60-char text_preview always shows it. — = em-dash, – = en-dash.
+_NEWS_DATELINE_RE = _re.compile(
+	r"^[A-Z][A-Z.&'\- ]{1,30}?(?:\([A-Za-z0-9.\-/ ]+\)\s*)?[—–-]\s",
+)
+
+
+def _looks_like_news_dateline(text: str) -> bool:
+	"""True if text opens with an AP-style dateline ("DENVER (KDVR) - ...").
+
+	Protects a short-but-real lede from the teaser-skip rule below. A news
+	lede is frequently under 100 chars and immediately followed by a long
+	body paragraph — which looks exactly like a CNET-style teaser and would
+	otherwise be skipped. The dateline is the signal that this short line is
+	the real start of the article, not a teaser to step past.
+	"""
+	if not text:
+		return False
+	return bool(_NEWS_DATELINE_RE.match(text))
+
+
 # Label nodes that mark a Jetpack "Daily writing prompt" widget. WordPress.com
 # injects this block at the top of any post written from a daily prompt, and it
 # renders as three consecutive nodes: this label, the prompt question, then a
@@ -280,6 +372,8 @@ def _first_substantial_paragraph(nodes, min_chars) -> Optional[int]:
 		if _looks_like_share_link_payload(text):
 			continue
 		if _looks_like_accessibility_instructions(text):
+			continue
+		if _node_is_caption(node):
 			continue
 		return i
 	return None
@@ -371,6 +465,9 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 		# (Amazon dropdowns). UI help, not article content.
 		if _looks_like_accessibility_instructions(node.text_preview):
 			continue
+		# Figure caption / photo credit sitting just above the lede.
+		if _node_is_caption(node):
+			continue
 		# Very substantial paragraphs (>= 200 chars) are unambiguously
 		# article body — accept immediately. Without this rule, a long
 		# article intro can lose to later bullet-list clusters whose
@@ -398,10 +495,16 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 			# to memory." (82 chars) followed by "When I first started
 			# using an iMac all the way back in 2008..." (209 chars). The
 			# narrative paragraph is where a reader actually wants to be.
+			# ...unless the short candidate is a news dateline lede
+			# ("DENVER (KDVR) - ..."). That's the genuine opening line, not a
+			# teaser: a short dateline lede followed by a long second paragraph
+			# is the normal shape of a news story, so skipping to the long
+			# paragraph would overshoot where the article actually starts.
 			if (
 				node.text_length < 100
 				and nxt.text_length >= 150
 				and nxt.text_length > node.text_length * 2
+				and not _looks_like_news_dateline(node.text_preview)
 			):
 				return i + 1
 			return i
@@ -468,6 +571,9 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 				continue
 			# Skip screen-reader instructional text the same way.
 			if _looks_like_accessibility_instructions(node.text_preview):
+				continue
+			# Skip figure captions / photo credits the same way.
+			if _node_is_caption(node):
 				continue
 			substantial_count += 1
 			if node.text_length > best_len:
@@ -658,6 +764,8 @@ def find_next_content_landing(
 		if _looks_like_share_link_payload(text):
 			continue
 		if _looks_like_accessibility_instructions(text):
+			continue
+		if _node_is_caption(node):
 			continue
 		return i
 	return None

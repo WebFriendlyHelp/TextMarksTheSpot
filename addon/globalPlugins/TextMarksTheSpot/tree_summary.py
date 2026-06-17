@@ -82,6 +82,15 @@ try:
 except ImportError:
 	from classifier import TreeSummary, MainNode
 
+# Figure-caption / photo-credit detector lives in the landing module so the
+# pattern stays in one unit-tested place. We call it here over the FULL chunk
+# text (the credit is usually past the 60-char preview cutoff) and stash the
+# result on each MainNode.is_caption.
+try:
+	from .detection.web import _looks_like_image_caption
+except ImportError:
+	from detection.web import _looks_like_image_caption
+
 
 # Internal: per-summary list of captured textInfo positions, one per entry
 # in summary.main_nodes. Keyed by id(summary) so the data lives only as
@@ -676,6 +685,7 @@ def _node_for(obj, text: str) -> Optional[MainNode]:
 			kind="paragraph",
 			text_length=len(stripped),
 			text_preview=stripped[:60],
+			is_caption=_looks_like_image_caption(stripped),
 		)
 
 	role_name = getattr(obj.role, "name", None) or str(obj.role)
@@ -699,6 +709,7 @@ def _node_for(obj, text: str) -> Optional[MainNode]:
 		kind="paragraph",
 		text_length=len(stripped),
 		text_preview=stripped[:60],
+		is_caption=_looks_like_image_caption(stripped),
 	)
 
 

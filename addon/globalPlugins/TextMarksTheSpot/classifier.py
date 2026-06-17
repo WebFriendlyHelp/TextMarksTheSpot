@@ -52,6 +52,11 @@ class MainNode:
 	level: Optional[int] = None  # heading level 1-6; None for paragraphs
 	text_length: int = 0         # chars
 	text_preview: str = ""       # first ~60 chars, for fixture readability only
+	# True when this paragraph is a figure caption / photo credit. Computed
+	# at walk time over the FULL chunk text (not the truncated preview),
+	# because the giveaway — a trailing "(Getty Images)"-style credit — is
+	# usually past the 60-char preview cutoff. Landing finders skip these.
+	is_caption: bool = False
 
 
 @dataclass
