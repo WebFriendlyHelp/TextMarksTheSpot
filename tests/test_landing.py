@@ -72,6 +72,79 @@ def test_article_landing_does_not_return_last_node_if_better_exists():
 	assert web.find_article_landing(_summary_with(nodes)) == 6
 
 
+def test_article_landing_jetpack_daily_writing_prompt():
+	# Regression: steviet3.wordpress.com daily-prompt post. has_main=False so
+	# main_nodes leads with the nav menu, then the Jetpack "Daily writing
+	# prompt" widget (label / question / "View all responses"), then short
+	# intro lines, then the numbered advice list. The prompt question is a
+	# lone 64-char paragraph: it loses the cluster gate (next node is the
+	# 18-char "View all responses") and the hero gate (under 100 chars), so
+	# the old code fell through and landed on "1. Follow your heart" (the
+	# first list cluster). The widget rule should land on the question.
+	nodes = [
+		_node("paragraph", 4, preview="HOME"),
+		_node("paragraph", 11, preview="BIBLET WALL"),
+		_node("paragraph", 27, preview="AM I A WRITER OR AN AUTHOR?"),
+		_node("paragraph", 5, preview="POEMS"),
+		_node("paragraph", 30, preview="USEFUL INFORMATION FOR AUTHORS"),
+		_node("paragraph", 7, preview="Search:"),
+		_node("paragraph", 22, preview="steviet3.wordpress.com"),
+		_node("paragraph", 2, preview="16"),
+		_node("paragraph", 20, preview="Daily writing prompt"),       # 8 label
+		_node("paragraph", 64, preview="What is something you wish you could tell your 20-"),  # 9 question
+		_node("paragraph", 18, preview="View all responses"),         # 10
+		_node("paragraph", 33, preview="For 20-year-old women everywhere:"),  # 11 short intro
+		_node("paragraph", 89, preview="1. Follow your heart. Think about what you're good"),  # 12
+		_node("paragraph", 138, preview="3. Take heed of the warnings on cigarette packets "),  # 13
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 9
+
+
+def test_article_landing_no_prompt_widget_unaffected():
+	# Sanity: a post without the widget still lands via the normal cluster
+	# gate, unchanged by the widget rule.
+	nodes = [
+		_node("paragraph", 30, preview="For 20-year-old women everywhere:"),
+		_node("paragraph", 89, preview="1. Follow your heart..."),
+		_node("paragraph", 138, preview="3. Take heed..."),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 1
+
+
+def test_article_landing_positionally_scoped_takes_first_substantial():
+	# Regression: steviet3.wordpress.com after article-positional scoping.
+	# main_nodes is now chrome-free (post metadata then content). The prompt
+	# question (idx 4, 64 chars) is a lone sub-100 paragraph followed by a
+	# 33-char intro, so the hero/cluster gates would skip it and land on the
+	# list (idx 6). Because the tree is positionally scoped, land on the first
+	# substantial paragraph instead — the question.
+	nodes = [
+		_node("paragraph", 2, preview="16"),
+		_node("paragraph", 8, preview="Jun 2026"),
+		_node("paragraph", 13, preview="≈ 10 Comments"),
+		_node("paragraph", 30, preview="#dailyprompt, dailyprompt-2794"),
+		_node("paragraph", 64, preview="What is something you wish you could tell your 20-"),  # 4
+		_node("paragraph", 33, preview="For 20-year-old women everywhere:"),  # 5
+		_node("paragraph", 89, preview="1. Follow your heart. Think about what you’re good"),  # 6
+		_node("paragraph", 138, preview="3. Take heed of the warnings on cigarette packets "),  # 7
+	]
+	summary = cls.TreeSummary(main_nodes=nodes, positionally_scoped=True)
+	assert web.find_article_landing(summary) == 4
+
+
+def test_article_landing_not_scoped_keeps_defensive_gates():
+	# Same shape but NOT positionally scoped (unscoped/noisy tree): the lone
+	# 64-char paragraph must still lose to the list cluster, preserving the
+	# defensive behavior that protects against pre-content chrome.
+	nodes = [
+		_node("paragraph", 64, preview="What is something you wish you could tell your 20-"),
+		_node("paragraph", 33, preview="For 20-year-old women everywhere:"),
+		_node("paragraph", 89, preview="1. Follow your heart..."),
+		_node("paragraph", 138, preview="3. Take heed..."),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
 def test_looks_like_tag_list_detects_no_space_comma_joined_categories():
 	# Direct unit test for the helper. Tag rows look like
 	# "CoPilot,Microsoft 365,Microsoft Excel,..." with no spaces.

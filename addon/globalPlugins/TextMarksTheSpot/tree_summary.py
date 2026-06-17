@@ -233,7 +233,19 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	# not just empty ones (existing walk-empty log only fires when result
 	# is empty — leaves us blind on slow non-empty walks).
 	raw_count = [0]
-	summary.main_nodes = _walk_main_nodes(treeInterceptor, main_obj, scope_cache, positions, notice_match, raw_count)
+	# Scope selection. Prefer the <main> landmark. When there's no <main> but
+	# exactly one <article>, scope POSITIONALLY to that article's range — it
+	# reliably excludes the nav (before the article) and comments/footer/
+	# sidebar (after it), which the identity-based chrome filter cannot
+	# exclude on many themes. Falls back to the chrome filter if the range
+	# can't be built.
+	scope_range = None
+	scope_kind = "main" if main_obj is not None else "chrome"
+	if main_obj is None and summary.article_count == 1:
+		scope_range = _single_article_scope_range(treeInterceptor)
+		if scope_range is not None:
+			scope_kind = "article"
+	summary.main_nodes = _walk_main_nodes(treeInterceptor, main_obj, scope_cache, positions, notice_match, raw_count, scope_range)
 	t3 = time.monotonic()
 	fallback_ran = False
 	fallback_raw_count = [0]
@@ -256,9 +268,13 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	# handle an empty walk result.
 	if not summary.main_nodes:
 		fallback_ran = True
+		scope_kind = "unscoped"
 		positions.clear()
 		summary.main_nodes = _walk_main_nodes(treeInterceptor, _UNSCOPED_SENTINEL, {}, positions, notice_match, fallback_raw_count)
 	t4 = time.monotonic()
+	# The tree is trustworthy (chrome-free) only if the positional article walk
+	# actually produced it — not if it fell back to the unscoped walk.
+	summary.positionally_scoped = scope_range is not None and not fallback_ran
 	summary.notice_keyword_match = notice_match[0]
 	_captured_positions[id(summary)] = positions
 	perf_line = (
@@ -268,7 +284,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		f"walk={(t3-t2)*1000:.0f}ms "
 		f"fallback={(t4-t3)*1000:.0f}ms (ran={fallback_ran}) "
 		f"raw_seen={raw_count[0]} fb_raw_seen={fallback_raw_count[0]} "
-		f"main_nodes={len(summary.main_nodes)} has_main={summary.has_main_landmark} "
+		f"main_nodes={len(summary.main_nodes)} has_main={summary.has_main_landmark} scope={scope_kind} "
 		f"article={summary.article_count} forms={summary.form_input_count} "
 		f"interactive={summary.interactive_control_count} url={summary.url!r}"
 	)
@@ -404,6 +420,59 @@ def _find_main_landmark_obj(treeInterceptor):
 	return None
 
 
+def _single_article_scope_range(treeInterceptor):
+	"""Return a TextInfo spanning the single <article> element, or None.
+
+	Used for POSITIONAL scoping when the document has no <main> landmark but
+	exactly one <article> (common on blog/news themes). The identity-based
+	chrome filter fails to exclude nav/comments/footer on many such themes
+	(see CLAUDE.md "Known limitations" — NVDA hands back different object
+	instances for the same logical landmark, so the parent-chain check
+	misses). An article's text range, by contrast, is stable: the nav lives
+	before it and comments/footer/sidebar live after it, so a position test
+	cleanly separates post body from chrome.
+
+	Returns None when there isn't exactly one article, or the range can't be
+	built — caller then falls back to the identity-based chrome filter.
+	"""
+	try:
+		found = None
+		for item in treeInterceptor._iterNodesByType("article"):
+			# Prefer the quick-nav item's own textInfo: the tree interceptor
+			# built it in the SAME coordinate space as the walk's positions,
+			# so compareEndPoints is meaningful. obj.makeTextInfo() does NOT
+			# share that space in browse mode (it builds a range against the
+			# object, not the virtual buffer) and matched nothing — that's the
+			# documented "makeTextInfo can be more restrictive than expected"
+			# trap. Fall back to treeInterceptor.makeTextInfo(obj) only if the
+			# item exposes no textInfo.
+			ti = getattr(item, "textInfo", None)
+			if ti is None:
+				obj = getattr(item, "obj", None)
+				if obj is not None:
+					try:
+						ti = treeInterceptor.makeTextInfo(obj)
+					except Exception:
+						ti = None
+			if ti is None:
+				continue
+			if found is not None:
+				# More than one <article> (e.g. related-post cards). Ambiguous
+				# which is the post body — skip positional scoping.
+				return None
+			found = ti
+		if found is None:
+			return None
+		rng = found.copy()
+		try:
+			log.debug(f"[TMTS scope] article range chars={len(rng.text or '')}")
+		except Exception:
+			pass
+		return rng
+	except Exception:
+		return None
+
+
 _UNSCOPED_SENTINEL = "__unscoped__"
 
 
@@ -497,7 +566,7 @@ def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limi
 _OUT_OF_SCOPE_TOLERANCE = 50
 
 
-def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None) -> list[MainNode]:
+def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None) -> list[MainNode]:
 	# Walk the whole document by UNIT_PARAGRAPH; emit only nodes that
 	# pass _in_scope (inside <main> if present, or outside chrome
 	# landmarks if not). Bail out once we've had _OUT_OF_SCOPE_TOLERANCE
@@ -529,7 +598,20 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 			if text.strip():
 				raw_with_text += 1
 
-			in_scope = obj is None or _in_scope(obj, main_obj, cache)
+			if scope_range is not None:
+				# Positional containment: keep the chunk only if it falls
+				# inside the article's range. Stable across accesses, unlike
+				# the parent-chain identity check. Fall back to the identity
+				# filter only if the comparison itself errors.
+				try:
+					in_scope = (
+						info.compareEndPoints(scope_range, "startToStart") >= 0
+						and info.compareEndPoints(scope_range, "endToEnd") <= 0
+					)
+				except Exception:
+					in_scope = obj is None or _in_scope(obj, main_obj, cache)
+			else:
+				in_scope = obj is None or _in_scope(obj, main_obj, cache)
 			if in_scope:
 				consecutive_out = 0
 				have_seen_in_scope = True

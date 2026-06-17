@@ -23,16 +23,14 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Get to the actual content on a web page without working so hard to find it. Hands off. Let the page load, listen for the short beeps, and you're at the start of the article. NVDA reads the first paragraph. Press Z to skim forward, Shift+Z to jump back to the start, NVDA+Z to turn the add-on off on a specific site. Runs locally, no network calls."""),
 	# version
-	addon_version="1.0.5",
+	addon_version="1.0.6",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""Better landings on common page types, a new Shift+Z gesture, and a refined Z key.
+	addon_changelog=_("""Better landings on blog posts and articles that don't mark where their main content begins.
 
-News articles: when the first line after the headline is a short tease and the real opening is below it, the cursor lands on the opening. News pages with a newsletter signup or comment box are no longer mistaken for forms.
+A lot of blogs and news sites never tell NVDA where the article starts, so the add-on used to get tangled up in the site menu, the comments, and the footer, and the cursor often landed partway down the post. Now, on a page with a single article and no marked main region, it reads just the article, skips the menu, comments, and footer, and lands on its real opening line.
 
-Z key: Z now scans forward from the cursor to the next real paragraph. It skips headings (NVDA's H already does that) and skips ads, menus, and share buttons. Says "Nothing else to land on" when there is nothing more to find.
-
-Shift+Z: jump back to the place the add-on originally chose for you on this page. Useful after wandering with arrow keys or quick-nav letters when you want to start over."""),
+Also checked against the NVDA 2026.2 beta: no changes needed."""),
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support

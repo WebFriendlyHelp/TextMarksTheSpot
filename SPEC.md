@@ -179,6 +179,7 @@ Text Marks the Spot/
 
 - **Minimum NVDA:** 2024.1 (Python 3.11)
 - **Last tested NVDA:** 2026.1.1 (Python 3.13, 64-bit)
+- **Reviewed against NVDA 2026.2 beta 1 (2026-06-02):** no code changes required. The only 2026.2 developer deprecations are in `speechDictHandler` (`ENTRY_TYPE_*` constants, `SpeechDictEntry`/`SpeechDict` moved to `speechDictHandler.types`) — modules the add-on doesn't import. The `browseMode._toggleScreenLayout` override note applies only to `BrowseModeDocumentTreeInterceptor` subclasses; we hook `event_treeInterceptor_gainFocus` rather than subclassing, so it doesn't apply. 2026.2 is a minor release, so the add-on backward-compat boundary did not move and the `lastTestedNVDAVersion=2026.1.1` add-on loads in 2026.2 without an incompatibility warning. 2026.2's new default `NVDA+x` (repeat last spoken info) does not collide with our `Z` / `Shift+Z` / `NVDA+Z`. Bump `lastTestedNVDAVersion` to 2026.2 only after a real smoke test on the beta.
 - **Pure Python, no C extensions** — works in both 32-bit and 64-bit NVDA without rebuild
 - License: GPL v2 (NV Access store convention)
 - Versioning: major.minor.patch
@@ -335,7 +336,7 @@ Park these for later — only switch when the current loop becomes the bottlenec
 ## References
 
 - Joseph Lee's NVDA Add-on Development Guide: https://github.com/nvdaaddons/DevGuide/wiki/NVDA-Add-on-Development-Guide
-- NVDA 2026.1 Developer Guide: https://download.nvaccess.org/documentation/developerGuide.html
+- NVDA Developer Guide (current): https://download.nvaccess.org/documentation/developerGuide.html — reviewed at 2026.2 beta 1, see Compatibility section above
 - Mozilla Readability.js: https://github.com/mozilla/readability
 - Mailgun Talon (email quote/sig parsing): https://github.com/mailgun/talon
 - NVDA Add-on Store: https://addons.nvda-project.org/

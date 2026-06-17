@@ -62,6 +62,13 @@ class TreeSummary:
 	has_main_landmark: bool = False
 	article_count: int = 0          # number of <article> elements in the document
 
+	# True when main_nodes came from a POSITIONAL walk scoped to a single
+	# <article> (no <main> landmark, exactly one article). The tree is then
+	# free of nav/comments/footer chrome, so landing finders can trust the
+	# first substantial paragraph as the real content start instead of applying
+	# the defensive hero/cluster gates that exist only for noisy unscoped trees.
+	positionally_scoped: bool = False
+
 	# Document-order interleaved nodes inside <main>.
 	main_nodes: list[MainNode] = field(default_factory=list)
 
