@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.8
+
+Better landings on news articles that lead with a photo.
+
+- When a story opens with a large photo, the cursor sometimes landed on the photo's caption or credit line instead of the story. Captions and photo credits are now recognized and skipped, so the cursor goes to the article itself.
+- On stories that begin with a city dateline, like "DENVER -", the short opening line was sometimes passed over and the cursor dropped onto a longer paragraph further down. That opening line is now treated as the real start of the story, so the cursor lands there.
+
 ## 1.0.7
 
 Declares NVDA 2026.2 as a tested version. No code changes from 1.0.6 — the same article-page landing improvements, now with 2026.2 marked as tested after a real run on the beta.
