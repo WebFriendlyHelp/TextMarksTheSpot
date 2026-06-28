@@ -12,15 +12,15 @@ Everything runs locally. No network calls, no AI, no telemetry.
 
 ## Download and install
 
-[Get Text Marks the Spot](https://github.com/WebFriendlyHelp/TextMarksTheSpot/releases/latest/download/TextMarksTheSpot.nvda-addon).
+There are two ways to get Text Marks the Spot, and the difference between them matters.
 
-Open the downloaded file. NVDA prompts to install. Accept and restart NVDA when it asks.
+The easy way, and the one I recommend, is the NVDA Add-on Store, where the add-on now lives. In NVDA, press NVDA+N for the menu, go to Tools, then Add-on Store, find Text Marks the Spot under Available add-ons, and install it from there. The big payoff is that NVDA keeps it current for you. When I ship a new version, your copy updates on its own and you never have to think about it.
 
-To uninstall later: NVDA → Tools → Manage add-ons → select Text Marks the Spot → Uninstall → restart NVDA.
+The other way is to download it straight from this page: [Get Text Marks the Spot](https://github.com/WebFriendlyHelp/TextMarksTheSpot/releases/latest/download/TextMarksTheSpot.nvda-addon). Open the downloaded file, NVDA prompts to install, and you accept and restart NVDA when it asks. One thing to know going in: an add-on you install this way does not update itself. You will have to come back and grab the newest version by hand when one comes out. If you would rather have updates handled for you, use the store instead.
 
-If you would rather pick a specific version, [the releases page](https://github.com/WebFriendlyHelp/TextMarksTheSpot/releases) lists them all.
+If you want a specific version, [the releases page](https://github.com/WebFriendlyHelp/TextMarksTheSpot/releases) lists them all.
 
-The add-on is also being submitted to the NVDA Add-on Store. Once accepted there, NVDA will keep it current for you automatically.
+To uninstall later: in NVDA, go to Tools, then Manage add-ons, select Text Marks the Spot, choose Uninstall, and restart NVDA.
 
 ## How it works
 
@@ -67,7 +67,7 @@ For a one-time detection on an excluded site, press `Z` twice in quick successio
 
 ## See where the cursor landed visually
 
-If you have some vision, NVDA can draw a colored box around the cursor. Open `Preferences -> Settings -> Vision` and turn on "Highlight focus" or "Highlight browse mode caret". Useful for low-vision users and for showing the add-on working to sighted colleagues, family, or clients.
+If you have some vision, NVDA can draw a colored box around the cursor. Open Preferences, then Settings, then Vision, and turn on "Highlight focus" or "Highlight browse mode caret". Useful for low-vision users and for showing the add-on working to sighted colleagues, family, or clients.
 
 ## Known limitations
 
@@ -97,7 +97,7 @@ Everything runs locally. No network calls, no telemetry, no data collection.
 
 ## Compatibility
 
-NVDA 2024.1 or newer. Last tested with NVDA 2026.1.1. Pure Python, no native libraries. Works in 32-bit and 64-bit NVDA.
+NVDA 2024.1 or newer. Last tested with NVDA 2026.2.0. Pure Python, no native libraries. Works in 32-bit and 64-bit NVDA.
 
 ## License
 
