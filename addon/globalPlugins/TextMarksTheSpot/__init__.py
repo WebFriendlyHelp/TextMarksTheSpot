@@ -114,6 +114,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	# finish hydrating async content into NVDA's virtual buffer.
 	_RETRY_DELAY_MS = 1500
 
+	# After a SUCCESSFUL landing on a URL, suppress further AUTOMATIC
+	# detections for that same URL for this long. SPA pages can re-render
+	# and fire fresh documentLoadComplete events well past the 2 s refire
+	# cooldown (Zoom webinar registration re-rendered at +9 s and +34 s
+	# when it swapped in the signed-in profile), and the re-rendered tree
+	# is often WORSE for landing (Zoom collapses the description into
+	# accordions) — re-detecting yanked the user off a good landing into
+	# the middle of the form. One page visit, one landing. The Z key
+	# always re-runs on demand; a real navigation (URL change) is a new
+	# page and lands normally.
+	_LANDED_SUPPRESS_SEC = 120.0
+
 	def __init__(self):
 		super().__init__()
 		cfg_mod.load()
@@ -125,10 +137,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# sites that swap the DOM during hydration / JS routing).
 		self._last_url = None
 		self._last_fire_time = 0.0
+		# Post-landing suppression state: the URL we last successfully
+		# landed on and when. See _LANDED_SUPPRESS_SEC.
+		self._last_landed_url = None
+		self._last_landed_time = 0.0
 		# Pending wx.CallLater handle for the deferred-retry mechanism.
 		# Cancelled whenever a new detection cycle starts (real navigation,
 		# Z press, refresh, alt-tab to a new TI).
 		self._pending_retry = None
+		# URLs seen this NVDA session (url -> monotonic timestamp). Backs
+		# the restored-position gate: Back navigation by definition returns
+		# to a URL we've already processed, so "caret mid-page" only means
+		# "restored position" when the URL is in this set. First visits to
+		# pages whose caret happens to initialize below the top (halturner
+		# radioshow article pages) must still land.
+		self._seen_urls = {}
 		# Shift+Z support: the textInfo captured at the last successful
 		# initial-detection landing. Shift+Z calls updateCaret on this
 		# directly — no recalculation. Reset on new TI / page load.
@@ -223,10 +246,38 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.debug(f"[TMTS] _maybe_fire_ti: cooldown blocking url={url!r} elapsed={elapsed:.2f}s")
 			self._last_ti = ti
 			return
+		# Post-landing suppression: we already landed on this URL recently.
+		# SPA re-renders (new TI, same URL, seconds to minutes later) must
+		# not yank the user off that landing — or off wherever they've
+		# read to since. Z re-runs detection on demand.
+		landed_elapsed = now - self._last_landed_time
+		if (
+			url
+			and url == self._last_landed_url
+			and landed_elapsed < self._LANDED_SUPPRESS_SEC
+		):
+			log.debug(
+				f"[TMTS] _maybe_fire_ti: already landed on url={url!r} "
+				f"{landed_elapsed:.1f}s ago — suppressing re-detection"
+			)
+			self._last_ti = ti
+			self._last_url = url
+			self._last_fire_time = now
+			return
 		log.debug(f"[TMTS] _maybe_fire_ti: PROCEEDING url={url!r} elapsed={elapsed:.2f}s ti_changed={ti is not self._last_ti}")
 		self._last_ti = ti
 		self._last_url = url
 		self._last_fire_time = now
+		# Session URL memory for the restored-position gate below. Membership
+		# is checked BEFORE recording — "seen before" must mean an earlier
+		# page visit, not this one.
+		url_seen_before = bool(url) and url in self._seen_urls
+		if url:
+			if len(self._seen_urls) >= 500:
+				# Prune the oldest half so long sessions stay bounded.
+				for stale in sorted(self._seen_urls, key=self._seen_urls.get)[:250]:
+					del self._seen_urls[stale]
+			self._seen_urls[url] = now
 		# Guardrail #6 pre-check: if the page placed focus on an editable
 		# control (DDG home's search box, login pages, etc.), stay totally
 		# silent — no working tone, no pulse, no detection. The classifier
@@ -234,6 +285,30 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# the working tone, which is exactly what was firing on DDG.
 		if ts_mod.is_focus_editable():
 			log.debug(f"[TMTS] _maybe_fire_ti: focus editable — skip")
+			return
+		# Restored-position gate: when the user comes BACK to a page they
+		# already visited this session and the browse cursor is not at the
+		# very top, the browser restored their place (Back to search
+		# results, a book list mid-scroll). Yanking them to a landing from
+		# there is exactly the "supplant natural navigation" failure
+		# guardrail #1 forbids. The gate requires BOTH signals: caret
+		# mid-page alone is NOT enough, because some pages initialize the
+		# caret slightly below the top on a first visit (halturner
+		# radioshow articles start at node 1) and those must still land.
+		# A cross-page anchor link (foo.html#section) is also an explicit
+		# user target even on first visit — honor it. SPA route fragments
+		# starting with '#/' (Zoom's #/registration) are NOT anchors.
+		fragment = url.partition("#")[2]
+		has_anchor = bool(fragment) and not fragment.startswith("/")
+		if (
+			not bypass_exclusion
+			and (url_seen_before or has_anchor)
+			and self._caret_is_mid_page(ti)
+		):
+			log.debug(
+				f"[TMTS] _maybe_fire_ti: caret mid-page on "
+				f"{'revisited' if url_seen_before else 'anchored'} url — skip"
+			)
 			return
 		# Do NOT pre-cancel speech here. Detection runs silently while NVDA
 		# does its normal page-load chatter (title, URL, focus). The only
@@ -278,6 +353,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			expected_url = str(getattr(ti, "documentConstantIdentifier", "") or "")
 		except Exception:
 			expected_url = ""
+		# Capture where the caret sits NOW so the retry can tell whether
+		# the user started reading during the wait. Comparing against the
+		# top of the document would be wrong — on some pages the caret
+		# never starts at the top, and those pages could then never retry.
+		try:
+			caret_at_schedule = ti.makeTextInfo(textInfos.POSITION_CARET)
+		except Exception:
+			caret_at_schedule = None
 		log.debug(f"[TMTS] scheduling retry in {self._RETRY_DELAY_MS}ms for url={expected_url!r}")
 		try:
 			self._pending_retry = wx.CallLater(
@@ -285,6 +368,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				self._fire_retry,
 				ti,
 				expected_url,
+				caret_at_schedule,
 			)
 		except Exception:
 			log.exception("[TMTS] failed to schedule retry")
@@ -300,7 +384,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			pass
 		self._pending_retry = None
 
-	def _fire_retry(self, ti, expected_url):
+	def _fire_retry(self, ti, expected_url, caret_at_schedule=None):
 		# Runs on the wx main thread after _RETRY_DELAY_MS.
 		self._pending_retry = None
 		if not getattr(ti, "isReady", False):
@@ -313,11 +397,43 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if current_url != expected_url:
 			log.debug(f"[TMTS] retry: url changed (was {expected_url!r}, now {current_url!r}) — abandon")
 			return
+		# If the user started reading during the wait (caret moved from
+		# where it was when the retry was scheduled), the retry must not
+		# yank them — they've taken over manually. Compared against the
+		# scheduling-time position, NOT the top of the document, because
+		# some pages initialize the caret below the top.
+		if caret_at_schedule is not None:
+			try:
+				caret_now = ti.makeTextInfo(textInfos.POSITION_CARET)
+				moved = caret_now.compareEndPoints(caret_at_schedule, "startToStart") != 0
+			except Exception:
+				moved = False
+			if moved:
+				log.debug("[TMTS] retry: caret moved during wait — abandon")
+				return
 		log.debug("[TMTS] retry: firing")
 		try:
 			self._run_detection(ti, is_retry=True)
 		except Exception:
 			log.exception("[TMTS] retry error")
+
+	def _caret_is_mid_page(self, ti) -> bool:
+		# True when the browse cursor sits past the first character of the
+		# document. Errors resolve to False (proceed with detection) — the
+		# gate must never turn a broken caret query into permanent silence.
+		try:
+			caret = ti.makeTextInfo(textInfos.POSITION_CARET)
+			first = ti.makeTextInfo(textInfos.POSITION_FIRST)
+			return caret.compareEndPoints(first, "startToStart") > 0
+		except Exception:
+			return False
+
+	def _record_landing(self, url):
+		# Remember that we successfully landed on this URL so later
+		# automatic same-URL triggers (SPA re-renders) get suppressed for
+		# _LANDED_SUPPRESS_SEC. Z clears this — it's an explicit re-request.
+		self._last_landed_url = url or None
+		self._last_landed_time = time.monotonic()
 
 	def _handle_result(self, ti, summary, is_retry=False):
 		# Returns True if we acted (moved caret + spoke). False otherwise.
@@ -349,7 +465,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# tells the user about the field they're now on. Combined effect:
 		# user hears "form title" + "field name role" without depending
 		# on whichever mode the page put NVDA into.
-		if result.intent == cls_mod.Intent.FORM:
+		if result.intent == cls_mod.Intent.FORM and not web_mod.form_wants_browse_landing(summary):
+			# Bare form (no substantial descriptive paragraph): announce the
+			# title mode-agnostically and put keyboard focus on the first
+			# field. Rich-preamble forms fall through to the browse-mode
+			# landing below instead — focusing the first input on those
+			# pages skips the user past the title and description (Zoom
+			# webinar registration was the canonical case).
 			idx = web_mod.find_form_landing(summary)
 			title_text = ""
 			if idx is not None and 0 <= idx < len(summary.main_nodes):
@@ -366,9 +488,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			)
 			# Consider it acted if we either announced the title or moved
 			# focus. Both are real user-perceptible actions.
-			return bool(title_text or focus_set)
+			acted = bool(title_text or focus_set)
+			if acted:
+				self._record_landing(summary.url)
+			return acted
 
-		if result.intent == cls_mod.Intent.ARTICLE:
+		if result.intent == cls_mod.Intent.FORM:
+			# Rich-preamble form: land in browse mode on the form's title
+			# (or description fallback) so the user gets context first and
+			# arrows down through the description into the fields.
+			idx = web_mod.find_form_landing(summary)
+		elif result.intent == cls_mod.Intent.ARTICLE:
 			idx = web_mod.find_article_landing(summary)
 		elif result.intent == cls_mod.Intent.LIST:
 			idx = web_mod.find_list_landing(summary)
@@ -449,6 +579,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			]
 			log.debug(
 				f"[TMTS] moved caret to idx={idx} kind={landed_node.kind} "
+				f"intent={result.intent.value}({result.confidence:.2f}) "
 				f"len={landed_node.text_length} preview={landed_node.text_preview[:60]!r} "
 				f"first_8={first_eight} substantial={substantial} headings={headings} "
 				f"nodes={len(summary.main_nodes)} url={summary.url!r} retry={is_retry}"
@@ -464,6 +595,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				log.exception("[TMTS] failed to save Shift+Z return-to-landing position")
 				self._last_initial_landing_info = None
 				self._last_initial_landing_url = None
+			self._record_landing(summary.url)
 			return True
 		except Exception:
 			log.exception("[TMTS] cursor move failed")
@@ -507,11 +639,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# explicit "force detection this one time on this excluded site"
 		# — we bypass the exclusion check without changing the saved list.
 		is_double_press = getLastScriptRepeatCount() >= 1
-		# All Z paths bypass the URL+cooldown debounce — Z is an explicit
-		# user request to redo detection.
+		# All Z paths bypass the URL+cooldown debounce AND the post-landing
+		# suppression — Z is an explicit user request to redo detection.
 		self._last_ti = None
 		self._last_url = None
 		self._last_fire_time = 0.0
+		self._last_landed_url = None
+		self._last_landed_time = 0.0
 		if is_double_press and is_excluded:
 			# No spoken announcement here — the working tone + the
 			# subsequent detection-result speech are sufficient feedback
@@ -584,6 +718,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 						break
 				next_idx = web_mod.find_next_content_landing(summary, current_idx)
 				if next_idx is None:
+					# Diagnostic: dump the full node list — "nothing below
+					# the cursor" has repeatedly turned out to mean either
+					# a mis-computed current_idx or content chunked below
+					# the substantial bar, and without this line the log
+					# says nothing about which.
+					log.debug(
+						f"[TMTS] Z: no landing below current_idx={current_idx} "
+						f"nodes={[(i, n.kind, n.text_length, n.text_preview[:30]) for i, n in enumerate(summary.main_nodes)]} "
+						f"url={summary.url!r}"
+					)
 					# Translators: spoken when Z is pressed and no more
 					# content paragraphs exist below the cursor.
 					ui.message(_("Nothing else to land on."))

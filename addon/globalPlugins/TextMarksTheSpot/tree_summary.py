@@ -82,14 +82,23 @@ try:
 except ImportError:
 	from classifier import TreeSummary, MainNode
 
-# Figure-caption / photo-credit detector lives in the landing module so the
-# pattern stays in one unit-tested place. We call it here over the FULL chunk
-# text (the credit is usually past the 60-char preview cutoff) and stash the
-# result on each MainNode.is_caption.
+# Figure-caption / photo-credit and legal-boilerplate detectors live in the
+# landing module so the patterns stay in one unit-tested place. We call them
+# here over the FULL chunk text (the trailing credit / "All rights reserved"
+# tail is usually past the 60-char preview cutoff) and stash the results on
+# each MainNode (is_caption / is_boilerplate).
 try:
-	from .detection.web import _looks_like_image_caption
+	from .detection.web import (
+		_looks_like_image_caption,
+		_looks_like_legal_boilerplate,
+		ends_like_sentence,
+	)
 except ImportError:
-	from detection.web import _looks_like_image_caption
+	from detection.web import (
+		_looks_like_image_caption,
+		_looks_like_legal_boilerplate,
+		ends_like_sentence,
+	)
 
 
 # Internal: per-summary list of captured textInfo positions, one per entry
@@ -201,12 +210,11 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		return TreeSummary()
 
 	t0 = time.monotonic()
-	main_obj = _find_main_landmark_obj(treeInterceptor)
+	main_obj, main_range = _find_main_landmark(treeInterceptor)
 	t1 = time.monotonic()
 	# Cache _in_scope decisions across all helpers within this single
 	# build_tree_summary call. id(obj) → bool. Discarded on return.
-	# Saves redundant parent-chain walks when many leaf objects share
-	# ancestors (e.g., all paragraphs inside main share the path to main).
+	# Only the identity-based fallback paths use it now.
 	scope_cache: dict = {}
 
 	summary = TreeSummary()
@@ -215,13 +223,38 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	summary.has_main_landmark = main_obj is not None
 	# Classifier thresholds: ARTICLE_DEMOTE_TO_LIST_AT=3, STRONG_FORM_INPUT_COUNT=5
 	# (form confidence caps near 10), APP_CONTROL_FLOOR=10. We cap each count
-	# slightly above the largest threshold the classifier consults — anything
-	# higher is wasted parent-walks on heavy pages with many controls.
+	# slightly above the largest threshold the classifier consults.
 	_ARTICLE_LIMIT = 4
 	_FORM_LIMIT = 10
 	_INTERACTIVE_LIMIT = 11
-	summary.article_count = _count_in_scope(treeInterceptor, "article", main_obj, scope_cache, limit=_ARTICLE_LIMIT)
-	summary.form_input_count = _count_in_scope(treeInterceptor, "formField", main_obj, scope_cache, limit=_FORM_LIMIT)
+
+	# Scope selection, ONE range for both counts and walk so the summary
+	# is internally consistent (previously the counts could be scoped to a
+	# <main> the identity check couldn't confirm — coming back 0/0/0 —
+	# while main_nodes fell back to unscoped: the classifier then saw a
+	# 7-input form as having no form fields at all).
+	#   main-pos:  <main> present and its positional range built (fast path)
+	#   main-id:   <main> present, no usable range → identity checks (old path)
+	#   article:   no <main>, exactly one <article> → positional article range
+	#   chrome:    no <main>, no single article → identity chrome filter
+	scope_range = main_range
+	scope_kind = "main-pos" if main_range is not None else ("main-id" if main_obj is not None else "chrome")
+
+	# Article count first — the article-scope decision below needs it.
+	if scope_range is not None:
+		summary.article_count = _count_in_range(treeInterceptor, "article", scope_range, limit=_ARTICLE_LIMIT)
+	else:
+		summary.article_count = _count_in_scope(treeInterceptor, "article", main_obj, scope_cache, limit=_ARTICLE_LIMIT)
+	if main_obj is None and summary.article_count == 1:
+		article_range = _single_article_scope_range(treeInterceptor)
+		if article_range is not None:
+			scope_range = article_range
+			scope_kind = "article"
+
+	if scope_range is not None:
+		summary.form_input_count = _count_in_range(treeInterceptor, "formField", scope_range, limit=_FORM_LIMIT)
+	else:
+		summary.form_input_count = _count_in_scope(treeInterceptor, "formField", main_obj, scope_cache, limit=_FORM_LIMIT)
 	# Interactive subtypes ordered most-common first so the running-sum
 	# short-circuit usually triggers on the first one or two enumerations
 	# (link-heavy pages dominate). Each per-type call also caps at the
@@ -231,7 +264,10 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		remaining = _INTERACTIVE_LIMIT - running
 		if remaining <= 0:
 			break
-		running += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining)
+		if scope_range is not None:
+			running += _count_in_range(treeInterceptor, t, scope_range, limit=remaining)
+		else:
+			running += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining)
 	summary.interactive_control_count = running
 	t2 = time.monotonic()
 	positions: list = []
@@ -242,18 +278,6 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	# not just empty ones (existing walk-empty log only fires when result
 	# is empty — leaves us blind on slow non-empty walks).
 	raw_count = [0]
-	# Scope selection. Prefer the <main> landmark. When there's no <main> but
-	# exactly one <article>, scope POSITIONALLY to that article's range — it
-	# reliably excludes the nav (before the article) and comments/footer/
-	# sidebar (after it), which the identity-based chrome filter cannot
-	# exclude on many themes. Falls back to the chrome filter if the range
-	# can't be built.
-	scope_range = None
-	scope_kind = "main" if main_obj is not None else "chrome"
-	if main_obj is None and summary.article_count == 1:
-		scope_range = _single_article_scope_range(treeInterceptor)
-		if scope_range is not None:
-			scope_kind = "article"
 	summary.main_nodes = _walk_main_nodes(treeInterceptor, main_obj, scope_cache, positions, notice_match, raw_count, scope_range)
 	t3 = time.monotonic()
 	fallback_ran = False
@@ -275,15 +299,42 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	# produces usable content; the classifier and landing finders handle
 	# the noise (nav and footer text getting through) better than they
 	# handle an empty walk result.
+	counts_rescoped = False
 	if not summary.main_nodes:
 		fallback_ran = True
-		scope_kind = "unscoped"
 		positions.clear()
 		summary.main_nodes = _walk_main_nodes(treeInterceptor, _UNSCOPED_SENTINEL, {}, positions, notice_match, fallback_raw_count)
+		# Consistency: main_nodes now describe the WHOLE document. If the
+		# scoped counts came back all-zero (the scope was clearly bogus —
+		# Zoom counted 0 forms on a 7-input page), recount document-wide so
+		# the classifier sees the same tree the nodes came from. Cheap:
+		# scope_range=None means a capped enumeration with no per-item
+		# work. Non-zero scoped counts are kept — they carry real signal
+		# and unscoped recounting would inflate them with chrome controls.
+		if (
+			summary.article_count == 0
+			and summary.form_input_count == 0
+			and summary.interactive_control_count == 0
+		):
+			counts_rescoped = True
+			summary.article_count = _count_in_range(treeInterceptor, "article", None, limit=_ARTICLE_LIMIT)
+			summary.form_input_count = _count_in_range(treeInterceptor, "formField", None, limit=_FORM_LIMIT)
+			running = 0
+			for t in ("link", "button", "edit", "comboBox", "checkBox", "radioButton"):
+				remaining = _INTERACTIVE_LIMIT - running
+				if remaining <= 0:
+					break
+				running += _count_in_range(treeInterceptor, t, None, limit=remaining)
+			summary.interactive_control_count = running
+		scope_kind = "unscoped-recount" if counts_rescoped else "unscoped"
 	t4 = time.monotonic()
-	# The tree is trustworthy (chrome-free) only if the positional article walk
-	# actually produced it — not if it fell back to the unscoped walk.
-	summary.positionally_scoped = scope_range is not None and not fallback_ran
+	# The tree is trustworthy (chrome-free) for the LANDING FINDERS only in
+	# the single-<article> positional case — deliberately NOT for main-pos:
+	# sites commonly put deks/bylines/disclaimers inside <main> before the
+	# H1, and the defensive hero/cluster landing gates exist for exactly
+	# those. Loosening them for every <main> page would regress landings
+	# (PCMag's pre-H1 disclaimer was the canonical case).
+	summary.positionally_scoped = scope_kind == "article" and not fallback_ran
 	summary.notice_keyword_match = notice_match[0]
 	_captured_positions[id(summary)] = positions
 	perf_line = (
@@ -360,18 +411,44 @@ def set_focus_on_first_form_input(treeInterceptor) -> bool:
 	"""
 	if not _NVDA_AVAILABLE or treeInterceptor is None:
 		return False
-	try:
-		for item in treeInterceptor._iterNodesByType("formField"):
-			obj = getattr(item, "obj", None)
-			if obj is None:
-				continue
-			try:
-				obj.setFocus()
-				return True
-			except Exception:
-				continue
-	except Exception:
-		return False
+	# Positional main-range filter: the old version focused the FIRST
+	# formField in the whole document, which on Zoom's registration page
+	# was the language-picker combobox in the page header ("Language
+	# English") — chrome, not the form. Fields outside <main> are never
+	# the form the user came for. Also prefer real EDIT boxes over the
+	# broader formField quick-nav class (which includes buttons and
+	# pickers): "the first named box" means a text field when one exists.
+	_, main_range = _find_main_landmark(treeInterceptor)
+
+	def _in_main(item) -> bool:
+		if main_range is None:
+			return True
+		ti = getattr(item, "textInfo", None)
+		if ti is None:
+			return True
+		try:
+			return (
+				ti.compareEndPoints(main_range, "startToStart") >= 0
+				and ti.compareEndPoints(main_range, "startToEnd") < 0
+			)
+		except Exception:
+			return True
+
+	for item_type in ("edit", "formField"):
+		try:
+			for item in treeInterceptor._iterNodesByType(item_type):
+				if not _in_main(item):
+					continue
+				obj = getattr(item, "obj", None)
+				if obj is None:
+					continue
+				try:
+					obj.setFocus()
+					return True
+				except Exception:
+					continue
+		except Exception:
+			continue
 	return False
 
 
@@ -415,18 +492,43 @@ def _landmark_type(obj) -> str:
 	return str(lm).lower() if lm else ""
 
 
-def _find_main_landmark_obj(treeInterceptor):
-	# Returns the first <main> landmark NVDAObject in the document, or None.
+def _find_main_landmark(treeInterceptor):
+	"""Return (main_obj, main_range) for the first <main> landmark, or
+	(None, None). One enumeration finds both.
+
+	main_range is the landmark quick-nav item's own textInfo — the same
+	positional-scoping trick proven for the single-<article> case: ranges
+	built by the tree interceptor share the walk's coordinate space, so
+	compareEndPoints is meaningful (obj.makeTextInfo does NOT — see
+	_single_article_scope_range). A usable range lets both the counts and
+	the walk decide "inside <main>?" by position — reliable where the
+	identity-based parent-chain check silently fails (Calendar, Zoom), and
+	FAST: a buffer-offset comparison per item instead of a COM parent
+	chain per item. The parent chains were the dominant detection cost
+	(~1 s on Zoom's 44-node page, 12.4 s on judysdogblog).
+	"""
 	try:
 		for item in treeInterceptor._iterNodesByType("landmark"):
 			obj = getattr(item, "obj", None)
 			if obj is None:
 				continue
-			if _landmark_type(obj) == "main":
-				return obj
+			if _landmark_type(obj) != "main":
+				continue
+			rng = getattr(item, "textInfo", None)
+			if rng is None:
+				try:
+					rng = treeInterceptor.makeTextInfo(obj)
+				except Exception:
+					rng = None
+			if rng is not None:
+				try:
+					rng = rng.copy()
+				except Exception:
+					pass
+			return obj, rng
 	except Exception:
 		pass
-	return None
+	return None, None
 
 
 def _single_article_scope_range(treeInterceptor):
@@ -562,6 +664,50 @@ def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limi
 		return 0
 
 
+# Hard cap on quick-nav items SCANNED per count enumeration. The classifier
+# only compares counts against small fixed thresholds; on a page with
+# thousands of links, scanning past a few hundred items buys nothing.
+_COUNT_SCAN_LIMIT = 300
+
+
+def _count_in_range(treeInterceptor, item_type: str, scope_range, limit: int = 0) -> int:
+	"""Count quick-nav items of item_type POSITIONALLY: an item counts when
+	its range STARTS inside scope_range. With scope_range=None, counts the
+	whole document. No parent-chain walks — a buffer-offset comparison per
+	item — so this is orders of magnitude cheaper than _count_in_scope and
+	immune to the identity-check failure that made counts come back 0 on
+	pages with a perfectly real <main> (Zoom registration: forms=0 on a
+	7-input form).
+
+	Items that expose no textInfo are counted as in scope (inclusive bias:
+	the classifier's FORM/APP gates are guarded by content signals anyway).
+	"""
+	try:
+		count = 0
+		scanned = 0
+		for item in treeInterceptor._iterNodesByType(item_type):
+			scanned += 1
+			if scanned > _COUNT_SCAN_LIMIT:
+				break
+			if scope_range is not None:
+				ti = getattr(item, "textInfo", None)
+				if ti is not None:
+					try:
+						if not (
+							ti.compareEndPoints(scope_range, "startToStart") >= 0
+							and ti.compareEndPoints(scope_range, "startToEnd") < 0
+						):
+							continue
+					except Exception:
+						pass
+			count += 1
+			if limit and count >= limit:
+				return count
+		return count
+	except Exception:
+		return 0
+
+
 # ---------------------------------------------------------------------------
 # Document walk — produce the interleaved heading + paragraph node list.
 # ---------------------------------------------------------------------------
@@ -596,9 +742,44 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	raw_seen = 0
 	raw_with_obj = 0
 	raw_with_text = 0
+	# Diagnostic: previews of chunks the scope filter dropped AFTER the
+	# scoped region had started producing nodes. Mid-region drops are
+	# anomalies (containment is positionally monotonic), so if a paragraph
+	# the user expected goes missing, this line says whether the scope
+	# filter ate it or NVDA's walk never yielded it at all.
+	dropped_after_start: list = []
+	# Start position of the previously processed chunk, for the forward-
+	# progress check below.
+	prev_start = None
 	for _ in range(WALK_NODE_LIMIT):
 		try:
 			info.expand(textInfos.UNIT_PARAGRAPH)
+			# Forward-progress guard. The old loop unconditionally did
+			# collapse(end=True) + move(UNIT_PARAGRAPH, 1) after every
+			# chunk. When a chunk's end offset lands EXACTLY on the next
+			# paragraph's start boundary (common after link/image-heavy
+			# blocks — pattysworlds' welcome heading with an inline logo
+			# image), that pair advances TWO paragraphs and silently skips
+			# one ("Watch your step..." was never walked; same signature as
+			# the missing main-tweet text on X). Now we expand directly at
+			# the collapsed end position and only force a move when the
+			# expansion made no forward progress.
+			if prev_start is not None:
+				try:
+					progressed = info.compareEndPoints(prev_start, "startToStart") > 0
+				except Exception:
+					progressed = True
+				if not progressed:
+					info.collapse()
+					if not info.move(textInfos.UNIT_PARAGRAPH, 1):
+						break
+					continue
+			try:
+				bookmark = info.copy()
+				bookmark.collapse()
+				prev_start = bookmark
+			except Exception:
+				prev_start = None
 			text = info.text or ""
 			obj = info.NVDAObjectAtStart
 			raw_seen += 1
@@ -647,6 +828,8 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 						positions_out.append(None)
 			else:
 				consecutive_out += 1
+				if have_seen_in_scope and len(dropped_after_start) < 10 and text.strip():
+					dropped_after_start.append(text.strip()[:40])
 				# Only bail AFTER we've seen at least one in-scope node;
 				# otherwise we might quit before reaching main (the nav/
 				# banner at the top of the document can easily exceed
@@ -654,12 +837,18 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 				if have_seen_in_scope and consecutive_out > _OUT_OF_SCOPE_TOLERANCE:
 					break
 
+			# No unconditional move here — the next iteration expands at
+			# this collapsed end position, and the progress guard at the
+			# top forces a move only when that fails to advance.
 			info.collapse(end=True)
-			moved = info.move(textInfos.UNIT_PARAGRAPH, 1)
-			if not moved:
-				break
 		except Exception:
 			break
+
+	if dropped_after_start:
+		log.debug(
+			f"[TMTS walk-drops] {len(dropped_after_start)} chunk(s) dropped by the "
+			f"scope filter after the scoped region started: {dropped_after_start}"
+		)
 
 	if raw_count_out is not None:
 		raw_count_out[0] = raw_seen
@@ -686,6 +875,8 @@ def _node_for(obj, text: str) -> Optional[MainNode]:
 			text_length=len(stripped),
 			text_preview=stripped[:60],
 			is_caption=_looks_like_image_caption(stripped),
+			is_boilerplate=_looks_like_legal_boilerplate(stripped),
+			ends_sentence=ends_like_sentence(stripped),
 		)
 
 	role_name = getattr(obj.role, "name", None) or str(obj.role)
@@ -710,6 +901,8 @@ def _node_for(obj, text: str) -> Optional[MainNode]:
 		text_length=len(stripped),
 		text_preview=stripped[:60],
 		is_caption=_looks_like_image_caption(stripped),
+		is_boilerplate=_looks_like_legal_boilerplate(stripped),
+		ends_sentence=ends_like_sentence(stripped),
 	)
 
 

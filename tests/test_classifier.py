@@ -342,3 +342,233 @@ def test_unknown_when_no_signal():
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.UNKNOWN
 	assert result.confidence == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Legal footer boilerplate vs hero (Zoom webinar registration regression)
+# ---------------------------------------------------------------------------
+
+def _boilerplate_node(length, preview=""):
+	return cls.MainNode(
+		kind="paragraph", text_length=length, text_preview=preview, is_boilerplate=True,
+	)
+
+
+def test_copyright_footer_alone_is_not_an_article_hero():
+	# Pre-hydration Zoom webinar registration shell: the ONLY substantial
+	# paragraph is the footer copyright (flagged at walk time). It must not
+	# qualify as a hero, so the page must NOT classify as ARTICLE — leaving
+	# no landing and letting the caller's retry wait for hydration.
+	tree = _summary(
+		has_main_landmark=False,
+		interactive_control_count=8,
+		main_nodes=[
+			_node("paragraph", 20, preview="Skip to Main Content"),
+			_node("paragraph", 22, preview="Accessibility Overview"),
+			_node("paragraph", 7, preview="Support"),
+			_boilerplate_node(69, preview="Copyright ©2026 Zoom Video Communications, Inc. All rights"),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.ARTICLE
+
+
+def test_form_not_blocked_by_footer_copyright_pseudo_hero():
+	# A plain 3-input form page whose only 50+ char paragraph is the footer
+	# copyright. Before the boilerplate-aware hero computation, that line
+	# created has_hero=True and blocked FORM (weak form signal), leaving the
+	# page unhandled. The copyright must not count as a hero.
+	tree = _summary(
+		form_input_count=3,
+		main_nodes=[
+			_node("heading", 20, level=1, preview="Contact us"),
+			_boilerplate_node(69, preview="Copyright ©2026 Example Corp. All rights reserved."),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.FORM
+
+
+def test_hydrated_zoom_registration_classifies_as_form():
+	# The REAL hydrated Zoom webinar registration page (measured 2026-07-06):
+	# H1 title (81 chars), one 1958-char description block, 7 form inputs,
+	# footer copyright. Strong form signal (>= 5 inputs) must win — the
+	# description hero does not block, and the copyright stays irrelevant.
+	tree = _summary(
+		url="https://us02web.zoom.us/webinar/register/WN_abc#/registration",
+		form_input_count=7,
+		interactive_control_count=12,
+		main_nodes=[
+			_node("heading", 81, level=1, preview="AI as Assistive Technology: A Practical Stack for Entrepren"),
+			_node("heading", 20, level=2, preview="Webinar Registration"),
+			_node("paragraph", 1958, preview="Whether you're starting your business or scaling one, AI is"),
+			_boilerplate_node(69, preview="Copyright ©2026 Zoom Video Communications, Inc. All rights"),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.FORM
+
+
+def test_zoom_registration_confirmation_classifies_as_notice():
+	# The post-registration page (2026-07-06 debug log): 6 nodes, H1 "You
+	# have successfully registered" (32 chars), short paragraphs, ONE form
+	# field (the "Add to calendar" widget counts in NVDA's formField
+	# class), 2 interactives. The old NOTICE gate required zero form
+	# fields, so this classified UNKNOWN and the user got the not-found
+	# beeps on a page that is the textbook NOTICE case.
+	tree = _summary(
+		url="https://us02web.zoom.us/rest/webinar/registrant/WN_abc/info?ac=approved",
+		form_input_count=1,
+		interactive_control_count=2,
+		notice_keyword_match=True,
+		main_nodes=[
+			_node("heading", 32, level=1, preview="You have successfully registered"),
+			_node("paragraph", 44, preview="Please check the confirmation email sent to"),
+			_node("paragraph", 24, preview="he**@webfriendlyhelp.com"),
+			_node("paragraph", 15, preview="Add to calendar"),
+			_node("paragraph", 7, preview="Support"),
+			_node("paragraph", 22, preview="Accessibility overview"),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.NOTICE
+	assert result.confidence >= 0.85
+
+
+def test_shape_only_notice_still_requires_zero_form_fields():
+	# A small login-ish page (2 inputs, H1, short text, no status keyword)
+	# must NOT become a NOTICE just because the keyword path now tolerates
+	# form fields — the 0.65 shape-only path keeps the zero-fields gate.
+	tree = _summary(
+		form_input_count=2,
+		interactive_control_count=4,
+		main_nodes=[
+			_node("heading", 7, level=1, preview="Sign in"),
+			_node("paragraph", 35, preview="Enter your username and password."),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.NOTICE
+
+
+# ---------------------------------------------------------------------------
+# Massive-duo FORM block (armstrongeconomics newsletter-widget regression)
+# ---------------------------------------------------------------------------
+
+def test_blog_with_massive_paragraph_pair_is_not_form():
+	# Regression: armstrongeconomics.com war blog post (2026-07-06 soak).
+	# WordPress theme exposes NO <article> (so the editorial block was off)
+	# and a 6-input newsletter widget cleared the strong-form bar. The two
+	# ADJACENT 618/595-char body paragraphs miss the 3-paragraph cluster
+	# bar, so nothing blocked FORM and the user landed on the H1 via the
+	# form-title path instead of the lede. The massive-duo block must
+	# classify this as ARTICLE.
+	nodes = [
+		_node("paragraph", 15, preview="Skip to content"),
+		_node("paragraph", 151, preview="Follow on Linkedin (opens in new tab) Follow on Fa"),
+		_node("paragraph", 6, preview="Events"),
+		_node("paragraph", 16, preview="Knowledge Center"),
+		_node("paragraph", 13, preview="Store Account"),
+		_node("heading", 51, level=1, preview="Zelensky Angers Allies by Honoring Ukrainian Nazis"),
+		_node("paragraph", 15, preview="SPREAD THE LOVE"),
+		_node("paragraph", 7, preview="Twitter"),
+		_node("paragraph", 8, preview="Facebook"),
+		_node("paragraph", 618, preview="Europe's united front behind Zelensky is beginning"),
+		_node("paragraph", 595, preview="The bureaucrats in Brussels have spent years insis"),
+	]
+	tree = _summary(
+		url="https://www.armstrongeconomics.com/world-news/war/zelensky-angers-allies/",
+		has_main_landmark=False,
+		article_count=0,
+		main_nodes=nodes,
+		form_input_count=6,
+		interactive_control_count=11,
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.ARTICLE
+
+
+def test_register_url_with_massive_description_stays_form():
+	# The escape hatch: a Zoom-style registration page whose rich
+	# description happens to chunk into two adjacent 200+ char paragraphs
+	# must STAY a form — the /register URL is the explicit signal.
+	nodes = [
+		_node("heading", 81, level=1, preview="AI as Assistive Technology: A Practical Stack for"),
+		_node("paragraph", 900, preview="Whether you're starting your business or scaling o"),
+		_node("paragraph", 1100, preview="In this webinar we will walk through the exact too"),
+	]
+	tree = _summary(
+		url="https://us02web.zoom.us/webinar/register/WN_abc#/registration",
+		has_main_landmark=True,
+		article_count=0,
+		main_nodes=nodes,
+		form_input_count=7,
+		interactive_control_count=9,
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.FORM
+
+
+def test_massive_duo_requires_adjacency():
+	# Two big paragraphs separated by a heading are sections, not a body
+	# duo — the helper itself must not fire.
+	nodes = [
+		_node("paragraph", 300),
+		_node("heading", 20, level=2),
+		_node("paragraph", 300),
+	]
+	assert cls._has_massive_paragraph_duo(nodes) is False
+	nodes_adjacent = [
+		_node("paragraph", 300),
+		_node("paragraph", 300),
+	]
+	assert cls._has_massive_paragraph_duo(nodes_adjacent) is True
+
+
+def test_editorial_url_blocks_form_on_podcast_page():
+	# Regression: thurrott.com podcast episode page (2026-07-06 soak).
+	# 10 form inputs (comment box, login, search, newsletter), no <article>
+	# exposed, episode description only 120 chars, long comment paragraphs
+	# not adjacent — none of the other FORM blocks engaged and the page
+	# dispatched FORM(0.90), landing on the H1 via the form-title path.
+	# The /podcasts/ URL is editorial and must block FORM.
+	nodes = [
+		_node("paragraph", 18, preview="Upgrade to Premium"),
+		_node("paragraph", 6, preview="Log In"),
+		_node("heading", 37, level=1, preview="First Ring Daily 1977: The Way of GPU"),
+		_node("paragraph", 120, preview="On this episode of First Ring Daily, NVIDIA has a"),
+		_node("heading", 11, level=3, preview="Tagged with"),
+		_node("paragraph", 159, preview="We maintain the community forums so our readers ha"),
+		_node("paragraph", 124, preview="By participating in the conversations on this webs"),
+		_node("paragraph", 318, preview="I remember listening to a Podcast a few years ago"),
+		_node("paragraph", 196, preview="I think the problem is that, while Nintendo is ver"),
+	]
+	tree = _summary(
+		url="https://www.thurrott.com/podcasts/337378/first-ring-daily-1977-the-way-of-gpu",
+		has_main_landmark=False,
+		article_count=0,
+		main_nodes=nodes,
+		form_input_count=10,
+		interactive_control_count=11,
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.FORM
+
+
+def test_editorial_url_does_not_block_form_when_url_also_matches_form():
+	# /blog/contact matches both ARTICLE (/blog/) and FORM (/contact) —
+	# FORM must stay eligible.
+	nodes = [
+		_node("heading", 10, level=1, preview="Contact Us"),
+		_node("paragraph", 30, preview="Send us a message below."),
+	]
+	tree = _summary(
+		url="https://example.com/blog/contact",
+		has_main_landmark=True,
+		article_count=0,
+		main_nodes=nodes,
+		form_input_count=5,
+		interactive_control_count=6,
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.FORM

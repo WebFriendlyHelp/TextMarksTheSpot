@@ -9,8 +9,11 @@ import classifier as cls
 from detection import web
 
 
-def _node(kind, length, level=None, preview=""):
-	return cls.MainNode(kind=kind, level=level, text_length=length, text_preview=preview)
+def _node(kind, length, level=None, preview="", ends_sentence=False):
+	return cls.MainNode(
+		kind=kind, level=level, text_length=length, text_preview=preview,
+		ends_sentence=ends_sentence,
+	)
 
 
 def _summary_with(nodes):
@@ -945,3 +948,403 @@ def test_article_landing_skips_share_link_payload():
 	]
 	# Expected: idx=3 (article lede), not idx=2 (share-link payload).
 	assert web.find_article_landing(_summary_with(nodes)) == 3
+
+
+# ---------------------------------------------------------------------------
+# Legal footer boilerplate (Zoom webinar registration regression)
+# ---------------------------------------------------------------------------
+# us02web.zoom.us/webinar/register/... at documentLoadComplete is an empty
+# SPA shell: header links, a language menu, and the footer. The ONLY
+# paragraph clearing the 50-char substantial bar is the copyright line, so
+# the addon classified ARTICLE and spoke "Copyright (c)2026 Zoom Video
+# Communications, Inc. All rights reserved." as if it were the page content.
+# Landing on legal boilerplate must never happen; with no landing, the
+# caller's 1500 ms retry re-runs detection against the hydrated page.
+
+_ZOOM_COPYRIGHT = "Copyright ©2026 Zoom Video Communications, Inc. All rights reserved."
+_ZOOM_PRIVACY_ROW = "Privacy & Legal Policies Do Not Sell My Personal Information Cookie Preferences"
+
+
+def test_boilerplate_detector_positives_and_negatives():
+	assert web._looks_like_legal_boilerplate(_ZOOM_COPYRIGHT)
+	assert web._looks_like_legal_boilerplate("© 2026 Example Corp")
+	assert web._looks_like_legal_boilerplate("Copyright 2019 Acme Inc.")
+	assert web._looks_like_legal_boilerplate("Copyright (c) 2026 Acme Inc.")
+	assert web._looks_like_legal_boilerplate(_ZOOM_PRIVACY_ROW)
+	assert web._looks_like_legal_boilerplate("Do not sell or share my personal information")
+	# Prose ABOUT copyright must not match — no year adjacent to the word.
+	assert not web._looks_like_legal_boilerplate(
+		"The copyright office ruled in 2026 that AI-generated works need human authorship."
+	)
+	# "rights are reserved" is not the boilerplate phrase.
+	assert not web._looks_like_legal_boilerplate("All rights are reserved for members of the guild.")
+	assert not web._looks_like_legal_boilerplate("")
+
+
+def test_article_landing_returns_none_on_zoom_shell():
+	# The pre-hydration Zoom shell: short header links + the copyright line.
+	# No landing may be produced — None triggers the caller's retry.
+	nodes = [
+		_node("paragraph", 20, preview="Skip to Main Content"),
+		_node("paragraph", 22, preview="Accessibility Overview"),
+		_node("paragraph", 7, preview="Support"),
+		_node("paragraph", 7, preview="English"),
+		_node("paragraph", len(_ZOOM_COPYRIGHT), preview=_ZOOM_COPYRIGHT),
+		_node("paragraph", len(_ZOOM_PRIVACY_ROW), preview=_ZOOM_PRIVACY_ROW),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) is None
+
+
+def test_article_landing_skips_boilerplate_via_flag_when_preview_truncated():
+	# Production path: text_preview is cut at 60 chars, which can truncate
+	# the detector's signal (the CCPA phrase in the Zoom privacy row is cut
+	# mid-word). The walk-time is_boilerplate flag, computed over the full
+	# text, must carry the skip on its own.
+	footer = cls.MainNode(
+		kind="paragraph",
+		text_length=80,
+		text_preview="Privacy & Legal Policies Do Not Sell My Personal Informatio",
+		is_boilerplate=True,
+	)
+	body = _node("paragraph", 250, preview="Real article body paragraph that is long enough to win immediately.")
+	nodes = [footer, body]
+	assert web.find_article_landing(_summary_with(nodes)) == 1
+
+
+def test_largest_paragraph_fallback_never_picks_copyright():
+	# Even when the copyright line is the LARGEST substantial paragraph on
+	# the page, the fallback must not pick it.
+	nodes = [
+		_node("heading", 30, level=1, preview="Site title"),
+		_node("paragraph", 40, preview="Too short to be substantial."),
+		_node("paragraph", len(_ZOOM_COPYRIGHT), preview=_ZOOM_COPYRIGHT),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) is None
+
+
+def test_notice_landing_skips_copyright_line():
+	# A small status page whose first 30+ char paragraph is the footer
+	# copyright: the status sentence, not the copyright, is the landing.
+	nodes = [
+		_node("paragraph", len(_ZOOM_COPYRIGHT), preview=_ZOOM_COPYRIGHT),
+		_node("paragraph", 45, preview="This form is no longer accepting responses."),
+	]
+	assert web.find_notice_landing(_summary_with(nodes)) == 1
+
+
+def test_z_scan_skips_copyright_footer():
+	# Z forward scan from the body must not offer the copyright as the
+	# "next content paragraph" — with nothing real below, it returns None
+	# so the user hears "Nothing else to land on."
+	nodes = [
+		_node("paragraph", 250, preview="Real article body paragraph long enough to be the initial landing."),
+		_node("paragraph", len(_ZOOM_COPYRIGHT), preview=_ZOOM_COPYRIGHT),
+	]
+	assert web.find_next_content_landing(_summary_with(nodes), 0) is None
+
+
+# ---------------------------------------------------------------------------
+# form_wants_browse_landing (rich-preamble form rule, Zoom registration)
+# ---------------------------------------------------------------------------
+# The hydrated Zoom webinar registration page classifies as FORM (7 inputs),
+# but the announce-title-then-focus-first-input treatment dropped the user in
+# the middle of the form, past the title and a ~2000-char description. A form
+# page carrying a very-substantial descriptive paragraph gets a browse-mode
+# landing on its title instead; bare forms keep the focus behavior.
+
+def test_form_with_rich_description_wants_browse_landing():
+	nodes = [
+		_node("heading", 81, level=1, preview="AI as Assistive Technology: A Practical Stack for Entrepren"),
+		_node("heading", 20, level=2, preview="Webinar Registration"),
+		_node("paragraph", 1958, preview="Whether you're starting your business or scaling one, AI is"),
+	]
+	assert web.form_wants_browse_landing(_summary_with(nodes)) is True
+	# And the landing itself is the form title (first heading).
+	assert web.find_form_landing(_summary_with(nodes)) == 0
+
+
+def test_bare_form_keeps_focus_landing():
+	# Google-Forms-style: title + shortish question labels, no description
+	# paragraph clearing the 200-char bar.
+	nodes = [
+		_node("heading", 25, level=1, preview="Vendor fair signup"),
+		_node("paragraph", 112, preview="If you would like to request an accommodation to participat"),
+		_node("paragraph", 61, preview="I would like to subscribe to the small business mailing lis"),
+	]
+	assert web.form_wants_browse_landing(_summary_with(nodes)) is False
+
+
+def test_form_rich_preamble_ignores_boilerplate_and_chrome():
+	# A long copyright/legal paragraph must not count as a rich preamble.
+	footer = cls.MainNode(
+		kind="paragraph",
+		text_length=260,
+		text_preview="Copyright ©2026 Example Corp. All rights reserved.",
+		is_boilerplate=True,
+	)
+	nodes = [_node("heading", 25, level=1, preview="Sign in"), footer]
+	assert web.form_wants_browse_landing(_summary_with(nodes)) is False
+
+
+def test_collapsed_form_shell_lands_on_heading_not_lone_question_label():
+	# Signed-in Zoom webinar registration (from the 2026-07-06 debug log):
+	# 36 main_nodes, description and date hidden in CLOSED accordions (so
+	# their text is not in the buffer), only heading is the "Webinar
+	# Registration" H2 at idx 5, and the ONLY substantial paragraph is the
+	# 52-char "Do you consider yourself a person with a disability?" label
+	# at idx 24, mid-form. The directory-page redirect must land on the
+	# heading, not the lone question label. (Node cap widened 30 -> 40 for
+	# this page.)
+	nodes = []
+	nodes.append(_node("paragraph", 7, preview="Loading"))                     # 0
+	nodes.append(_node("paragraph", 22, preview="Accessibility overview"))     # 1
+	nodes.append(_node("paragraph", 7, preview="Support"))                     # 2
+	nodes.append(_node("paragraph", 11, preview="Date & Time"))                # 3
+	nodes.append(_node("paragraph", 11, preview="Description"))                # 4
+	nodes.append(_node("heading", 20, level=2, preview="Webinar Registration"))# 5
+	nodes.append(_node("paragraph", 5, preview="Casey"))                       # 6
+	nodes.append(_node("paragraph", 7, preview="Mathews"))                     # 7
+	# Short field labels / values filling out the form region (idx 8-23).
+	for i in range(8, 24):
+		nodes.append(_node("paragraph", 18, preview=f"Field label {i}"))
+	nodes.append(_node("paragraph", 52, preview="Do you consider yourself a person with a disability?"))  # 24
+	for i in range(25, 34):
+		nodes.append(_node("paragraph", 15, preview=f"More labels {i}"))
+	nodes.append(cls.MainNode(                                                 # 34
+		kind="paragraph", text_length=68,
+		text_preview="Copyright ©2026 Zoom Video Communications, Inc. Al",
+		is_boilerplate=True,
+	))
+	nodes.append(_node("paragraph", 24, preview="Privacy & Legal Policies"))   # 35
+	assert len(nodes) == 36
+	assert web.find_article_landing(_summary_with(nodes)) == 5
+
+
+def test_z_scan_falls_back_to_notice_bar_on_short_content_pages():
+	# Zoom confirmation page: no paragraph anywhere clears the 50-char bar
+	# (the longest real line is 44 chars). Z from the top must land on that
+	# line via the 30-char fallback instead of stranding the user with
+	# "Nothing else to land on."
+	nodes = [
+		_node("heading", 32, level=1, preview="You have successfully registered"),
+		_node("paragraph", 44, preview="Please check the confirmation email sent to"),
+		_node("paragraph", 24, preview="he**@webfriendlyhelp.com"),
+		_node("paragraph", 15, preview="Add to calendar"),
+	]
+	assert web.find_next_content_landing(_summary_with(nodes), -1) == 1
+
+
+def test_z_scan_keeps_strict_bar_when_page_has_substantial_paragraphs():
+	# An article page: 50+ char paragraphs exist, so the fallback must NOT
+	# kick in — Z past the last substantial paragraph still reports nothing
+	# rather than landing on short related-link rows below the article.
+	nodes = [
+		_node("paragraph", 250, preview="Real article body paragraph long enough to be the initial landing."),
+		_node("paragraph", 35, preview="Related: another story teaser row"),
+	]
+	assert web.find_next_content_landing(_summary_with(nodes), 0) is None
+
+
+# ---------------------------------------------------------------------------
+# Prose-run landing (X/Twitter single-status pages)
+# ---------------------------------------------------------------------------
+
+def test_ends_like_sentence_detector():
+	assert web.ends_like_sentence("We are just not getting the coverage we should.") is True
+	assert web.ends_like_sentence('He said "we will finish the job."') is True
+	assert web.ends_like_sentence("Really?!") is True
+	assert web.ends_like_sentence("And then…") is True
+	assert web.ends_like_sentence('"We are doing very well with Iran. ') is True
+	# Nav / label / metadata shapes.
+	assert web.ends_like_sentence("Adoption Forms") is False
+	assert web.ends_like_sentence("Trump on Iran:") is False
+	assert web.ends_like_sentence("2:30 PM · Jul 6, 2026") is False
+	assert web.ends_like_sentence("") is False
+
+
+def test_article_landing_prose_run_on_x_status_page():
+	# Regression: x.com/MarioNawfal/status/2074138801208012984 (2026-07-06
+	# soak test). Quote tweet whose main text never appears in NVDA's walk;
+	# the quoted tweet's text arrives as THREE short lines (19 + 34 + 61
+	# chars), each below the 50-char bar. The old cascade fell through to
+	# the directory redirect and landed on the generic "Post" heading at
+	# idx 0. The prose-run gate must land on the first tweet line instead.
+	nodes = [
+		_node("heading", 4, level=2, preview="Post"),                      # 0
+		_node("paragraph", 12, preview="Mario Nawfal"),                    # 1
+		_node("paragraph", 13, preview="0xMarioNawfal"),                   # 2
+		_node("paragraph", 10, preview="View media"),                      # 3
+		_node("paragraph", 12, preview="Mario Nawfal"),                    # 4
+		_node("paragraph", 13, preview="0xMarioNawfal"),                   # 5
+		_node("paragraph", 1, preview="·"),                           # 6
+		_node("paragraph", 19, preview="Trump on Iran:"),                  # 7
+		_node("paragraph", 34, preview='"We are doing very well with Iran.',
+			ends_sentence=True),                                           # 8
+		_node("paragraph", 61,
+			preview="We are just not getting the kind of coverage that we should",
+			ends_sentence=True),                                           # 9
+		_node("paragraph", 21, preview="2:30 PM · Jul 6, 2026"),      # 10
+		_node("paragraph", 11, preview="46.9K Views"),                     # 11
+		_node("paragraph", 14, preview="Read 21 replies"),                 # 12
+		_node("paragraph", 13, preview="Relevant people"),                 # 13
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 7
+
+
+def test_prose_run_rejects_nav_link_runs():
+	# The Montgomery directory page opens with six consecutive 17-26 char
+	# nav rows totaling 125 chars — length alone must never qualify a run.
+	# No line ends like a sentence, so the run is rejected (and it also
+	# starts before any heading).
+	nodes = [
+		_node("paragraph", 20, preview="Skip to Main Content"),
+		_node("paragraph", 18, preview="Home ProbateOffice"),
+		_node("paragraph", 19, preview="Click to open About"),
+		_node("paragraph", 17, preview="Probate Resources"),
+		_node("paragraph", 25, preview="Records & Recording Forms"),
+		_node("paragraph", 26, preview="Internet Tag/Boat Renewals"),
+	]
+	assert web._find_prose_run_landing(nodes) is None
+
+
+def test_prose_run_rejects_form_label_runs():
+	# Signed-in Zoom shape: a long run of field labels with ONE question
+	# ending in "?" — 1 sentence-ender in a 17-line run fails the density
+	# requirement (at least 2 AND at least half the run).
+	nodes = [_node("heading", 20, level=2, preview="Webinar Registration")]
+	for i in range(16):
+		nodes.append(_node("paragraph", 18, preview=f"Field label {i}"))
+	nodes.append(_node("paragraph", 52,
+		preview="Do you consider yourself a person with a disability?"))
+	assert web._find_prose_run_landing(nodes) is None
+
+
+def test_prose_run_rejects_pre_heading_runs():
+	# Cookie-banner shape: two sentence-shaped lines BEFORE any heading.
+	# Pre-heading runs are chrome (same principle as the hero gate's
+	# seen-heading requirement) — must not become a landing.
+	nodes = [
+		_node("paragraph", 43, preview="We use cookies to improve your experience."),
+		_node("paragraph", 52, preview="By clicking Accept, you agree to our use of cookies."),
+		_node("heading", 12, level=1, preview="Real Article"),
+	]
+	assert web._find_prose_run_landing(nodes) is None
+
+
+def test_prose_run_preview_fallback_detects_sentence_ends():
+	# Fixture-style nodes without the walk-time flag: lines <= 60 chars
+	# fall back to checking the preview, so a punctuated pair after a
+	# heading still qualifies.
+	nodes = [
+		_node("heading", 4, level=2, preview="Post"),
+		_node("paragraph", 44, preview="Short first line of a chat-style message here."),
+		_node("paragraph", 58, preview="Second line that also reads like a real prose sentence."),
+	]
+	assert web._find_prose_run_landing(nodes) == 1
+
+
+# ---------------------------------------------------------------------------
+# Promo-teaser and byline chrome filters (Daily Mail regression)
+# ---------------------------------------------------------------------------
+
+def test_promo_teaser_detector():
+	assert web._looks_like_promo_teaser(
+		"• READ MORE: America's greatest mystery was a lie") is True
+	assert web._looks_like_promo_teaser("READ MORE: The full story here") is True
+	assert web._looks_like_promo_teaser("RELATED: Another headline") is True
+	assert web._looks_like_promo_teaser("RELATED ARTICLES: one and two") is True
+	assert web._looks_like_promo_teaser("DON'T MISS: The other thing") is True
+	# Mixed-case prose never matches — the label must be ALL CAPS.
+	assert web._looks_like_promo_teaser("Read more about the study here.") is False
+	assert web._looks_like_promo_teaser(
+		"Related: the researchers also found a second site.") is False
+	# EXCLUSIVE deliberately excluded — sites open real ledes with it.
+	assert web._looks_like_promo_teaser("EXCLUSIVE: Prince Harry has decided") is False
+
+
+def test_byline_detector():
+	assert web._looks_like_byline(
+		"By STACY LIBERATORE, US SCIENCE & TECHNOLOGY EDITOR") is True
+	assert web._looks_like_byline("By JOHN SMITH FOR DAILYMAIL.COM") is True
+	# Real prose that opens with "By" is mostly lowercase — never matches.
+	assert web._looks_like_byline(
+		"By NASA's estimate, the mission will cost billions.") is False
+	assert web._looks_like_byline(
+		"By the time he arrived, the crowd had gone.") is False
+	# Mixed-case bylines are a KNOWN GAP, deliberately not matched.
+	assert web._looks_like_byline("By John Smith") is False
+
+
+def test_article_landing_skips_read_more_promo_and_caps_byline():
+	# Regression: dailymail.com Channel Islands article (2026-07-06 soak).
+	# The "• READ MORE:" promo box (109 chars) followed by the all-caps
+	# byline (51 chars) formed a fake cluster and won the landing at idx 1.
+	# Both are chrome; the landing must fall through to the real lede at
+	# idx 6 (a 226-char very-substantial paragraph).
+	nodes = [
+		_node("paragraph", 10, preview="Crime Desk"),                        # 0
+		_node("paragraph", 109,
+			preview="• READ MORE: America's greatest mystery was a lie: Truth abo"),  # 1
+		_node("paragraph", 51,
+			preview="By STACY LIBERATORE, US SCIENCE & TECHNOLOGY EDITO"),   # 2
+		_node("paragraph", 20, preview="Published: 13:05 EDT"),              # 3
+		_node("paragraph", 12, preview="146 comments"),                      # 4
+		_node("paragraph", 9, preview="Add to bo"),                          # 5
+		_node("paragraph", 226,
+			preview="Hidden among the Channel Islands are 13,000-year-o"),   # 6
+		_node("paragraph", 211,
+			preview="Instead, it suggests Ice Age humans reached North "),   # 7
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 6
+
+
+def test_article_landing_hero_lands_on_podcast_description():
+	# Thurrott podcast page shape once it classifies ARTICLE: H1, chrome
+	# rows, then a 120-char episode description immediately followed by a
+	# heading ("Tagged with"). Hero gate: >= 100 chars, heading already
+	# seen, heading in lookahead — lands on the description.
+	nodes = [
+		_node("paragraph", 18, preview="Upgrade to Premium"),
+		_node("heading", 37, level=1, preview="First Ring Daily 1977: The Way of GPU"),
+		_node("paragraph", 10, preview="Brad Sams"),
+		_node("paragraph", 120,
+			preview="On this episode of First Ring Daily, NVIDIA has a story, Xbo"),
+		_node("heading", 11, level=3, preview="Tagged with"),
+		_node("paragraph", 30, preview="First Ring Daily, GPU, NVIDIA"),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 3
+
+
+def test_participle_byline_detector():
+	# Phoronix-style mixed-case byline (85 chars full length).
+	assert web._looks_like_byline(
+		"Written by Michael Larabel in Arch Linux on 14 June 2026 at",
+		full_length=85,
+	) is True
+	assert web._looks_like_byline("Posted by Jane Doe on July 4, 2026") is True
+	assert web._looks_like_byline("Published by The Editorial Team") is True
+	# Narrative prose: lowercase after "by" — never matches.
+	assert web._looks_like_byline("Written by hand, the letter took weeks to arrive.") is False
+	# Long book-review lede: participle prefix but over the 120-char cap.
+	assert web._looks_like_byline(
+		"Written by John Steinbeck in 1939, The Grapes of",
+		full_length=200,
+	) is False
+
+
+def test_scoped_article_landing_skips_participle_byline():
+	# Regression: phoronix.com/news/Arch-Linux-AUR-More-Malware (2026-07-06
+	# soak). Positionally-scoped single-article tree; the fast path took
+	# the FIRST substantial paragraph, which was the 85-char mixed-case
+	# byline sitting between the H1 and the lede. Must land on the lede.
+	nodes = [
+		_node("heading", 75, level=1, preview="Arch Linux AUR Hit By Another Wave Of No"),
+		_node("paragraph", 85, preview="Written by Michael Larabel in Arch Linux on 14 Jun"),
+		_node("paragraph", 291, preview="Just a day after Arch Linux developers believed th"),
+		_node("paragraph", 390, preview="Last night another round of malware in Arch Linux "),
+		_node("paragraph", 267, preview="Hours later, Nicolas Boichat reported more malware"),
+		_node("paragraph", 205, preview="At this stage it's a bit surprising they don't com"),
+		_node("paragraph", 11, preview="97 Comments"),
+	]
+	summary = cls.TreeSummary(main_nodes=nodes, positionally_scoped=True)
+	assert web.find_article_landing(summary) == 2

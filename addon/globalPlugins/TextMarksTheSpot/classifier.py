@@ -57,6 +57,24 @@ class MainNode:
 	# because the giveaway — a trailing "(Getty Images)"-style credit — is
 	# usually past the 60-char preview cutoff. Landing finders skip these.
 	is_caption: bool = False
+	# True when this paragraph is legal footer boilerplate — a copyright
+	# line ("Copyright ©2026 ... All rights reserved.") or a CCPA links row
+	# ("Do Not Sell My Personal Information"). Computed at walk time over
+	# the FULL chunk text, same as is_caption (the "All rights reserved"
+	# tail commonly sits past the 60-char preview cutoff). Landing finders
+	# skip these, and _hero_paragraph_chars ignores them so a not-yet-
+	# hydrated SPA shell whose only substantial text is the footer
+	# copyright (Zoom webinar registration was the canonical case) can't
+	# classify as ARTICLE and land the user on the copyright line.
+	is_boilerplate: bool = False
+	# True when the FULL chunk text ends like a sentence (terminal . ! ? or
+	# ellipsis, allowing trailing closing quotes/brackets). Computed at walk
+	# time because the terminal punctuation on a 61+ char line sits past the
+	# 60-char preview cutoff. Backs the prose-run landing gate in
+	# detection/web.py: runs of consecutive SHORT lines (tweet/chat text
+	# split line-per-paragraph) qualify as content only when most lines end
+	# like sentences — nav menus and form-label runs don't.
+	ends_sentence: bool = False
 
 
 @dataclass
@@ -107,6 +125,14 @@ class ClassifierResult:
 PARAGRAPH_MIN_CHARS = 100         # what counts as a "substantial" body paragraph
 PARAGRAPH_CLUSTER_MIN_SIZE = 3    # how many in a row to call it a cluster
 PARAGRAPH_CLUSTER_MIN_CHARS = 500 # combined chars across the cluster
+
+# Two ADJACENT paragraphs this long each are unambiguous editorial content
+# even though they miss the 3-paragraph cluster bar. armstrongeconomics.com
+# blog posts are the canonical case: two 600-char body paragraphs plus a
+# 6-input newsletter widget classified as FORM (article_count=0 on that
+# WordPress theme, so the <article> editorial block never engaged) and the
+# user landed on the H1 via the form-title path instead of the lede.
+MASSIVE_DUO_MIN_CHARS_EACH = 200
 
 # A run of same-level headings is broken when the text between consecutive
 # members exceeds this many chars. Calibrated so news/search-snippet pages
@@ -178,11 +204,17 @@ NOTICE_MIN_TEXT_CHARS = 20        # need at least a sentence
 NOTICE_MAX_TOTAL_CHARS = 1500     # bigger than this and it's a real content page
 NOTICE_MAX_HEADINGS = 3           # 1 H1 + maybe 1-2 supporting headings
 NOTICE_MAX_INTERACTIVES = 6       # a few CTAs / footer links, no real UI
+# With a status-keyword match, tolerate a couple of form controls: real
+# confirmation pages carry widgets like "Add to calendar" that NVDA's
+# formField quick-nav class counts (Zoom's "You have successfully
+# registered" page counts 1). The shape-only 0.65 path still requires
+# ZERO form fields so bare login pages can't classify as notices.
+NOTICE_KEYWORD_MAX_FORM_INPUTS = 2
 
 # URL-pattern tiebreakers (lowercase substring match).
 URL_HINTS = {
 	Intent.FORM:    ("/signup", "/sign-up", "/register", "/contact", "/apply", "/intake"),
-	Intent.ARTICLE: ("/article/", "/news/", "/blog/", "/post/", "/story/", "/posts/", "/wiki/"),
+	Intent.ARTICLE: ("/article/", "/news/", "/blog/", "/post/", "/story/", "/posts/", "/wiki/", "/podcast"),
 	Intent.LIST:    ("/search", "/results", "/category/", "/tag/", "/feed", "/topic/"),
 	Intent.APP:     ("/app/", "/compose", "/dashboard", "/admin/"),
 }
@@ -249,11 +281,26 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# looks like a form (/signup, /register, /apply, /intake, /contact).
 	# Legitimate signup pages match that URL pattern.
 	has_editorial_content = tree.article_count >= 1
+	# A pair of ADJACENT massive paragraphs (>= MASSIVE_DUO_MIN_CHARS_EACH
+	# each, no heading between) is article body even though it misses the
+	# 3-paragraph cluster bar. Same URL escape hatch as the <article>
+	# block: a registration page with a rich two-paragraph description
+	# (/register, /signup, ...) legitimately stays FORM.
+	has_massive_duo = _has_massive_paragraph_duo(tree.main_nodes)
+	# An editorial URL (/news/, /blog/, /podcast, /article/, ...) is the
+	# mirror image of the FORM URL escape hatch: content pages carry
+	# comment boxes, logins, search and newsletter widgets that add up to
+	# a strong input count, and sites like thurrott.com expose no
+	# <article> for the editorial block to key on. A URL that matches
+	# BOTH (e.g. /blog/contact) stays eligible for FORM.
+	has_editorial_url = _url_matches(url, Intent.ARTICLE) and not _url_matches(url, Intent.FORM)
 	form_blocked = (
 		strong_article_cluster
 		or has_body_cluster_strong
 		or (has_hero and not strong_form_signal)
 		or (has_editorial_content and not _url_matches(url, Intent.FORM))
+		or (has_massive_duo and not _url_matches(url, Intent.FORM))
+		or has_editorial_url
 	)
 	if tree.form_input_count >= FORM_INPUT_THRESHOLD and not form_blocked:
 		confidence = min(0.6 + 0.08 * (tree.form_input_count - FORM_INPUT_THRESHOLD), 0.9)
@@ -388,24 +435,26 @@ def _classify_notice(tree: TreeSummary) -> Optional[ClassifierResult]:
 		and total_chars <= NOTICE_MAX_TOTAL_CHARS
 		and heading_count <= NOTICE_MAX_HEADINGS
 		and tree.interactive_control_count <= NOTICE_MAX_INTERACTIVES
-		and tree.form_input_count == 0
 	)
 	if not shape_ok:
 		return None
 
 	# Two paths above the confidence threshold:
 	# - Shape + status-keyword match → high confidence ("Thank you for...",
-	#   "no longer accepting", "page not found", etc.).
+	#   "no longer accepting", "page not found", etc.). Tolerates a couple
+	#   of form controls — confirmation pages carry "Add to calendar"-style
+	#   widgets that count as form fields (Zoom registration confirmation).
 	# - Shape alone, with at least one heading paired to body text → medium
 	#   confidence (catches closed forms / error pages whose text doesn't
-	#   match our keyword list).
-	if tree.notice_keyword_match:
+	#   match our keyword list). Requires ZERO form fields so small real
+	#   forms (login pages) can't classify as notices.
+	if tree.notice_keyword_match and tree.form_input_count <= NOTICE_KEYWORD_MAX_FORM_INPUTS:
 		return ClassifierResult(
 			Intent.NOTICE, 0.85,
 			f"notice shape ({total_chars} chars, {heading_count} headings) "
 			f"+ status keyword match",
 		)
-	if 1 <= heading_count <= 2:
+	if tree.form_input_count == 0 and 1 <= heading_count <= 2:
 		return ClassifierResult(
 			Intent.NOTICE, 0.65,
 			f"notice shape ({total_chars} chars, {heading_count} heading(s))",
@@ -434,6 +483,26 @@ def _largest_paragraph_cluster(nodes: list[MainNode]) -> tuple[int, int]:
 			else:
 				cur_size, cur_chars = 0, 0
 	return best_size, best_chars
+
+
+def _has_massive_paragraph_duo(nodes: list[MainNode]) -> bool:
+	# True when two ADJACENT paragraph nodes are each >=
+	# MASSIVE_DUO_MIN_CHARS_EACH chars, with nothing between them and
+	# neither flagged as caption/boilerplate. See classify()'s FORM gate.
+	prev_massive = False
+	for n in nodes:
+		if (
+			n.kind == "paragraph"
+			and n.text_length >= MASSIVE_DUO_MIN_CHARS_EACH
+			and not n.is_caption
+			and not n.is_boilerplate
+		):
+			if prev_massive:
+				return True
+			prev_massive = True
+		else:
+			prev_massive = False
+	return False
 
 
 def _largest_heading_cluster(nodes: list[MainNode]) -> tuple[int, int]:
@@ -486,6 +555,15 @@ def _hero_paragraph_chars(nodes: list[MainNode]) -> int:
 			cur_chars = 0
 			cur_has_substantial = False
 		elif n.kind == "paragraph":
+			# Legal footer boilerplate (copyright lines, CCPA links rows)
+			# never counts as hero text. On a not-yet-hydrated SPA shell the
+			# footer copyright is often the ONLY substantial paragraph; letting
+			# it qualify as a hero classified the shell as ARTICLE and landed
+			# the user on the copyright (Zoom webinar registration). Skipping
+			# it here leaves the shell with no signal → no landing → the
+			# generic 1500 ms retry gets its chance against the hydrated page.
+			if n.is_boilerplate:
+				continue
 			cur_chars += n.text_length
 			if n.text_length >= HERO_PARAGRAPH_MIN_CHARS:
 				cur_has_substantial = True

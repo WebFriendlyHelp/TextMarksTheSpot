@@ -23,12 +23,32 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Get to the actual content on a web page without working so hard to find it. Hands off. Let the page load, listen for the short beeps, and you're at the start of the article. NVDA reads the first paragraph. Press Z to skim forward, Shift+Z to jump back to the start, NVDA+Z to turn the add-on off on a specific site. Runs locally, no network calls."""),
 	# version
-	addon_version="1.0.8",
+	addon_version="1.0.9",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""Better landings on news articles that lead with a photo.
+	addon_changelog=_("""The cursor no longer lands on copyright and legal text.
 
-When a story opens with a large photo, the cursor sometimes landed on the photo's caption or credit line instead of the story itself. Those lines are now recognized and skipped. And on stories that begin with a city dateline, like "DENVER -", the short opening line was sometimes passed over for a longer paragraph further down; that opening line is now treated as the real start of the story, so the cursor lands there."""),
+On pages that draw their content in after the page first loads, such as Zoom webinar registration pages, the only text present at first is the site's footer, and the add-on would land there and read the copyright line as if it were the page. Copyright lines and legal footer links are now recognized and never used as a landing spot; the add-on waits its usual moment and looks again once the real content has arrived. The Z key skips past copyright text too.
+
+Registration pages that open with a real description now land on the page title so you can arrow through the description and into the form, instead of being dropped on the first field with everything above it skipped. Plain forms with no description still put you right on the first field.
+
+One page visit, one landing: some web apps quietly rebuild their page seconds after it loads, and each rebuild used to trigger a fresh detection that yanked the cursor away from a good landing. Now, once the add-on has landed on a page, later rebuilds of that same page leave your cursor alone. Press Z any time for a fresh detection.
+
+Going back to a page no longer yanks you to the top. When you press Back to return to search results or a list you were working through, your browser restores your place, and the add-on respects it: on a page you have already visited, if your cursor is anywhere past the top, it stays quiet. First visits still land as usual, and links that point into a specific section of a page are respected too.
+
+Posts on X (Twitter) now land on the post text instead of the generic "Post" heading. A tweet reaches NVDA as several short lines, each too short to qualify on its own; runs of short lines that read like sentences are now recognized as real content.
+
+News articles no longer land on "READ MORE" promo boxes or bylines (both the all-caps "By ..." style and the "Written by ..." style); these are now skipped as page furniture so the cursor reaches the story's real opening paragraph. And blog posts that carry a newsletter signup widget are no longer mistaken for form pages: two long body paragraphs in a row now count as proof the page is an article, while real registration pages are unaffected.
+
+Paragraphs that follow images or link-heavy blocks are no longer invisible: a stepping quirk in how the add-on read through the page could silently skip the paragraph right after a picture or a logo heading, so it could never be landed on or found with Z.
+
+Pages whose address says they're content (news, blog, podcast, article) are no longer treated as forms just because they carry a comment box, login, search, and newsletter widgets; pages whose address says form (register, signup, contact) keep the form treatment.
+
+And when a form page hides its description inside collapsed sections, the add-on lands on the page heading at the top of the form instead of a lone question partway down.
+
+Detection is also much faster: the slowest internal step could add a second or more of sluggishness per page load, and it has been reworked. The same rework fixes form detection on pages that previously counted as having no form fields at all.
+
+Confirmation pages such as "You have successfully registered" now land on the confirmation message even when the page carries a control like Add to Calendar."""),
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support

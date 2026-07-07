@@ -23,16 +23,16 @@ These are the principles the add-on must satisfy. They override any feature that
 
 ## Design decisions (locked)
 
-1. **Position only by default — no auto-read.** When detection succeeds, the add-on moves the browse-mode caret to the content start. NVDA's normal cursor-move announcement speaks whatever element the caret lands on (the heading, the first body paragraph, etc.) — that announcement IS the user's confirmation. The user then drives reading themselves with the standard NVDA keys (Down Arrow, NVDA+Down for sayAll-from-caret, etc.). Rationale: respects guardrail #5 (the user is always in charge), avoids conflicting with NVDA's existing `config.conf["virtualBuffers"]["autoSayAllOnPageLoad"]` preference, eliminates the risk of accidentally talking over video or other unwanted content, and the user keeps full agency over when speech starts. An opt-in "auto-read after positioning" toggle can live in settings later if real users ask for it — but it's not the default.
-2. **Manual re-trigger hotkey: `Z`.** Confirmed unused by NVDA browse-mode quick navigation. Pressed in browse mode to re-run detection if the auto pick was wrong.
-3. **Per-site / per-app disable list** in the settings panel. Users can opt out for specific domains or apps.
+1. **Auto-read on successful landings is the shipped default.** This supersedes the early "position only, no auto-read" draft. For ARTICLE / LIST / NOTICE / KEY_RESULT, the add-on moves the browse-mode caret, cancels speech only at the moment it has a landing, expands to the paragraph, and calls `speech.speakTextInfo` so the user hears exactly where they landed. FORM uses a different path: `ui.message` announces the form title, then focus moves to the first form field so NVDA's own focus speech announces the control. Video, app, unknown, and focus-honored pages stay silent.
+2. **Manual content hotkey: `Z`.** Confirmed unused by NVDA browse-mode quick navigation. In the current implementation, `Z` scans forward from the current browse cursor to the next substantial content paragraph, skipping headings and known chrome. On an excluded site, double-press `Z` runs one-time detection without changing the exclusion list.
+3. **Per-site disable list via `NVDA+Z`.** Users can opt out for specific domains without a settings panel. `NVDA+Z` toggles the current hostname after confirmation. A per-app list and settings panel remain future work.
 4. **Form-as-primary-goal detection.** Only treat as a form page when:
    - Readability scoring finds NO strong article candidate, AND
    - A form with multiple fields occupies the main content area, AND
    - Optional URL/title signals (`/register`, `/signup`, `/apply`, `/intake`, `/contact`) reinforce
    - NOT triggered by a newsletter widget sitting inside an article page
    - Honors guardrail #2: if any of the above is uncertain, the add-on does nothing and the user uses `f` to find form fields normally. We do not "best guess" form pages.
-5. **No audio feedback during detection** (in the default position-only flow). Detection is <50ms — well under the human "instant" threshold. NVDA's natural cursor-move announcement on the landed element gives the user confirmation that something happened; a tone on top would be noise. If real-world detection ever crosses ~150ms on common pages (which would mean a perf regression worth fixing), we revisit and reintroduce the start / progress-pulse / success tones using NVDA's built-in `tones.beep`. For now: silent on success, silent on failure.
+5. **Audio feedback is intentionally present.** This supersedes the early "no audio feedback" draft. Real-world detection can be slow, so the shipped flow plays a short working tone when detection starts, a soft repeating pulse while the tree walk runs, and two low beeps only after the retry attempt finds nothing. There is no success tone; the spoken landing text is the success signal. Focus-honored pages remain completely silent.
 6. **Visual highlight at the detected spot.** Low-vision users and sighted observers (demo viewers, family/colleagues working alongside the blind user) benefit from seeing where the cursor landed.
    - **Phase 1 (MVP) — free, no code:** Rely on NVDA's built-in vision highlight system. When we move the browse cursor to the detected position, NVDA's existing browse-mode caret highlight (if enabled in `Preferences → Settings → Vision`) shows a box around it automatically. User-facing docs tell users to enable it. Zero implementation cost.
    - **Phase 2 — custom flash effect:** Add a `visionEnhancementProviders/` module to the add-on. Brief colored overlay around the detected element for ~500 ms on detection success, then fades. Doesn't clutter the screen long-term. High demo/marketing value. NVDA Vision Enhancement Provider API was added in 2020.4 — within our compatibility floor. Settings toggle for the flash, default ON.
@@ -44,7 +44,9 @@ These are the principles the add-on must satisfy. They override any feature that
    - **Article** (news article, blog post, Wikipedia entry, docs page, single long-form piece). Goal: jump past headline / dek / byline / date / social-share / image-figures / related-articles rail to the **first substantial body paragraph**. Auto-read ON.
    - **List of articles** (news index home, search results page, YouTube home / channel, Google results, blog index, forum thread index). Goal: jump to the **first content heading of the largest same-level heading cluster inside `<main>`** — the first story / result / video / thread title. Auto-read OFF. User scans with NVDA's `H` key, picks one, clicks.
    - **Form** (signup, login, contact, intake, medical intake). Goal: jump to the **first form field**. Auto-read OFF. (Existing locked decision #4 is the form-detection rule; it becomes a branch of this architecture.)
-   - **Status / dashboard** (account home, portal, monitoring widget, settings page). Too varied for a useful default. **Silent.** No jump, no tone. User uses NVDA's normal keys.
+   - **Notice / status page** (closed form, thank-you page, 404, maintenance, access-denied, short confirmation). Goal: land on the first meaningful status sentence.
+   - **Key-result widget** (speed test, weather, stock quote, battery level, currency conversion). Goal: land on the label so the user can arrow forward to hear the value and unit.
+   - **Dashboard** (account home, portal, monitoring widget, settings page). Too varied for a useful default. **Silent.** No jump, no tone. User uses NVDA's normal keys.
    - **Video / media-consumption page** (YouTube watch page, Spotify web, podcast page, video-first article). Don't compete with the audio. **Silent.** User uses NVDA's normal keys.
    - **App** (webmail compose, web IDE, calculator, drawing tool, anything that's a control surface). **Silent.**
    - **Unknown** (below confidence on any intent). **Silent.** Guardrail #3.
@@ -80,7 +82,7 @@ These are the principles the add-on must satisfy. They override any feature that
 
    The classifier is the load-bearing piece. Every per-intent strategy is small (10-30 lines). The classifier is what determines whether the add-on does the right thing or the wrong thing.
 
-8. **Z is a smart "next likely thing" sequence, not just re-trigger.** Each press of Z moves to the next contextually likely position for the current page intent. After every Z press, NVDA announces what it did ("Jumped to first error: Email is required") so the user knows what happened.
+8. **Z is a content-forward scan today; richer sequences are deferred.** The current shipped `Z` behavior starts from the user's current browse cursor and moves to the next substantial content paragraph below it. It deliberately skips headings because NVDA's `H` key already handles headings. The broader "next likely thing" sequences below remain a future design direction, not current behavior.
 
    Page-type taxonomy and Z sequences (each step is one Z press; the auto-trigger fires step 0 on page load):
 
@@ -117,17 +119,15 @@ These are the principles the add-on must satisfy. They override any feature that
    Sequence state resets when the document changes (URL change, new email opened, navigation event). Each press announces "Jumped to X" via `ui.message` so the user knows the result.
 
    **Guardrail enforcement on Z:**
-   - If the page type is unidentified (no confident article / form / email / search / app match), Z falls back to "re-run detection from current position." Same as Phase 1 MVP behavior. Never invent a sequence on an ambiguous page.
-   - At the end of a sequence (no more steps), Z announces "No more next-likely actions on this page" rather than wrapping around or guessing.
+   - Current behavior: Z never invents an intent-specific sequence. It only scans forward to the next substantial content paragraph from the user's actual cursor position.
+   - If there is no eligible paragraph below the cursor, it announces "Nothing else to land on" and does not wrap.
    - Z never rebinds or interferes with NVDA's built-in quick-nav keys. Tab, h, f, t, k, b, etc. continue to work exactly as NVDA defines them.
 
-   **Phasing — MVP stays small:**
-   - **Phase 1 (MVP):** Z = re-trigger detection only (single behavior, no sequence state)
-   - **Phase 1.5:** Press counter + article-context sequence (step 1: next major section)
-   - **Phase 2:** Form-context sequence (errors, next empty, submit) — high user value
-   - **Phase 3:** Email and search-results sequences
+   **Current and deferred behavior:**
+   - **Current:** Z scans forward to next content paragraph; Shift+Z returns to the saved automatic landing; NVDA+Z toggles the site exclusion list.
+   - **Deferred:** article section sequence, form-context sequence (errors, next empty, submit), email sequence, and search-result sequence.
 
-   Resist the urge to ship the full sequence in v0.1.0. Each phase is its own marketing event and gets its own user feedback loop.
+   Resist the urge to ship the full sequence until the simpler content-forward scan has more real-world feedback. Each larger sequence should get its own user feedback loop.
 
 ## Approach
 
@@ -136,7 +136,7 @@ These are the principles the add-on must satisfy. They override any feature that
 - **Web detection (article intent):** Walk NVDA's already-parsed browse-mode virtual buffer to find the first substantial body paragraph inside `<article>` or the main content region, skipping byline / date / social-share / figure / related-rail chrome (see decision #8 chrome list). Paragraph-cluster filter: candidate must be ≥ 100 chars AND a sibling of 3+ similar-length paragraphs. No re-parse of HTML.
 - **Web detection (list intent):** Walk NVDA's heading tree, find the largest cluster of same-level headings inside `<main>` (or not inside `<header>` / `<nav>` / `<aside>`), jump to the first heading in that cluster.
 - **Email detection:** Same intent classifier as web (personal/work, marketing, transactional, system). For plain-text email: regex-based quoted-reply strip (`On <date>, <name> wrote:`, `>`-prefixed lines, "From: ... Sent: ..." blocks) + signature strip (trailing K lines after valediction or org-keyword pattern, or `-- ` delimiter). For HTML email: apply the article-intent strategy plus an email-specific chrome list (preheader hidden text, masthead/logo block, signature blocks in `<blockquote>` or `<table class="signature">`, footer/unsubscribe rail). Same detection function applies regardless of email client — the trigger fires on whatever message-body area gains focus.
-- **Auto-trigger mechanism:** Override `event_gainFocus` on the `GlobalPlugin` and bookkeep `obj.treeInterceptor` — fire detection only when the treeInterceptor object identity changes from the last one we saw. Optionally also override `event_documentLoadComplete` for fresh-page-load coverage. The intuition in earlier drafts was correct (we want "treeInterceptor changed"), but the mechanism was wrong: `event_treeInterceptor_gainFocus` is invoked directly as a method on the treeInterceptor by `doPreGainFocus` in NVDA's `eventHandler.py` and is NOT in the GlobalPlugin event dispatch chain. Verified against NVDA source 2026.1.1 — the `_EventExecuter.gen()` chain dispatches global plugins → app modules → tree interceptor → NVDAObject for normal events, but `event_treeInterceptor_gainFocus` short-circuits that. NVDA's own debounce (`obj.treeInterceptor is not oldTreeInterceptor`) means in-document focus shifts don't trigger — we replicate that check in our own `event_gainFocus` override.
+- **Auto-trigger mechanism:** The current `GlobalPlugin` hooks `event_documentLoadComplete` and `event_treeInterceptor_gainFocus`, not broad `event_gainFocus`. `event_gainFocus` fires on routine focus changes and alt-tab restores, so it is too noisy for this add-on. Detection is gated by TreeInterceptor identity, URL cooldown, site exclusion, and the focus-editable guard before any tone or tree walk runs. Manual `Z` bypasses the identity and URL cooldown gates because the user explicitly requested a scan.
 - **Speed budget:** Under ~50ms per detection. Pre-compiled regex at module load. Walk-only, no re-parse. Cache last-detected position keyed by document URL / message identity.
 
 ## Privacy stance
@@ -165,7 +165,7 @@ Text Marks the Spot/
 │       │   └── form.py                    form landing strategy (Phase 2)
 │       ├── patterns.py                    regex + class/id chrome blacklists
 │       ├── context.py                     browser vs webmail vs app detection
-│       ├── trigger.py                     event_gainFocus hook + TI bookkeeping
+│       ├── trigger.py                     stub; trigger logic currently lives in __init__.py
 │       ├── sequence.py                    Z key per-intent sequence state
 │       └── config.py                      settings storage (confspec) — backs the site-exclusion list
 └── tests/
@@ -178,8 +178,8 @@ Text Marks the Spot/
 ## Compatibility
 
 - **Minimum NVDA:** 2024.1 (Python 3.11)
-- **Last tested NVDA:** 2026.1.1 (Python 3.13, 64-bit)
-- **Reviewed against NVDA 2026.2 beta 1 (2026-06-02):** no code changes required. The only 2026.2 developer deprecations are in `speechDictHandler` (`ENTRY_TYPE_*` constants, `SpeechDictEntry`/`SpeechDict` moved to `speechDictHandler.types`) — modules the add-on doesn't import. The `browseMode._toggleScreenLayout` override note applies only to `BrowseModeDocumentTreeInterceptor` subclasses; we hook `event_treeInterceptor_gainFocus` rather than subclassing, so it doesn't apply. 2026.2 is a minor release, so the add-on backward-compat boundary did not move and the `lastTestedNVDAVersion=2026.1.1` add-on loads in 2026.2 without an incompatibility warning. 2026.2's new default `NVDA+x` (repeat last spoken info) does not collide with our `Z` / `Shift+Z` / `NVDA+Z`. **Smoke-tested on the 2026.2 beta on 2026-06-17** (detection, landings, and the Z gestures all worked), so `addon_lastTestedNVDAVersion` is set to `2026.2.0` in `buildVars.py`. That bump landed on `main` after the v1.0.6 release commit (which still carried `2026.1.1`), so it ships with the next tagged release — no separate patch was cut just for the metadata.
+- **Last tested NVDA:** 2026.2.0 (Python 3.13, 64-bit)
+- **Reviewed against NVDA 2026.2 beta 1 (2026-06-02):** no code changes required. The only 2026.2 developer deprecations are in `speechDictHandler` (`ENTRY_TYPE_*` constants, `SpeechDictEntry`/`SpeechDict` moved to `speechDictHandler.types`) — modules the add-on doesn't import. The `browseMode._toggleScreenLayout` override note applies only to `BrowseModeDocumentTreeInterceptor` subclasses; we hook `event_treeInterceptor_gainFocus` rather than subclassing, so it doesn't apply. 2026.2's new default `NVDA+x` (repeat last spoken info) does not collide with our `Z` / `Shift+Z` / `NVDA+Z`. **Smoke-tested on the 2026.2 beta on 2026-06-17** (detection, landings, and the Z gestures all worked), so `addon_lastTestedNVDAVersion` is set to `2026.2.0` in `buildVars.py`.
 - **Pure Python, no C extensions** — works in both 32-bit and 64-bit NVDA without rebuild
 - License: GPL v2 (NV Access store convention)
 - Versioning: major.minor.patch
@@ -190,25 +190,28 @@ Text Marks the Spot/
 2. **Confirm `Z` is also unused by JAWS quick-nav** in case we port later. Casey is JAWS Certified — a future JAWS script pack would want consistent keys.
 3. **Pick a final add-on ID slug** for the manifest. Current proposal: `TextMarksTheSpot`. The store uses this as the addon ID URL slug.
 
-## Phase 1 — what shipped in 0.1.0
+## Current shipped behavior
 
-Status: working build, end-to-end, in Firefox and Chrome browse mode against a varied corpus of real sites.
+Status: working public add-on, version 1.0.8 in `buildVars.py`, end-to-end in Firefox and Chrome browse mode against a varied corpus of real sites.
 
 **Implemented:**
-- Intent-first classifier (`classifier.py`) — 23 hand-coded fixtures, 100% pass. Pure Python, no NVDA imports — runnable on any workstation.
-- NVDA-binding layer (`tree_summary.py`) — walks the browse-mode tree and produces a TreeSummary the classifier can consume. Three-tier walk fallback: (1) scoped to `<main>`, (2) chrome-filtered when main scoping yields nothing, (3) unscoped last-resort for pages whose theme wraps body in `role="complementary"` etc.
-- Article landing strategy (`detection/web.py`) — `find_article_landing` (cluster or hero pattern) and `find_list_landing` (first heading in dominant cluster). 13/14 landing fixtures pass.
-- Trigger (`__init__.py`) — hooks `event_gainFocus` and `event_documentLoadComplete`. TI-changed bookkeeping (mirrors NVDA's own `doPreGainFocus` debounce). Synchronous detection at event time — empirically more reliable on JS-heavy sites than delayed/queued detection.
-- Action: on ARTICLE → move caret to first body paragraph; on LIST → move caret to first headline in dominant heading cluster. `speech.cancelSpeech()` immediately at handler start (gated on TI change) plus before our own speakTextInfo, then `speech.speakTextInfo` so the user hears the landing text.
-- `Z` key — re-runs detection. Gated on `BrowseModeDocumentTreeInterceptor` + `passThrough=False`; passes through to host app outside browse mode (so users can type `z` in terminals/edit fields).
-- Single-call cache for `_in_scope` parent-chain lookups — 3-10x speedup over uncached.
+- Intent-first classifier (`classifier.py`) over `TreeSummary`. Current intents include `SILENT_FOCUS_HONORED`, `FORM`, `ARTICLE`, `LIST`, `APP`, `NOTICE`, `KEY_RESULT`, and `UNKNOWN`.
+- NVDA-binding layer (`tree_summary.py`) walks browse-mode text by `UNIT_PARAGRAPH`, captures parallel textInfo positions, computes notice-keyword and caption flags from full chunk text, and logs `[TMTS perf]` timing data.
+- Tree-summary fallback is now main-scoped walk to unscoped walk. The older intermediate chrome-filtered fallback was removed for performance because it used the same unreliable parent-chain mechanism as the main-scoped walk.
+- Positional article scoping is implemented for the no-`<main>` / exactly-one-`<article>` case. This excludes nav before the article and comments/footer/sidebar after it, then marks `TreeSummary.positionally_scoped=True`.
+- Landing strategies (`detection/web.py`) cover ARTICLE, LIST, FORM, NOTICE, KEY_RESULT, and Z forward scan. Article landing skips tag lists, share-link payloads, accessibility instructions, figure captions/photo credits, and protects short news dateline ledes.
+- Trigger (`__init__.py`) hooks `event_documentLoadComplete` and `event_treeInterceptor_gainFocus`. It debounces by TreeInterceptor identity and same-URL cooldown, honors the site exclusion list, pre-checks editable focus before any feedback tone, and schedules one retry after 1500 ms when the first attempt produces no action.
+- Action: ARTICLE / LIST / NOTICE / KEY_RESULT move the browse-mode caret, cancel speech only immediately before the add-on speaks, expand to the paragraph, and call `speech.speakTextInfo`. FORM announces the form title with `ui.message` and moves keyboard focus to the first form input.
+- Gestures: `Z` scans forward from the current cursor to the next substantial content paragraph; `Shift+Z` returns to the saved automatic landing; `NVDA+Z` toggles the current site in the exclusion list. Outside browse mode, `Z` and `Shift+Z` pass through.
+- Audio feedback: short working tone at detection start, pulse while detection runs, two low beeps after retry finds nothing, no success tone.
+- Unit-test suite currently covers classifier, landing logic, hostname handling, and tree-summary node filtering.
 - Build: `scons` from the project root produces the `.nvda-addon` using NV Access's official addon template (buildVars.py, sconstruct, site_scons/). `probes/build_probe.py` is still used for the small probe add-ons.
 
 **Deferred to later phases:**
-- Settings panel and per-site disable list — not yet wired.
+- Settings panel and per-app disable list. Per-site exclusion is already wired via `NVDA+Z`.
 - Email detection (Phase 2) — plain-text + HTML email body extraction.
-- Form / video per-intent actions — silent today, planned per-intent later.
-- Z key sequence state machine (next-likely-thing per page type) — Phase 1.5.
+- Video-specific behavior remains silent. FORM is already implemented.
+- Z key sequence state machine for richer next-likely actions. Current Z is a content-forward scan, not a per-intent sequence.
 - Translation infrastructure — English only.
 - **Visual saliency detection (designed, deferred).** Some sites (fast.com, hand-coded blogs, older WordPress themes) style what is logically a heading as a styled `<div>` instead of an `<h1>` — so NVDA's role-based heading detection misses it. The principled fix is a saliency walker that records `(text, role, x, y, w, h)` per chunk from `obj.location`, computes the page's median chunk height and typical vertical rhythm, and flags chunks that are significantly taller than median, surrounded by larger-than-typical whitespace, or horizontally centered. Those get treated as synthetic headings in `main_nodes`. The principle is "what sighted readers notice" — visual difference from neighbors — not "matches a heading formatting pattern." Estimated 200–300 lines + a tuning loop against real pages. **Does NOT fix fast.com** by itself; fast.com's separate problem is that NVDA's `UNIT_PARAGRAPH` walk produces only 4 nodes total on that page (heavy styled-div DOM), so the speed widget isn't in our walk at all and saliency can't see it. Fast.com would need both saliency + a richer walk strategy.
 
@@ -249,9 +252,9 @@ Status: working build, end-to-end, in Firefox and Chrome browse mode against a v
 
 ## Open questions (decide as we go)
 
-- Should auto-read be on by default for the FIRST run after install, or default to "position only, no auto-read" until the user opts in? (Currently locked to: auto-read on. Revisit if early testers complain about surprise speech.)
-- Should the form-detection branch try to focus the first form field, or just announce "this looks like a registration form" and let the user navigate? (Defer until form detection is implemented.)
-- Should the per-site disable list be exact-match domains or support patterns? (Defer to settings panel implementation.)
+- Should the site exclusion list stay exact-match by hostname, or grow pattern support later?
+- Should audio feedback get a user-facing setting, or stay always on until there is real user demand?
+- What is the right scope for the first email-detection release: webmail only, desktop mail clients only, or one shared heuristic with separate trigger surfaces?
 
 ## Build / test workflow — chosen: edit in the project folder, rebuild with SCons
 

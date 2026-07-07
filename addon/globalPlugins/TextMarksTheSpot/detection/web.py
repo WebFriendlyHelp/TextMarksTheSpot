@@ -21,6 +21,13 @@ except ImportError:
 	from classifier import TreeSummary
 
 
+# Directory-page redirect cap: the "land on the title heading instead of a
+# lone far-away paragraph" rule only applies to pages up to this many
+# main_nodes. Big content pages must never redirect. 30 covered the
+# Montgomery probate forms page; 40 also covers the signed-in Zoom webinar
+# registration shell (36 nodes, content hidden in closed accordions).
+_DIRECTORY_REDIRECT_MAX_NODES = 40
+
 # Lower than the classifier's PARAGRAPH_MIN_CHARS=100 cluster bar on purpose.
 # Landing-page intro paragraphs commonly run 50-100 chars (e.g., bestmidi.com/bg/
 # at 60 chars). When the classifier promoted such a page to ARTICLE via the
@@ -137,13 +144,7 @@ def _find_content_section_landing(nodes, min_chars):
 				break
 			if n.kind != "paragraph" or n.text_length < min_chars:
 				continue
-			if _looks_like_tag_list(n.text_preview):
-				continue
-			if _looks_like_share_link_payload(n.text_preview):
-				continue
-			if _looks_like_accessibility_instructions(n.text_preview):
-				continue
-			if _node_is_caption(n):
+			if _is_chrome_paragraph(n):
 				continue
 			return j
 	return None
@@ -292,6 +293,244 @@ def _node_is_caption(node) -> bool:
 	return _looks_like_image_caption(node.text_preview or "")
 
 
+# Legal footer boilerplate: copyright lines and CCPA/privacy links rows.
+# These live in every site's footer and are never the content a user came
+# for — but on a not-yet-hydrated SPA shell (Zoom webinar registration was
+# the canonical case) the copyright line is often the ONLY paragraph that
+# clears the substantial bar, so it was winning the landing and getting
+# spoken as if it were the page's content. Signals, each safe on its own:
+#   - "all rights reserved" — the phrase essentially never appears in prose.
+#   - "copyright" / © immediately followed by a 19xx/20xx year. Requiring
+#     the year keeps articles ABOUT copyright ("the copyright office ruled
+#     in 2026...") from matching.
+#   - The CCPA-mandated "Do Not Sell (or Share) My Personal Information"
+#     link text — footer-only language, catches merged footer link rows.
+_LEGAL_BOILERPLATE_RE = _re.compile(
+	r"\ball rights reserved\b"
+	r"|\bcopyright\s*(?:©|\(c\))?\s*(?:19|20)\d{2}\b"
+	r"|©\s*(?:19|20)\d{2}\b"
+	r"|\bdo not sell (?:or share )?my personal information\b",
+	_re.IGNORECASE,
+)
+
+
+def _looks_like_legal_boilerplate(text: str) -> bool:
+	"""Detect a copyright / legal-footer line masquerading as a body paragraph.
+
+	Conservative by design: every signal is language that effectively never
+	occurs in real article prose. A false positive just means the landing
+	skips to the next paragraph; a false negative means the add-on speaks a
+	copyright notice as if it were the point of the page.
+	"""
+	if not text:
+		return False
+	return bool(_LEGAL_BOILERPLATE_RE.search(text))
+
+
+def _node_is_boilerplate(node) -> bool:
+	"""True if a node is legal footer boilerplate.
+
+	Same two-layer scheme as _node_is_caption: prefer the walk-time
+	``is_boilerplate`` flag (computed over the FULL chunk text — the
+	"All rights reserved" tail commonly sits past the 60-char preview
+	cutoff), fall back to re-checking the preview for fixtures and for
+	lines whose signal appears early ("Copyright ©2026 ..." matches
+	within the first 60 chars).
+	"""
+	if getattr(node, "is_boilerplate", False):
+		return True
+	return _looks_like_legal_boilerplate(node.text_preview or "")
+
+
+# Related-article promo teasers: news sites drop "READ MORE:" / "RELATED:"
+# boxes between the byline and the article body, and the promo headline is
+# long enough to clear the substantial bar. Daily Mail's "• READ MORE:
+# America's greatest mystery was a lie..." (109 chars) won the cluster gate
+# and got spoken as if it were the story. The label is at the START of the
+# line (always inside the 60-char preview) and these promos render the label
+# in ALL CAPS — the match is deliberately case-SENSITIVE so real prose
+# ("Read more about the study here.") never trips it.
+_PROMO_TEASER_RE = _re.compile(
+	r"^\s*[•▪‣·*-]?\s*"
+	r"(?:READ MORE|RELATED(?: ARTICLES?| STORY| STORIES)?|SEE ALSO"
+	r"|DON'T MISS|MORE ON THIS)\s*:"
+)
+# Note: "EXCLUSIVE:" is deliberately NOT in the list — sites open real story
+# ledes with it, so filtering it would skip genuine article openings.
+
+
+def _looks_like_promo_teaser(text: str) -> bool:
+	"""Detect an all-caps "READ MORE:"-style related-article promo line."""
+	if not text:
+		return False
+	return bool(_PROMO_TEASER_RE.match(text))
+
+
+# Participle byline openers: "Written by Michael Larabel in Arch Linux on
+# 14 June 2026 at 05:30 AM EDT" (Phoronix). Unlike bare "By ...", these
+# participle forms essentially never open a narrative body paragraph, so a
+# mixed-case name is safe to match. Requires a capitalized name after "by"
+# ("Written by hand, the letter..." stays) and caps total length at 120 —
+# a book-review lede like "Written by John Steinbeck in 1939, The Grapes
+# of Wrath endures..." usually runs longer; if one ever is that short, the
+# cost is landing one paragraph later, not on chrome.
+_PARTICIPLE_BYLINE_RE = _re.compile(
+	r"^(?:Written|Posted|Published|Story|Reported|Reviewed|Words|Photos?|Photographs?)"
+	r"\s+by\s+[A-Z]"
+)
+_PARTICIPLE_BYLINE_MAX_CHARS = 120
+
+
+def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
+	"""Detect a news byline masquerading as a body paragraph. Two forms:
+
+	1. All-caps "By ..." (Daily Mail): starts with exactly "By " and at
+	   least 70% of the alphabetic characters are uppercase. The ratio
+	   protects real prose that opens with "By": "By NASA's estimate, the
+	   mission will cost..." is mostly lowercase and never matches.
+	   Mixed-case "By John Smith" is a known deliberate gap — it's
+	   indistinguishable from prose openers like "By Tuesday, the storm
+	   had..." without risking real ledes.
+	2. Participle bylines "Written/Posted/Published/... by Name ..."
+	   (Phoronix): mixed case allowed, capped at 120 chars — see
+	   _PARTICIPLE_BYLINE_RE above.
+
+	full_length: the paragraph's FULL text length when `text` is a
+	truncated 60-char preview (as passed by _is_chrome_paragraph). The
+	participle cap must judge the real length, not the preview's.
+	"""
+	if not text:
+		return False
+	effective_length = full_length if full_length is not None else len(text)
+	if (
+		effective_length <= _PARTICIPLE_BYLINE_MAX_CHARS
+		and _PARTICIPLE_BYLINE_RE.match(text)
+	):
+		return True
+	if not text.startswith("By "):
+		return False
+	letters = [c for c in text[3:] if c.isalpha()]
+	if len(letters) < 6:
+		return False
+	upper = sum(1 for c in letters if c.isupper())
+	return upper / len(letters) >= 0.7
+
+
+def _is_chrome_paragraph(node) -> bool:
+	"""Shared "never land here" filter for paragraph candidates.
+
+	Combines every chrome shape the landing finders skip: tag/category
+	rows, social-share URL payloads, screen-reader instructional text,
+	figure captions / photo credits, and legal footer boilerplate. Used
+	by every landing cascade so a new chrome shape only needs adding in
+	one place.
+	"""
+	text = node.text_preview or ""
+	return (
+		_looks_like_tag_list(text)
+		or _looks_like_share_link_payload(text)
+		or _looks_like_accessibility_instructions(text)
+		or _looks_like_promo_teaser(text)
+		or _looks_like_byline(text, full_length=node.text_length)
+		or _node_is_caption(node)
+		or _node_is_boilerplate(node)
+	)
+
+
+# Prose-run landing: social/chat-style pages (X single-status pages were the
+# trigger) expose one logical message as a RUN of consecutive short paragraph
+# lines — each under the 50-char landing bar, together clearly the content.
+# A run of >= _PROSE_RUN_MIN_LINES consecutive non-chrome paragraphs, each
+# >= _PROSE_RUN_MIN_LINE_CHARS, totaling >= _PROSE_RUN_MIN_TOTAL_CHARS,
+# qualifies as a landing (on its FIRST line) only when at least
+# _PROSE_RUN_MIN_SENTENCE_ENDS lines AND at least half the run end like
+# sentences. The sentence-end requirement is what separates real prose from
+# the two shapes that defeat any purely length-based rule: nav/directory link
+# runs (Montgomery probate: six 17-26 char Title Case rows, no punctuation)
+# and form-label runs (signed-in Zoom: sixteen 18-char labels plus one
+# "...disability?" question — 1 sentence-ender out of 17 lines).
+_PROSE_RUN_MIN_LINES = 2
+_PROSE_RUN_MIN_LINE_CHARS = 15
+_PROSE_RUN_MIN_TOTAL_CHARS = 100
+_PROSE_RUN_MIN_SENTENCE_ENDS = 2
+
+# Trailing closing quotes/brackets that may follow terminal punctuation.
+_SENTENCE_END_CLOSERS = "\"'”’)]»"
+
+
+def ends_like_sentence(text: str) -> bool:
+	"""True when text ends with sentence-terminal punctuation (. ! ? or an
+	ellipsis), allowing trailing closing quotes/brackets after it. Called by
+	tree_summary at walk time over the FULL chunk text to set
+	MainNode.ends_sentence — the terminal character of a 61+ char line sits
+	past the 60-char preview cutoff, so a preview check is not enough.
+	"""
+	stripped = (text or "").rstrip()
+	stripped = stripped.rstrip(_SENTENCE_END_CLOSERS)
+	return stripped.endswith((".", "!", "?", "…"))
+
+
+def _node_ends_sentence(node) -> bool:
+	# Prefer the walk-time flag; fall back to the preview for fixtures and
+	# for lines short enough that the preview is the full text.
+	if getattr(node, "ends_sentence", False):
+		return True
+	if node.text_length <= 60:
+		return ends_like_sentence(node.text_preview or "")
+	return False
+
+
+def _find_prose_run_landing(nodes) -> Optional[int]:
+	"""Find the first qualifying prose run and return the index of its first
+	line, or None. See the _PROSE_RUN_* constants above for what qualifies.
+	Only runs that start AFTER a heading are considered — pre-heading
+	sentence-shaped runs are typically cookie banners / publisher
+	disclaimers, the same pre-H1 chrome the hero gate guards against.
+	"""
+	seen_heading = False
+	run_start = None
+	run_total = 0
+	run_len = 0
+	run_sentence_ends = 0
+	run_started_after_heading = False
+
+	def run_qualifies() -> bool:
+		return (
+			run_started_after_heading
+			and run_len >= _PROSE_RUN_MIN_LINES
+			and run_total >= _PROSE_RUN_MIN_TOTAL_CHARS
+			and run_sentence_ends >= _PROSE_RUN_MIN_SENTENCE_ENDS
+			and run_sentence_ends * 2 >= run_len
+		)
+
+	for i, node in enumerate(nodes):
+		eligible = (
+			node.kind == "paragraph"
+			and node.text_length >= _PROSE_RUN_MIN_LINE_CHARS
+			and not _is_chrome_paragraph(node)
+		)
+		if eligible:
+			if run_start is None:
+				run_start = i
+				run_total = 0
+				run_len = 0
+				run_sentence_ends = 0
+				run_started_after_heading = seen_heading
+			run_total += node.text_length
+			run_len += 1
+			if _node_ends_sentence(node):
+				run_sentence_ends += 1
+		else:
+			if run_start is not None and run_qualifies():
+				return run_start
+			run_start = None
+			if node.kind == "heading":
+				seen_heading = True
+	if run_start is not None and run_qualifies():
+		return run_start
+	return None
+
+
 # News-article dateline: an AP-style "CITY (SOURCE) - " / "CITY - " opener that
 # marks the genuine first line of the story body. The location is in capitals,
 # optionally followed by a parenthetical wire-service / station tag, then an
@@ -366,14 +605,7 @@ def _first_substantial_paragraph(nodes, min_chars) -> Optional[int]:
 	for i, node in enumerate(nodes):
 		if node.kind != "paragraph" or node.text_length < min_chars:
 			continue
-		text = node.text_preview or ""
-		if _looks_like_tag_list(text):
-			continue
-		if _looks_like_share_link_payload(text):
-			continue
-		if _looks_like_accessibility_instructions(text):
-			continue
-		if _node_is_caption(node):
+		if _is_chrome_paragraph(node):
 			continue
 		return i
 	return None
@@ -453,20 +685,9 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 			seen_heading = True
 		if node.kind != "paragraph" or node.text_length < min_chars:
 			continue
-		# Tag/category rows render as a single substantial paragraph but
-		# aren't prose. Skip them so they don't win via the hero shortcut
-		# just because an article heading happens to follow.
-		if _looks_like_tag_list(node.text_preview):
-			continue
-		# URL-parameter payloads from social-share buttons exposed as text.
-		if _looks_like_share_link_payload(node.text_preview):
-			continue
-		# Screen-reader instructional text appended to interactive widgets
-		# (Amazon dropdowns). UI help, not article content.
-		if _looks_like_accessibility_instructions(node.text_preview):
-			continue
-		# Figure caption / photo credit sitting just above the lede.
-		if _node_is_caption(node):
+		# Chrome shapes (tag rows, share payloads, screen-reader help text,
+		# photo credits, legal boilerplate) are never landing candidates.
+		if _is_chrome_paragraph(node):
 			continue
 		# Very substantial paragraphs (>= 200 chars) are unambiguously
 		# article body — accept immediately. Without this rule, a long
@@ -542,6 +763,18 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 		if hero_qualifies:
 			return i
 
+	# Prose-run gate: no single paragraph qualified above, but the page may
+	# carry its content as a run of consecutive SHORT lines — X/Twitter
+	# single-status pages split one tweet into line-per-paragraph chunks
+	# (19 + 34 + 61 chars on the canonical MarioNawfal page), each below
+	# the 50-char bar, so every gate above misses them and the directory
+	# redirect below would land on the generic "Post" heading instead.
+	# Sentence-end density separates these runs from nav menus and
+	# form-label runs; see _find_prose_run_landing.
+	idx = _find_prose_run_landing(nodes)
+	if idx is not None:
+		return idx
+
 	# Fallback: largest substantial paragraph anywhere.
 	# Note: when the page hasn't finished hydrating, this fallback may
 	# pick chrome text (e.g., "Google Account: ..." on Calendar's first
@@ -563,17 +796,8 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 		if node.kind == "heading" and first_heading_idx is None:
 			first_heading_idx = i
 		if node.kind == "paragraph" and node.text_length >= min_chars:
-			# Skip tag/category rows the same way the primary loop does.
-			if _looks_like_tag_list(node.text_preview):
-				continue
-			# Skip URL-parameter payloads from social-share buttons.
-			if _looks_like_share_link_payload(node.text_preview):
-				continue
-			# Skip screen-reader instructional text the same way.
-			if _looks_like_accessibility_instructions(node.text_preview):
-				continue
-			# Skip figure captions / photo credits the same way.
-			if _node_is_caption(node):
+			# Skip the same chrome shapes the primary loop skips.
+			if _is_chrome_paragraph(node):
 				continue
 			substantial_count += 1
 			if node.text_length > best_len:
@@ -588,13 +812,19 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 	# montgomeryprobatecourtal.gov/resources/all-probate-forms is the
 	# canonical case: H "All Probate Forms" at idx 7, courthouse address
 	# paragraph at idx 21, no other substantial text. Land at idx 7.
+	# The node cap was 30; widened to 40 for the signed-in Zoom webinar
+	# registration page (36 nodes): its description/date live in CLOSED
+	# accordions (not in the buffer at all), the only heading is the
+	# "Webinar Registration" H2 at idx 5, and the lone substantial
+	# paragraph is a 52-char question label at idx 24 mid-form. Same
+	# pattern, slightly bigger page — the heading is the right landing.
 	if (
 		best_idx is not None
 		and substantial_count == 1
 		and first_heading_idx is not None
 		and first_heading_idx < best_idx
 		and (best_idx - first_heading_idx) >= 5
-		and len(nodes) <= 30
+		and len(nodes) <= _DIRECTORY_REDIRECT_MAX_NODES
 	):
 		return first_heading_idx
 	return best_idx
@@ -604,6 +834,30 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 # count as a single cluster. Must match the classifier's value so we land
 # at the same cluster the classifier identified.
 _HEADING_CLUSTER_MAX_CHARS_BETWEEN = 300
+
+
+def form_wants_browse_landing(tree: TreeSummary) -> bool:
+	"""True when a FORM-classified page should get a normal browse-mode
+	landing (cursor on the title, spoken) instead of the announce-title-
+	then-focus-first-input treatment.
+
+	The signal is a very-substantial descriptive paragraph (>=
+	VERY_SUBSTANTIAL_PARAGRAPH_CHARS, non-chrome) anywhere on the page.
+	Registration pages commonly carry a real description between the title
+	and the fields (Zoom webinar registration: 81-char H1 + ~2000-char
+	description + 7 inputs was the canonical case). Jumping focus to the
+	first input skips the user past all of that context; landing on the
+	title lets them arrow through the description and into the form.
+
+	Bare forms (Google-Forms-style title + field labels, login pages) have
+	no such paragraph and keep the focus-first-input behavior.
+	"""
+	return any(
+		n.kind == "paragraph"
+		and n.text_length >= VERY_SUBSTANTIAL_PARAGRAPH_CHARS
+		and not _is_chrome_paragraph(n)
+		for n in tree.main_nodes
+	)
 
 
 def find_form_landing(tree: TreeSummary) -> Optional[int]:
@@ -630,6 +884,8 @@ def find_form_landing(tree: TreeSummary) -> Optional[int]:
 			return i
 	for i, n in enumerate(nodes):
 		if n.kind == "paragraph" and n.text_length >= 30:
+			if _is_chrome_paragraph(n):
+				continue
 			return i
 	return 0
 
@@ -676,9 +932,13 @@ def find_notice_landing(tree: TreeSummary) -> Optional[int]:
 	if not nodes:
 		return None
 
-	# 1. First substantial paragraph anywhere in document order.
+	# 1. First substantial paragraph anywhere in document order — skipping
+	#    chrome shapes (a status page's message is never a copyright line
+	#    or a photo credit).
 	for i, n in enumerate(nodes):
 		if n.kind == "paragraph" and n.text_length >= _NOTICE_LANDING_MIN_CHARS:
+			if _is_chrome_paragraph(n):
+				continue
 			return i
 
 	# 2. First heading.
@@ -758,16 +1018,29 @@ def find_next_content_landing(
 			continue
 		if node.text_length < LANDING_MIN_PARAGRAPH_CHARS:
 			continue
-		text = node.text_preview or ""
-		if _looks_like_tag_list(text):
-			continue
-		if _looks_like_share_link_payload(text):
-			continue
-		if _looks_like_accessibility_instructions(text):
-			continue
-		if _node_is_caption(node):
+		if _is_chrome_paragraph(node):
 			continue
 		return i
+	# Short-content fallback: on pages where NOTHING clears the 50-char bar
+	# anywhere (confirmation / status pages — Zoom's "You have successfully
+	# registered" page tops out at a 44-char line), Z would strand the user
+	# with "Nothing else to land on" while real content sits right there.
+	# Only then, rescan below the cursor with the notice bar (30 chars).
+	# Article-class pages (which have 50+ char paragraphs somewhere) keep
+	# the strict bar, so end-of-article Z behavior is unchanged.
+	if not any(
+		n.kind == "paragraph" and n.text_length >= LANDING_MIN_PARAGRAPH_CHARS
+		for n in tree.main_nodes
+	):
+		for i in range(after_idx + 1, len(tree.main_nodes)):
+			node = tree.main_nodes[i]
+			if node.kind != "paragraph":
+				continue
+			if node.text_length < _NOTICE_LANDING_MIN_CHARS:
+				continue
+			if _is_chrome_paragraph(node):
+				continue
+			return i
 	return None
 
 
