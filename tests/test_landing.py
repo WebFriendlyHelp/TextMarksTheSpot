@@ -1516,3 +1516,127 @@ def test_landing_match_rejects_empty_buffer_for_real_paragraph():
 	# range, so speakTextInfo neither raised nor spoke. Same root cause.
 	n = _node("paragraph", 68, preview="There is no one who guides her among all the children she ha")
 	assert not web.landing_text_matches("", n)
+
+
+# ---------------------------------------------------------------------------
+# Editorial disclosures (closed vocabulary) and the heading-bounded lead section
+#
+# Two second opinions (Fable, Codex) independently rejected the cross-page
+# "boilerplate is what repeats" idea: it is stateful, it makes the SAME url land
+# differently on visit 1 and visit 4, it destroys fixture-based debugging, and
+# it does nothing on a first visit -- which is the COMMON case (a search click
+# into an unfamiliar host). For a blind user, predictable-and-slightly-wrong
+# beats adaptive-and-sometimes-right: you can learn "this site lands one
+# paragraph early, press Down"; you cannot learn a moving target.
+#
+# Both proposed the same replacement, which is what these tests pin: affiliate
+# disclosures and syndication notes use near-mandated phrasing (the FTC
+# effectively dictates the first), so they are as enumerable as the
+# "All rights reserved" filter already in the code -- and they work on the
+# first visit.
+# ---------------------------------------------------------------------------
+
+def test_skips_affiliate_disclosure_for_real_lede():
+	# pinchofyum.com landed on the affiliate disclosure instead of the recipe.
+	nodes = [
+		_node("heading", 34, level=1, preview="The Best Soft Chocolate Chip Cookies"),
+		_node("paragraph", 120,
+		      preview="This post contains referral links for products we love. Pinc",
+		      ends_sentence=True),
+		_node("paragraph", 210,
+		      preview="These cookies are thick, soft, and completely irresistible.",
+		      ends_sentence=True),
+		_node("paragraph", 180, preview="You only need one bowl and no chilling time.",
+		      ends_sentence=True),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_skips_syndication_note_for_real_lede():
+	# wtop.com. Ground truth confirmed by fetching the page: headline, byline,
+	# THIS note, then the real lede.
+	nodes = [
+		_node("heading", 58, level=1,
+		      preview="Montgomery County slapped a notice on her Little Free Librar"),
+		_node("paragraph", 145,
+		      preview="This article was written by WTOP’s news partner, The Banner ",
+		      ends_sentence=True),
+		_node("paragraph", 230,
+		      preview="Carol Andress’ husband gave her a Little Free Library kit fo",
+		      ends_sentence=True),
+		_node("paragraph", 190, preview="She painted the wood box pastel blue and yellow.",
+		      ends_sentence=True),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_editorial_disclosure_does_not_eat_real_prose():
+	# Must NOT fire on an article ABOUT affiliate marketing, or on ordinary prose
+	# that happens to use one of these words.
+	assert not web._looks_like_editorial_disclosure(
+		"The commission voted to republish the report after a lengthy debate."
+	)
+	assert not web._looks_like_editorial_disclosure(
+		"She originally appeared on the show in 1998 and has been a fixture since."
+	)
+
+
+def test_lead_section_gate_lands_on_imdb_plot_summary():
+	# IMDb. Codex read the real node trail: H1 "The Dark Knight" at 6, the plot at
+	# 27, next heading ("Videos") at 58. The plot fails the hero gate because the
+	# next heading is 31 nodes away, far outside the 4-node lookahead -- NOT
+	# because no heading was seen. And the "Clip..." titles END IN QUESTION MARKS,
+	# so the sentence-strict pass legitimately KEEPS them, and their cluster wins.
+	#
+	# The fix is a new structural signal, not a threshold change: in the section
+	# between the first heading and the next one, exactly ONE non-chrome,
+	# sentence-ending paragraph >= 100 chars with no substantial neighbour is the
+	# lead. Suppressing the clip rail alone would NOT be enough -- the cascade
+	# would run on and land on a 200+ char user review.
+	nodes = [
+		_node("heading", 15, level=1, preview="The Dark Knight"),
+		_node("paragraph", 20, preview="2008"),
+		_node("paragraph", 166,
+		      preview="When a menace known as the Joker wreaks havoc and chaos on th",
+		      ends_sentence=True),
+	]
+	# The gap is load-bearing. On the real page the next heading is 31 nodes
+	# past the plot summary -- far outside the hero gate's 4-node lookahead.
+	# That IS the bug: with the heading close by, the hero gate fires and the
+	# page lands correctly, so a fixture without this padding does not
+	# reproduce anything.
+	nodes += [
+		_node("paragraph", 18, preview="Christopher Nolan"),
+		_node("paragraph", 22, preview="Christian Bale"),
+	]
+	nodes += [_node("paragraph", 12, preview=f"Cast member {i}") for i in range(28)]
+	nodes += [
+		_node("heading", 6, level=2, preview="Videos"),
+		# The clip titles END IN QUESTION MARKS, so ends_sentence is genuinely
+		# True and the sentence-strict pass rightly keeps them. Their cluster is
+		# what currently wins.
+		_node("paragraph", 57, preview="ClipThe Biggest Supervillain Movies and Who's Comi",
+		      ends_sentence=True),
+		_node("paragraph", 55, preview="ClipIs the New 'Joker' Most Like Jared, Heath, or J",
+		      ends_sentence=True),
+		_node("paragraph", 933, preview="Dark, yes, complex, ambitious. Christopher Nolan a",
+		      ends_sentence=True),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_lead_section_gate_does_not_fire_on_a_normal_article():
+	# A normal article's lead section holds MANY substantial paragraphs, so the
+	# "exactly one" requirement fails and the ordinary cascade runs. This is what
+	# keeps the gate from hijacking every news page (and from landing on a dek).
+	nodes = [
+		_node("heading", 40, level=1, preview="Council approves the budget"),
+		_node("paragraph", 150, preview="The council voted 5-4 on Tuesday evening.",
+		      ends_sentence=True),
+		_node("paragraph", 220, preview="The budget adds two firefighters and a librarian.",
+		      ends_sentence=True),
+		_node("paragraph", 180, preview="Opponents said the tax increase was too steep.",
+		      ends_sentence=True),
+	]
+	# Falls through to the normal cascade, which lands on the first of the run.
+	assert web.find_article_landing(_summary_with(nodes)) == 1

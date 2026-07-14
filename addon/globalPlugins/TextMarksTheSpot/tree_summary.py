@@ -304,10 +304,9 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 			scope_range = article_range
 			scope_kind = "article"
 
-	if scope_range is not None:
-		summary.form_input_count = _count_in_range(treeInterceptor, "formField", scope_range, limit=_FORM_LIMIT)
-	else:
-		summary.form_input_count = _count_in_scope(treeInterceptor, "formField", main_obj, scope_cache, limit=_FORM_LIMIT)
+	summary.form_input_count = _count_form_inputs(
+		treeInterceptor, scope_range, main_obj, scope_cache, _FORM_LIMIT,
+	)
 	# Interactive subtypes ordered most-common first so the running-sum
 	# short-circuit usually triggers on the first one or two enumerations
 	# (link-heavy pages dominate). Each per-type call also caps at the
@@ -387,7 +386,9 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		):
 			counts_rescoped = True
 			summary.article_count = _count_in_range(treeInterceptor, "article", None, limit=_ARTICLE_LIMIT)
-			summary.form_input_count = _count_in_range(treeInterceptor, "formField", None, limit=_FORM_LIMIT)
+			summary.form_input_count = _count_form_inputs(
+				treeInterceptor, None, None, {}, _FORM_LIMIT,
+			)
 			running = 0
 			for t in ("link", "button", "edit", "comboBox", "checkBox", "radioButton"):
 				remaining = _INTERACTIVE_LIMIT - running
@@ -832,6 +833,67 @@ def _count_in_range(treeInterceptor, item_type: str, scope_range, limit: int = 0
 # the whole doc and filtering is more reliable; this just bails once
 # we've clearly walked off the end of main into the footer.
 _OUT_OF_SCOPE_TOLERANCE = 50
+
+
+# What actually makes a page a FORM: things the user TYPES INTO or CHOOSES
+# FROM. Deliberately NOT "button".
+#
+# We used to count NVDA's "formField" quick-nav type, but in NVDA's definition a
+# BUTTON is a form field. The classifier's own declaration of this value reads
+# "editable inputs, comboboxes, etc." — so the field's contract and its
+# implementation disagreed, and the classifier was asking for inputs and being
+# handed inputs PLUS every button on the page.
+#
+# On a control-dense CONTENT page that instantly maxes the counter: an IMDb
+# title page (rate / watchlist / share / trailer / cast expanders) and a TV
+# station front page (menus, play buttons) both reported forms=10, double the
+# STRONG_FORM_INPUT_COUNT bar of 5. Both were then classified FORM, and the bare-
+# form branch MOVED THE USER'S KEYBOARD FOCUS into the site's search box. A movie
+# page is not a form; a news front page is not a form. (2026-07-14 soak.)
+#
+# Counting only real inputs fixes this at the root, with no threshold tuning: a
+# genuine form (Google Forms, the Zoom registration page) still has many edits /
+# combos / checkboxes / radios, while a content page has a lone search box.
+_FORM_INPUT_TYPES = ("edit", "comboBox", "checkBox", "radioButton")
+
+# Wall-clock ceiling for the whole form-input count. Four enumerations instead
+# of one is four times the work, and on a page with no <main> landmark each item
+# pays for an identity-based parent-chain walk -- the known hotspot. Stack
+# Overflow's tag page spent 2038ms counting before this cap existed, which is a
+# two-second freeze to answer "is this a form?" and undoes the walk budget we
+# just fought for.
+#
+# The types are ordered so the cheap, decisive one runs first: "edit" alone
+# separates a real form (many text inputs) from a content page (one search box),
+# so if we run out of time after it we still have the signal that matters. An
+# undercount can only ever make us LESS likely to call something a FORM, and the
+# FORM branch is the one that moves the user's focus -- so failing this way is
+# failing safe.
+_COUNT_TIME_BUDGET_SEC = 0.4
+
+
+def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict, limit: int) -> int:
+	# Sum the real input types, stopping as soon as we reach the cap (so an
+	# obvious form doesn't pay for four full enumerations) or the clock.
+	deadline = time.monotonic() + _COUNT_TIME_BUDGET_SEC
+	total = 0
+	for i, t in enumerate(_FORM_INPUT_TYPES):
+		remaining = limit - total
+		if remaining <= 0:
+			break
+		# Always run the first ("edit") -- it carries most of the signal. Only
+		# the extra types are subject to the clock.
+		if i > 0 and time.monotonic() > deadline:
+			log.debug(
+				f"[TMTS count-budget] form-input count stopped after {i} of "
+				f"{len(_FORM_INPUT_TYPES)} types (total={total})"
+			)
+			break
+		if scope_range is not None:
+			total += _count_in_range(treeInterceptor, t, scope_range, limit=remaining)
+		else:
+			total += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining)
+	return total
 
 
 def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None, all_nodes_out: Optional[list] = None, all_positions_out: Optional[list] = None, notice_match_all_out: Optional[list] = None, truncated_out: Optional[list] = None) -> list[MainNode]:

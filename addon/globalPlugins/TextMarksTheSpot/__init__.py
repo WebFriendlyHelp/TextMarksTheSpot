@@ -727,8 +727,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# these are the candidates the article-landing cascade considered.
 			# Helps explain why the addon picked the index it did, especially
 			# when first_eight doesn't show the landing.
+			# The trailing "S"/"-" is ends_sentence. It is load-bearing and
+			# invisible: the sentence-strict landing pass throws away every
+			# paragraph that doesn't end like a sentence, so a paragraph whose
+			# chunk text ends in a site's expander label ("... Read all") reads
+			# as a non-sentence and gets discarded even though it IS the content.
+			# Without this in the log you cannot tell "the cascade chose badly"
+			# from "the strict pass never saw the good paragraph at all".
 			substantial = [
-				(i, n.text_length, n.text_preview[:50])
+				(i, n.text_length, "S" if n.ends_sentence else "-", n.text_preview[:50])
 				for i, n in enumerate(summary.main_nodes)
 				if n.kind == "paragraph" and n.text_length >= 50
 			]

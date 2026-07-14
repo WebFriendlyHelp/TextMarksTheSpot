@@ -572,3 +572,91 @@ def test_editorial_url_does_not_block_form_when_url_also_matches_form():
 	)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.FORM
+
+
+# ---------------------------------------------------------------------------
+# Form-input counting: the count is now REAL INPUTS ONLY
+#
+# tree_summary used to fill form_input_count from NVDA's "formField" quick-nav
+# type, which counts BUTTONS as form fields. A control-dense CONTENT page
+# therefore maxed the counter (IMDb title pages and a TV station front page both
+# reported 10) and classified as FORM -- and the bare-form branch MOVED THE
+# USER'S KEYBOARD FOCUS into the site's search box.
+#
+# It now counts only edit / comboBox / checkBox / radioButton, so the honest
+# numbers are much smaller, and STRONG_FORM_INPUT_COUNT came down 5 -> 4 to
+# match. These tests pin BOTH sides of that boundary.
+# ---------------------------------------------------------------------------
+
+def test_content_page_with_one_search_box_is_not_a_form():
+	# IMDb / a TV station front page: lots of buttons, ONE real search box, and
+	# a single substantial content paragraph. Must not be FORM -- FORM is the
+	# branch that hijacks the user's focus.
+	nodes = [
+		_node("heading", 14, level=1, preview="The Dark Knight"),
+		_node("paragraph", 166,
+		      preview="When a menace known as the Joker wreaks havoc and chaos on the"),
+	]
+	result = cls.classify(_summary(
+		main_nodes=nodes,
+		form_input_count=1,          # the search box, and nothing else
+		interactive_control_count=11,  # buttons galore -- must not matter
+	))
+	assert result.intent != cls.Intent.FORM
+
+
+def test_registration_form_with_four_real_inputs_is_a_form():
+	# Wikipedia Special:CreateAccount -- username, password, confirm, email.
+	# Honest count is 4. With STRONG_FORM_INPUT_COUNT left at 5 this fell below
+	# the bar, the hero-paragraph gate blocked FORM, and a genuine registration
+	# form classified as an ARTICLE -- landing the user on the help text NEXT TO
+	# the form instead of in it. Casey hit exactly that.
+	nodes = [
+		_node("heading", 16, level=1, preview="Create account"),
+		_node("paragraph", 120,
+		      preview="Email is required to recover your account if you lose your pass"),
+	]
+	result = cls.classify(_summary(
+		main_nodes=nodes,
+		form_input_count=4,
+		interactive_control_count=11,
+	))
+	assert result.intent == cls.Intent.FORM
+
+
+def test_account_creation_url_is_a_form_url_not_an_article_url():
+	# Wikipedia's account-creation page redirects to
+	# auth.wikimedia.org/enwiki/wiki/Special:CreateAccount. That path contains
+	# "/wiki/", which matches the ARTICLE url hints, so has_editorial_url blocked
+	# FORM and a registration form classified as an encyclopedia article --
+	# landing the user on the help text BESIDE the form instead of in it.
+	nodes = [
+		_node("heading", 16, level=1, preview="Create account"),
+		_node("paragraph", 120,
+		      preview="Email is required to recover your account if you lose your pass"),
+	]
+	result = cls.classify(_summary(
+		url="https://auth.wikimedia.org/enwiki/wiki/Special:CreateAccount",
+		main_nodes=nodes,
+		form_input_count=4,
+		interactive_control_count=11,
+	))
+	assert result.intent == cls.Intent.FORM
+
+
+def test_wiki_article_url_still_reads_as_editorial():
+	# The guard above must not turn every /wiki/ page into a form. An ordinary
+	# encyclopedia article with a search box stays an ARTICLE.
+	nodes = [
+		_node("heading", 20, level=1, preview="Battle of Midway"),
+		_node("paragraph", 240, preview="The Battle of Midway was a major naval battle."),
+		_node("paragraph", 210, preview="It took place from June 4 to 7, 1942."),
+		_node("paragraph", 190, preview="The United States Navy defeated an attacking fleet."),
+	]
+	result = cls.classify(_summary(
+		url="https://en.wikipedia.org/wiki/Battle_of_Midway",
+		main_nodes=nodes,
+		form_input_count=1,
+		interactive_control_count=11,
+	))
+	assert result.intent != cls.Intent.FORM

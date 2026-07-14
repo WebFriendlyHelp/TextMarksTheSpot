@@ -146,9 +146,29 @@ FORM_INPUT_THRESHOLD = 3          # min inputs to suspect a form intent
 # accumulates from form label text in the lead run. Without this override,
 # multi-checkbox Google Forms (Pre-ETS Vendor Fair etc.) had ARTICLE-hero
 # winning and landing the user on a checkbox label instead of dispatching
-# to the FORM path. A page with 5+ form inputs but real article body
+# to the FORM path. A page with this many form inputs but a real article body
 # would still have has_body_cluster_strong block FORM via the other gate.
-STRONG_FORM_INPUT_COUNT = 5
+#
+# 5 -> 4 on 2026-07-14, because THE THING BEING MEASURED CHANGED. This bar was
+# calibrated when form_input_count came from NVDA's "formField" quick-nav type,
+# which counts BUTTONS as form fields. So "5" never meant five inputs; it meant
+# five inputs-and-buttons, which any control-dense page clears trivially (IMDb
+# and a TV station front page both reported 10, and got their focus hijacked
+# into a search box as a result).
+#
+# tree_summary now counts only real inputs (edit / comboBox / checkBox /
+# radioButton). Honest counts are much smaller: Wikipedia's account-creation
+# form and WebAIM's contact form both report 4. Left at 5, those fall below the
+# bar, the hero-paragraph gate blocks FORM, and a genuine registration form
+# classifies as an ARTICLE -- landing the user on help text NEXT TO the form
+# instead of in it. Casey hit exactly that on Special:CreateAccount.
+#
+# 4 is the right bar for REAL inputs: a login is 2, a contact form 3-4, a
+# registration form 4+. A content page has a lone search box (1), sometimes a
+# newsletter email as well (2). Blog comment forms can reach 4, but those pages
+# carry an <article> or a strong body cluster, and BOTH of those block FORM
+# unconditionally -- this override only ever competes with the hero gate.
+STRONG_FORM_INPUT_COUNT = 4
 HEADING_CLUSTER_MIN_SIZE = 5      # min same-level adjacent headings to call it a list
 ARTICLE_DEMOTE_TO_LIST_AT = 3     # this many <article> siblings = list, not article
 APP_CONTROL_FLOOR = 10            # min interactive controls to suspect app intent
@@ -213,7 +233,18 @@ NOTICE_KEYWORD_MAX_FORM_INPUTS = 2
 
 # URL-pattern tiebreakers (lowercase substring match).
 URL_HINTS = {
-	Intent.FORM:    ("/signup", "/sign-up", "/register", "/contact", "/apply", "/intake"),
+	# Sign-in / account-creation paths were missing, and they are the two most
+	# common forms on the web. Wikipedia's account-creation page redirects to
+	# auth.wikimedia.org/enwiki/wiki/Special:CreateAccount -- which contains
+	# "/wiki/", matches the ARTICLE hints below, and so was blocked from FORM as
+	# an "editorial URL". A registration form was being treated as an
+	# encyclopedia article, landing the user on the help text BESIDE the form
+	# instead of in it. (2026-07-14 soak.)
+	Intent.FORM:    (
+		"/signup", "/sign-up", "/register", "/contact", "/apply", "/intake",
+		"/login", "/signin", "/sign-in", "/log-in",
+		"createaccount", "userlogin", "/auth/",
+	),
 	Intent.ARTICLE: ("/article/", "/news/", "/blog/", "/post/", "/story/", "/posts/", "/wiki/", "/podcast"),
 	Intent.LIST:    ("/search", "/results", "/category/", "/tag/", "/feed", "/topic/"),
 	Intent.APP:     ("/app/", "/compose", "/dashboard", "/admin/"),

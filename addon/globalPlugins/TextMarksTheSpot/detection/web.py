@@ -150,6 +150,75 @@ def _find_content_section_landing(nodes, min_chars):
 	return None
 
 
+def _find_lead_section_landing(nodes) -> Optional[int]:
+	"""Land on a lone substantial paragraph in the page's LEAD SECTION.
+
+	The section is the span between the FIRST heading and the NEXT heading. If it
+	holds exactly ONE non-chrome, sentence-ending paragraph of at least
+	HERO_PATTERN_MIN_CHARS, and that paragraph has no substantial neighbour, then
+	it is the page's lead and we land on it.
+
+	Why this exists (IMDb, 2026-07-14 soak). The plot summary is a 166-char
+	standalone paragraph. It fails every existing gate:
+	  - VERY_SUBSTANTIAL (200) -- it is 166.
+	  - cluster -- IMDb follows it with SHORT director/cast lines, so it has no
+	    adjacent substantial paragraph.
+	  - hero -- needs a heading within the 4-node lookahead, but IMDb's next
+	    heading ("Videos") is 31 nodes away.
+	So the cascade walked past it and landed on one of four adjacent "Clip..."
+	video titles, which DO form a cluster.
+
+	Two things people get wrong about this bug, both checked against the real
+	node trail rather than assumed:
+	  - The clip titles END IN QUESTION MARKS ("...Jared, Heath, or Jack?"), so
+	    ends_like_sentence is genuinely True for them. The sentence-strict pass is
+	    right to keep them; it is not the culprit.
+	  - A heading WAS seen before the plot summary (the H1). The hero gate fails
+	    on lookahead DISTANCE, not on heading absence.
+	And suppressing the clip rail alone would not fix it: the cascade would run on
+	and land on a 200+ char user review further down. The synopsis needs POSITIVE
+	evidence, which is what this gate supplies.
+
+	"Exactly one" is the load-bearing part, and it is what keeps this gate off
+	normal articles: a news page's lead section holds MANY substantial paragraphs
+	(the lede, then the next, then the next), so the count is never 1 and the gate
+	declines. It also keeps us off deks, which sit alongside a real lede.
+
+	Not a threshold change -- a new structural signal. Returns None to mean "not
+	my case; run the normal cascade."
+	"""
+	first_heading = next(
+		(i for i, n in enumerate(nodes) if n.kind == "heading"), None
+	)
+	if first_heading is None:
+		return None
+	next_heading = next(
+		(j for j in range(first_heading + 1, len(nodes)) if nodes[j].kind == "heading"),
+		len(nodes),
+	)
+	candidates = [
+		j
+		for j in range(first_heading + 1, next_heading)
+		if nodes[j].kind == "paragraph"
+		and nodes[j].text_length >= HERO_PATTERN_MIN_CHARS
+		and not _is_chrome_paragraph(nodes[j])
+		and _node_ends_sentence(nodes[j])
+	]
+	if len(candidates) != 1:
+		return None
+	idx = candidates[0]
+	# It must be STANDALONE. A substantial neighbour means this is the start of a
+	# body run, which the cluster gate already handles correctly.
+	for k in (idx - 1, idx + 1):
+		if (
+			0 <= k < len(nodes)
+			and nodes[k].kind == "paragraph"
+			and nodes[k].text_length >= LANDING_MIN_PARAGRAPH_CHARS
+		):
+			return None
+	return idx
+
+
 def _looks_like_accessibility_instructions(text: str) -> bool:
 	"""Detect screen-reader instructional text appended to interactive
 	widgets. Amazon product pages are the canonical case — dropdowns and
@@ -458,6 +527,94 @@ def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
 	return upper / len(letters) >= 0.7
 
 
+# Editorial disclosures: affiliate/referral notices and syndication notes.
+#
+# These are the boilerplate that READS LIKE PROSE. They are grammatical
+# sentences sitting exactly where a lede should be, so the "must end like a
+# sentence" rule cannot see them at all -- it was built to separate prose from
+# fragments, and these are perfectly good prose.
+#
+# Why a phrase list and not something cleverer: the cross-page idea ("boilerplate
+# is what repeats across a site") was rejected by two independent reviews. It is
+# stateful, it makes the same URL land differently on visit 1 and visit 4, it
+# breaks fixture-based debugging, and it does nothing on a FIRST visit -- which is
+# the common case, a search click into an unfamiliar host. And for a blind user,
+# predictable-and-slightly-wrong beats adaptive-and-sometimes-right: you can learn
+# "this site lands one paragraph early, press Down once"; you cannot learn a
+# moving target.
+#
+# These two families have near-mandated vocabulary (the FTC effectively dictates
+# the affiliate wording), which makes them as enumerable as the "All rights
+# reserved" filter already here -- and they work on the first visit.
+#
+# The signup promos ("Keep your favorites in MyRecipes for free") and masthead
+# marketing ("rigorously tested in our Nashville Test Kitchen") are NOT in here.
+# Their vocabulary is open, and a rule loose enough to catch them would eat real
+# ledes ("Keep your eyes on...", "Imagine you're..."). Those stay a KNOWN GAP:
+# the cost is landing one paragraph early, which is one Down arrow.
+
+# Phrases that essentially never occur outside a disclosure. Safe on their own.
+_DISCLOSURE_UNAMBIGUOUS = (
+	# Affiliate / referral -- FTC-driven formula language.
+	"affiliate link",
+	"referral link",
+	"may earn a commission",
+	"we may earn",
+	"earns a commission",
+	"earn a small commission",
+	"as an amazon associate",
+	"at no extra cost to you",
+	# Syndication / republication.
+	"republished with permission",
+	"syndicated from",
+	"news partner",
+)
+
+# "originally appeared on" is NOT safe alone -- "She originally appeared on the
+# show in 1998" is ordinary prose. Publishing language only counts when the
+# paragraph is also talking about ITSELF, which is what makes it a disclosure
+# rather than a sentence about a person. Match the conjunction, not the keyword.
+_DISCLOSURE_SELF_REFERENCE = (
+	"this post",
+	"this article",
+	"this story",
+	"this recipe",
+	"this piece",
+)
+_DISCLOSURE_PUBLISHING = (
+	"originally appeared",
+	"originally published",
+	"first appeared",
+	"first published",
+)
+
+# Disclosures are SHORT. A long paragraph that mentions affiliate links is
+# probably an article ABOUT affiliate marketing, i.e. real content.
+_EDITORIAL_DISCLOSURE_MAX_CHARS = 300
+
+
+def _looks_like_editorial_disclosure(text: str) -> bool:
+	"""Affiliate/referral disclosure or a syndication note, both of which sit
+	between the headline and the real lede and read as ordinary prose.
+
+	Real cases from the 2026-07-14 soak:
+	  "This post contains referral links for products we love."      (Pinch of Yum)
+	  "This article was written by WTOP's news partner, The Banner
+	   Montgomery, and republished with permission."                 (WTOP)
+	"""
+	stripped = (text or "").strip()
+	if not stripped or len(stripped) > _EDITORIAL_DISCLOSURE_MAX_CHARS:
+		return False
+	lower = stripped.lower()
+	if any(phrase in lower for phrase in _DISCLOSURE_UNAMBIGUOUS):
+		return True
+	# Publishing language only counts when the paragraph refers to ITSELF.
+	return (
+		any(p in lower for p in _DISCLOSURE_SELF_REFERENCE)
+		and any(p in lower for p in _DISCLOSURE_PUBLISHING)
+	)
+
+
 def _is_chrome_paragraph(node) -> bool:
 	"""Shared "never land here" filter for paragraph candidates.
 
@@ -473,6 +630,7 @@ def _is_chrome_paragraph(node) -> bool:
 		or _looks_like_share_link_payload(text)
 		or _looks_like_accessibility_instructions(text)
 		or _looks_like_promo_teaser(text)
+		or _looks_like_editorial_disclosure(text)
 		or _looks_like_byline(text, full_length=node.text_length)
 		or _node_is_caption(node)
 		or _node_is_boilerplate(node)
@@ -792,6 +950,17 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# product pages, recipe sites, software docs) where article-shape
 	# heuristics struggle to distinguish content from chrome.
 	idx = _find_content_section_landing(nodes, min_chars)
+	if idx is not None:
+		return idx
+
+	# Lead-section gate: a lone substantial sentence-ending paragraph between the
+	# first heading and the next one is the page's lead. Runs BEFORE the size and
+	# cluster gates, because those award the landing on rule ORDER rather than
+	# EVIDENCE STRENGTH -- a weak two-paragraph cluster of 50-char fragments
+	# returns immediately and beats a stronger candidate sitting earlier in the
+	# document. That is precisely how IMDb's plot summary lost to a rail of video
+	# clip titles. See _find_lead_section_landing.
+	idx = _find_lead_section_landing(nodes)
 	if idx is not None:
 		return idx
 
