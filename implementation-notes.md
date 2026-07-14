@@ -2,6 +2,90 @@
 
 Newest entries at the top.
 
+## 2026-07-14 (rest of the day) — the trigger was the real bug all along
+
+The morning's perf work (below) was real but secondary. Two much bigger bugs were
+underneath it, and BOTH were invisible to every test we had.
+
+### 1. The add-on was speaking a paragraph other than the one it landed on
+
+7 of 42 landings in an 83-page soak. The classifier was often CHOOSING CORRECTLY
+and the user still heard something else: the right WFAA lede chosen, a Cincinnati
+Reds sports headline spoken; a recipe lede chosen, "We're loading your content,
+stay tuned!" spoken; a real headline chosen, a URL slug spoken.
+
+Cause: we capture a TextInfo per node during the walk and speak it afterwards.
+The walk takes 1.5-2 s, and on a hydrating page NVDA rebuilds the virtual buffer
+DURING that window, so positions captured early are already stale by the end.
+
+**The retry is NOT a fix for this, and believing it was cost a whole build.** The
+buffer drifts DURING the walk, so a re-walk races exactly the same way. The
+intermediate build (guard, no re-anchor) turned wrong-text into SILENCE.
+
+The fix is to stop anchoring to an offset: verify the captured position still
+holds the chosen paragraph, and on drift RE-FIND IT BY TEXT
+(`TextInfo.find`, verified in NVDA source: returns bool, repositions to match
+start). Costs one search instead of a second walk.
+
+**This also explains silent landings**: a stale position that expands to an empty
+range makes `speakTextInfo` neither raise nor speak.
+
+Watch this get exercised harder now that the trigger fix has doubled the number of
+loads that reach detection: on a REUSED TreeInterceptor `isReady` stays True
+through the re-render, so the readiness poll never engages and detection can walk
+a buffer still holding the PREVIOUS page.
+
+### 2. The add-on ran on 9 of 31 page loads
+
+Everything we ever fixed only matters on loads where the add-on runs. It was
+silently ignoring two thirds of them. This is why pages "needed a refresh" all day.
+
+Both false beliefs are now corrected in CLAUDE.md and SPEC.md with source citations:
+- `event_treeInterceptor_gainFocus` CANNOT fire in a GlobalPlugin, on any version.
+  0 firings in 31 loads is exactly what NVDA's source predicts. Deleted.
+- A TreeInterceptor is bound to an accessibility-tree ROOT, not a document. NVDA
+  REUSES it across navigations and the URL changes in place underneath it. The
+  "same TI → skip" gate was therefore eating real navigations. The URL is the
+  document identity.
+
+Chrome/Edge are affected identically (`ChromeVBuf` inherits the Gecko buffer and
+overrides neither `isAlive` nor `documentConstantIdentifier`), which matters
+because most store users are not on Firefox.
+
+### Things that were nearly expensive mistakes
+
+- **A briefly-lowered `WALK_NODE_LIMIT` (1000 → 400) silently degraded landings and
+  the page got FASTER while doing it.** The cap counts RAW CHUNKS WALKED, not
+  content nodes KEPT; GitHub turns 400 raw chunks into ~195 in-scope nodes and its
+  README landing sits at ~201, so the walk was starved and the page landed on a
+  commit message. Only reading the landing text aloud, plus the log naming WHICH
+  limit fired, caught it. **The clock must be the only thing that truncates.**
+- **A fixture that PASSED against unfixed code.** The first IMDb test put the next
+  heading 3 nodes after the plot summary instead of 31, so the hero gate fired and
+  nothing reproduced. Fixtures are a model of the page, not the page.
+- **Two CDP-driven Chrome runs produced garbage** and nearly sent us chasing a
+  phantom "Chrome is broken" bug. Chrome focuses the ADDRESS BAR on a blank tab, so
+  focus never entered the document, NVDA never built a buffer, and every page timed
+  out the readiness poll. Casey caught it by ear — he heard the omnibox being read.
+  **Only real browsing is trustworthy here.**
+
+### On second opinions
+
+Fable and Codex were each given the same problems, independently. Both corrected me
+on things I was confident about:
+- Both REJECTED the cross-page "boilerplate is what repeats" idea (see CLAUDE.md for
+  why; the argument that settled it is that a blind user can learn a consistent
+  wrongness but cannot learn a moving target).
+- Codex read the actual NVDA node trail and killed BOTH my IMDb theory and Fable's:
+  the "Clip" titles end in QUESTION MARKS, so the sentence-strict pass rightly keeps
+  them, and the hero gate fails on lookahead DISTANCE, not heading absence. The
+  lead-section gate is Codex's design.
+- Both independently named the same structural fault: **the cascade rewards rule
+  ORDER over evidence STRENGTH.** Still unfixed. It is the next real piece of work.
+
+The pattern worth keeping: ask the model that will go read the source, and give it
+the raw log rather than my summary of it.
+
 ## 2026-07-14 (seventeenth round) — main-thread freeze on long pages
 
 Found by reading the perf log, not from a user report. The walk was

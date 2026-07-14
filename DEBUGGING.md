@@ -19,6 +19,60 @@ Do not skip to step 3. Two incidents today looked like landing-rule bugs and
 were actually a walk bug — the paragraph the user wanted was never in the
 add-on's data at all.
 
+## Before you assume it's a landing bug: three failures that MASQUERADE as one
+
+Added after 2026-07-14. All three look exactly like "the cascade picked the wrong
+paragraph", and none of them are. Rule these out FIRST — each has a one-line check.
+
+### A. It landed correctly and SPOKE something else (stale position)
+
+The add-on captures a TextInfo per node during the walk and speaks it afterwards.
+The walk takes 1.5-2 s, and a hydrating page rebuilds NVDA's buffer DURING that
+window, so the captured offset now points somewhere else. **The classifier's choice
+can be perfectly correct and the user still hears a sports headline, a photo credit,
+or "We're loading your content, stay tuned!".** 7 of 42 landings in one soak.
+
+It also causes SILENT landings: a stale position that expands to an empty range makes
+`speakTextInfo` neither raise nor speak.
+
+CHECK: `grep "TMTS stale-" nvda.log`. `stale-recovered` = drifted and re-anchored by
+text (fine). `stale-landing` = drifted and could not recover (stayed quiet, correctly).
+
+DO NOT "fix" this with the retry. The buffer drifts DURING the walk, so a re-walk
+races the same way and lands stale again. Text is the stable anchor; the offset is not.
+
+### B. The add-on never ran at all
+
+Silence is not a landing bug. Historically the add-on ran on **9 of 31 page loads**
+and did nothing on the rest — no tone, no landing, no sign it tried. Anything Casey
+describes as "I had to refresh" or "Z worked but the page didn't" is this until proven
+otherwise.
+
+CHECK: count the trigger outcomes.
+
+```powershell
+Select-String "_maybe_fire_ti:" $env:TEMP
+vda.log | Group-Object { $_.Line -replace '.*_maybe_fire_ti: ([a-zA-Z ]+).*','$1' } | Sort-Object Count -Descending
+```
+
+`PROCEEDING` = detection ran. Everything else is a skip, and a large skip count on
+DIFFERENT urls is a trigger bug, not a landing bug.
+
+### C. Your test harness broke, not the add-on
+
+Two CDP-driven Chrome runs produced garbage and nearly bought a phantom "Chrome is
+broken" diagnosis. Chrome focuses the ADDRESS BAR on a blank tab, so focus never
+entered the document, NVDA never built a virtual buffer, and every page timed out the
+readiness poll. Casey caught it BY EAR — he heard the omnibox being read aloud.
+
+CHECK: if the NVDA log shows the address bar being spoken ("...selected",
+"N suggestions available") instead of page content, focus is not in the document and
+the run is worthless.
+
+**Only real browsing is trustworthy for trigger measurements.** Automated navigation
+(SendKeys, CDP) does not reliably reproduce real focus and document lifecycle. Ask
+Casey to browse normally for two minutes; it is faster and it cannot lie.
+
 ## Step 1: Logs before theories
 
 Two logs, different lifetimes:
