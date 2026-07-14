@@ -197,6 +197,7 @@ def _looks_like_tag_list(text: str) -> bool:
 	return no_space_commas > spaced_commas
 
 
+import dataclasses as _dataclasses
 import re as _re
 _URL_ENCODED_TRIPLET_RE = _re.compile(r"%[0-9A-Fa-f]{2}")
 
@@ -258,14 +259,53 @@ _PHOTO_CREDIT_PHRASES = (
 )
 
 
+# Digits either side of a slash: a date ("7/14/2026") or a fraction/score
+# ("5/4"). Real sentences carry these; credit chains don't.
+_SLASH_NUMBER_RE = _re.compile(r"\d\s*/\s*\d")
+
+
+def _looks_like_photo_credit_chain(text: str) -> bool:
+	"""Detect a slash-separated photo-credit chain with no parentheses.
+
+	The breitbart.com case (2026-07-14 soak): the whole paragraph is
+	"Matthew Jonas/MediaNews Group/Boulder Daily Camera/Getty" — a
+	photographer, their outlet chain, and the agency, joined by slashes. It
+	missed BOTH existing credit signals: there is no parenthetical, and it
+	says "Getty" rather than the literal "Getty Images" the phrase list
+	looks for. The addon landed the cursor on it as if it were the lede.
+
+	Rather than chase agency names (an unbounded list), match the SHAPE:
+	a short line built of 3+ slash-joined fragments that isn't a sentence.
+
+	Guards against the obvious false positives:
+	  - digits around a slash → a date or score, so real prose
+	    ("The meeting is set for 7/14/2026 at city hall.")
+	  - ends like a sentence → real prose
+	    ("He asked whether the on/off switch mattered.")
+	  - long → real prose; credits are short
+	"""
+	stripped = (text or "").strip()
+	if not stripped or len(stripped) > 120:
+		return False
+	if stripped.count("/") < 2:
+		return False
+	if _SLASH_NUMBER_RE.search(stripped):
+		return False
+	if ends_like_sentence(stripped):
+		return False
+	return True
+
+
 def _looks_like_image_caption(text: str) -> bool:
 	"""Detect a figure caption / photo credit masquerading as a body paragraph.
 
-	Two signals, either is enough:
+	Three signals, any one is enough:
 	  1. A trailing parenthetical naming a photo agency / wire service or
 	     starting with Photo/Image/Courtesy (the "...(Getty Images)" shape).
 	  2. An unambiguous credit phrase anywhere ("getty images", "photo
 	     credit", "photo courtesy", etc.).
+	  3. A slash-separated credit chain with no parentheses at all
+	     ("Matthew Jonas/MediaNews Group/Boulder Daily Camera/Getty").
 
 	Conservative by design — real article prose doesn't carry these — so a
 	false positive that skips a genuine paragraph is very unlikely.
@@ -273,6 +313,8 @@ def _looks_like_image_caption(text: str) -> bool:
 	if not text:
 		return False
 	if _PHOTO_CREDIT_END_RE.search(text):
+		return True
+	if _looks_like_photo_credit_chain(text):
 		return True
 	lower = text.lower()
 	return any(phrase in lower for phrase in _PHOTO_CREDIT_PHRASES)
@@ -611,7 +653,89 @@ def _first_substantial_paragraph(nodes, min_chars) -> Optional[int]:
 	return None
 
 
+def _sentence_strict_view(tree: TreeSummary) -> Optional[TreeSummary]:
+	"""A copy of ``tree`` in which every PARAGRAPH that doesn't end like a
+	sentence is flagged as boilerplate, so the landing cascade skips it.
+
+	Indices align 1:1 with the original ``tree.main_nodes`` — nodes are
+	replaced, never removed — so an index found here is valid in the original.
+	Headings are left alone: they legitimately don't end in terminal
+	punctuation, and the directory-page redirect lands on one.
+
+	Returns None when no paragraph ends like a sentence (nothing to gain, and
+	the strict pass would just find nothing).
+
+	Why: in the 2026-07-14 soak, all 9 GOOD landings were prose ending in
+	terminal punctuation, and all 4 BAD ones were paragraphs that weren't:
+	a photo credit ending "…/Getty", an ad banner ending "…Founded By
+	Veterans", a self-promo ending "…Preferred Source", and another story's
+	headline ending "…the law". One signal separated every good landing from
+	every bad one, so it's a pass over the whole cascade rather than four
+	more shape-matching filters.
+
+	This reuses is_boilerplate purely as the "skip me" channel that
+	_is_chrome_paragraph already honours — it avoids threading a strict-mode
+	flag through the eight functions that call it, and it mutates nothing.
+	"""
+	nodes = tree.main_nodes
+	if not any(
+		n.kind == "paragraph" and _node_ends_sentence(n)
+		for n in nodes
+	):
+		return None
+	strict_nodes = [
+		_dataclasses.replace(n, is_boilerplate=True)
+		if (n.kind == "paragraph" and not n.is_boilerplate and not _node_ends_sentence(n))
+		else n
+		for n in nodes
+	]
+	return _dataclasses.replace(tree, main_nodes=strict_nodes)
+
+
 def find_article_landing(tree: TreeSummary) -> Optional[int]:
+	"""Land on real body prose, preferring paragraphs that end like a sentence.
+
+	Two passes over the same cascade:
+
+	  1. STRICT — non-sentence-ending paragraphs treated as chrome. This is
+	     what skips photo credits, ad banners, self-promos and other stories'
+	     headlines, all of which are substantial enough to win the cluster and
+	     hero gates but are not prose.
+
+	  2. UNRESTRICTED — the original cascade, unchanged.
+
+	Pass 2 is NOT a safety net, it is load-bearing. On a link-aggregator front
+	page (stevequayle.com) every item is a bulleted headline and NOTHING ends
+	like a sentence; landing on the first headline is the CORRECT behavior
+	there. Without pass 2 such a page would land nowhere at all. There is a
+	test pinning this: test_article_landing_falls_back_when_no_sentence_enders.
+
+	Known hole, accepted: an aggregator page carrying ONE stray prose sentence
+	(ad copy, a cookie notice) would let pass 1 win and land on it instead of
+	the first headline. The existing chrome filters catch most such strays.
+	"""
+	strict = _sentence_strict_view(tree)
+	if strict is not None:
+		idx = _find_article_landing_impl(strict)
+		# Only TRUST the strict pass if it actually did the thing it exists to
+		# do: land on prose that ends like a sentence. If it lands anywhere
+		# else, it has nothing to offer and we fall back.
+		#
+		# This guard is not defensive padding — without it the strict pass
+		# BROKE the X/Twitter single-status page. A tweet arrives as a run of
+		# short line-per-paragraph chunks that individually don't end in
+		# terminal punctuation; flagging them as chrome shattered the
+		# consecutive run the prose-run gate needs, the cascade fell through
+		# to a weaker gate, and it returned the generic "Post" heading at
+		# index 0. Pinned by test_article_landing_prose_run_on_x_status_page.
+		if idx is not None:
+			node = tree.main_nodes[idx]
+			if node.kind == "paragraph" and _node_ends_sentence(node):
+				return idx
+	return _find_article_landing_impl(tree)
+
+
+def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	"""Pick the best landing index in tree.main_nodes for an ARTICLE-classified
 	page. The browse cursor will be moved to that paragraph and NVDA will
 	speak it; we want to land on real BODY content, not on chrome (sidebar

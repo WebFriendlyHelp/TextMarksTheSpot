@@ -1348,3 +1348,99 @@ def test_scoped_article_landing_skips_participle_byline():
 	]
 	summary = cls.TreeSummary(main_nodes=nodes, positionally_scoped=True)
 	assert web.find_article_landing(summary) == 2
+
+
+# ---------------------------------------------------------------------------
+# Sentence-ending landing preference + photo-credit chains
+#
+# Soak test 2026-07-14: 13 real landings, 9 good, 4 bad. Every one of the 4
+# bad landings was on a paragraph that does NOT end like a sentence (a photo
+# credit ending in "Getty", an ad banner ending in "Veterans", a promo ending
+# in "Preferred Source", another story's headline ending in "the law"). Every
+# one of the 9 good landings was prose ending in terminal punctuation.
+#
+# So find_article_landing now runs the whole cascade ONCE over a view where
+# non-sentence-ending PARAGRAPHS are treated as chrome, and only falls back to
+# the unrestricted cascade if that finds nothing.
+#
+# The fallback is load-bearing, not a safety net: on a link-aggregator front
+# page NOTHING ends like a sentence, and landing on the first headline is the
+# CORRECT behavior there (stevequayle.com, confirmed by Casey). Do not remove
+# it. See test_article_landing_falls_back_when_no_sentence_enders.
+# ---------------------------------------------------------------------------
+
+def test_article_landing_skips_photo_credit_chain():
+	# Regression: breitbart.com article landed on main_nodes[1], the photo
+	# credit "Matthew Jonas/MediaNews Group/Boulder Daily Camera/Getty".
+	# It has no parenthetical and says "Getty" not "Getty Images", so it
+	# missed BOTH existing photo-credit signals.
+	credit = "Matthew Jonas/MediaNews Group/Boulder Daily Camera/Getty"
+	nodes = [
+		_node("heading", 60, level=1, preview="Automotive journalist detained by police"),
+		_node("paragraph", len(credit), preview=credit),
+		_node("paragraph", 220, preview="An automotive journalist was detained after a Flock camera.",
+		      ends_sentence=True),
+		_node("paragraph", 180, preview="The vehicle had been misidentified as stolen.",
+		      ends_sentence=True),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_looks_like_image_caption_catches_slash_credit_chain():
+	assert web._looks_like_image_caption("Matthew Jonas/MediaNews Group/Boulder Daily Camera/Getty")
+	# Must NOT eat real prose that merely contains slashes or a date.
+	assert not web._looks_like_image_caption("The meeting is set for 7/14/2026 at city hall.")
+	assert not web._looks_like_image_caption("He asked whether the on/off switch mattered.")
+
+
+def test_article_landing_skips_headline_teaser_for_real_lede():
+	# Regression: nypost.com (Hegseth leaks story) landed on main_nodes[8],
+	# a RELATED-STORY teaser headline for a completely different article.
+	# Two adjacent teasers formed a cluster and won the cluster gate.
+	nodes = [
+		_node("heading", 55, level=1, preview="Hegseth announces joint task force with DOJ"),
+		_node("paragraph", 109,
+		      preview="Family shattered after 3-time deported illegal immigrant"),
+		_node("paragraph", 96,
+		      preview="Trump admin sues city over sanctuary policy in new filing"),
+		_node("paragraph", 210,
+		      preview="Defense Secretary Pete Hegseth announced a joint task force.",
+		      ends_sentence=True),
+		_node("paragraph", 190, preview="The task force will prosecute leaks.",
+		      ends_sentence=True),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 3
+
+
+def test_article_landing_skips_ad_banner_and_promo():
+	# allnewspipeline.com landed on an ad banner ("Whatfinger: Frontpage For
+	# Conservative News Founded By Veterans"); dailymail.com landed on a
+	# self-promo ("See more Daily Mail on Google - save us as a Preferred
+	# Source"). Neither ends like a sentence.
+	nodes = [
+		_node("heading", 40, level=1, preview="Carrot and Stick"),
+		_node("paragraph", 63,
+		      preview="Whatfinger: Frontpage For Conservative News Founded By Vet"),
+		_node("paragraph", 63,
+		      preview="See more Daily Mail on Google - save us as a Preferred Sou"),
+		_node("paragraph", 240, preview="The government has begun a new push this week.",
+		      ends_sentence=True),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 3
+
+
+def test_article_landing_falls_back_when_no_sentence_enders():
+	# LOAD-BEARING. stevequayle.com is a link-aggregator front page: every
+	# item is a bulleted story headline and NOTHING ends like a sentence.
+	# Landing on the first substantial bullet is CORRECT here (confirmed by
+	# Casey). If the sentence-strict pass had no fallback, this page would
+	# land nowhere at all.
+	nodes = [
+		_node("heading", 20, level=1, preview="Steve Quayle"),
+		_node("paragraph", 30, preview="Alerts"),
+		_node("paragraph", 161,
+		      preview="▪ Moment giant 'tsunami cloud' slams into French beach"),
+		_node("paragraph", 140,
+		      preview="▪ Nuclear plant goes offline after unexplained fault"),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
