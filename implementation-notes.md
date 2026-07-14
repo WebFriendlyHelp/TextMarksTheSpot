@@ -2,6 +2,161 @@
 
 Newest entries at the top.
 
+## 2026-07-14 (seventeenth round) — main-thread freeze on long pages
+
+Found by reading the perf log, not from a user report. The walk was
+freezing NVDA's main thread for 5-12 seconds on long pages, still
+happening as of 07:02 that morning (biblegateway.com Isaiah 51-66: 936
+chunks, 6261ms walk). `WALK_NODE_LIMIT` was 1000 with NO wall-clock
+limit, and the comment above it said "tune after we measure on real
+pages." We had measured; nobody had gone back and tuned it.
+
+Three changes, all in `tree_summary.py`:
+
+1. `WALK_NODE_LIMIT` 1000 -> 400, plus a new `WALK_TIME_BUDGET_SEC = 1.5`
+   checked per-iteration in the walk loop. The TIME budget is the real
+   guard: per-chunk cost varies ~6.4ms to ~8.2ms across sites, so a node
+   cap alone cannot bound the freeze. The node cap is now just a backstop.
+
+2. The unscoped fallback no longer re-walks the document. It used to call
+   `_walk_main_nodes` a second time with an "unscoped sentinel", which
+   doubled detection time on exactly the slowest pages — hearthstoneaccess
+   changelog spent 3679ms on a scoped walk that found nothing, then 3614ms
+   re-walking the identical 361 chunks. The walk now collects every node it
+   sees into `all_nodes` regardless of scope, and the fallback is a list
+   assignment. Removed `_UNSCOPED_SENTINEL` and its branch in `_in_scope`,
+   which became dead.
+
+3. Perf line: `fb_raw_seen=` replaced by `all_nodes=`, and a new
+   `truncated=` field says whether the walk stopped on the cap/budget
+   rather than reaching the end of the document. New `[TMTS walk-truncated]`
+   debug line.
+
+Decisions and things to watch:
+
+- **Truncation is a real trade, taken deliberately.** On a 900-paragraph
+  page we now choose the landing from a partial view. This is safe because
+  landing indices are always near the top (the correct BibleGateway landing
+  was `main_nodes[7]`), but the TAIL of a long document no longer feeds the
+  classifier's counts. A page whose character of content changes after
+  paragraph 400 could in principle classify differently. Judged acceptable:
+  such pages are overwhelmingly ARTICLE either way, and a six-second freeze
+  is a certain harm against a speculative one.
+
+- **The notice-keyword regex had to be split.** The walk now sees
+  out-of-scope chunks, and a status keyword sitting in a cookie banner or
+  footer must not boost NOTICE confidence on a page whose scope filter
+  worked fine. So there are two flags: `notice_match` (in-scope only, the
+  normal path) and `notice_match_all` (whole document), and the fallback
+  path swaps in the latter because there main_nodes IS the whole document.
+  Getting this wrong would silently change NOTICE classification on every
+  page with a cookie banner.
+
+- **`all_nodes` completeness depends on the out-of-scope-tolerance bail.**
+  That bail can truncate `all_nodes` early, but it only fires AFTER at
+  least one in-scope node exists — in which case `main_nodes` is non-empty
+  and the fallback never runs. So `all_nodes` is always complete when it is
+  actually used. If anyone changes that bail condition, re-check this.
+
+- **NOT fixed, deliberately deferred:** the identity-based `_count_in_scope`
+  parent-chain walk still runs on `chrome`-scope pages (no `<main>`, no
+  single `<article>`) and cost 8047ms of the 11958ms total on the
+  Hearthstone deckbuilder. Extending positional counting to that case is
+  the right fix and touches the scope machinery, so it goes in its own
+  round rather than riding along with a perf change that needs real-world
+  soak time first.
+
+- Unit tests can't cover any of this (the walk needs NVDA). The 130-test
+  suite passing only proves the classifier and landing finders are
+  untouched. Verification is soak testing against the perf log: watch for
+  `truncated=True` and for total times dropping under ~2s on the long
+  pages listed above.
+
+### Same-day corrections found by soak testing (read these, they are the lesson)
+
+**1. WALK_NODE_LIMIT=400 was wrong and silently degraded landings.** Caught
+on github.com/Community-Access/accessibility-agents. The cap counts RAW
+CHUNKS WALKED, not content nodes KEPT. GitHub's repo page turns 400 raw
+chunks into only ~195 in-scope nodes (the rest is chrome: fork/branch/tag
+counts, file browser, commit messages), and the README landing paragraph
+sits at node ~201. So the cap starved the walk before it reached any
+content, `find_article_landing` fell through the "very substantial" gate to
+the cluster gate, and the page landed on a COMMIT MESSAGE. Meanwhile GitHub
+walks at ~4ms/chunk, so the 2s clock had not come close to firing — the
+backstop was doing all the truncating and the real guard sat idle. Restored
+to 1000. **The time budget must be the only thing that ever truncates.**
+
+The meta-lesson: I changed two levers (node cap AND time budget) in one
+pass, and only the time budget was the right one. The page got FASTER with
+the bad cap and landed somewhere plausible-sounding. Nothing but reading the
+landing text out loud, plus the `truncated=` field naming WHICH limit fired,
+would have caught it. If that field had just said `truncated=True` without
+saying which limit, this ships broken.
+
+**2. WALK_TIME_BUDGET_SEC 1.5 -> 2.0.** 1.5s was tuned against pages whose
+content starts at the top (BibleGateway, a long newsletter). It had no
+deep-content page in its sample. On GitHub the landing came in at node 201
+of the 226 kept — about 25 nodes of headroom. At 2.0s that headroom is 140.
+The failure mode being bought off here is severe and SILENT: truncate before
+the content starts and we return no landing, which is indistinguishable to
+the user from a page with nothing on it (two low beeps). A page that used to
+work would quietly stop working.
+
+### Also fixed: the trigger dropped page loads on the floor
+
+`_maybe_fire` bailed whenever the TreeInterceptor wasn't ready, with no
+second chance — and `event_treeInterceptor_gainFocus` does not fire on this
+NVDA build, so nothing picked it up later. `documentLoadComplete` fires when
+the DOM finishes loading, which is NOT when NVDA finishes building the
+virtual buffer; on a big page the buffer lags. Observed on biblegateway:
+documentLoadComplete fired twice (07:40:33, 07:40:47), both with a real
+Gecko_ia2 TI whose isReady was False, both dropped. The add-on did nothing,
+silently — no tone, no landing, no signal it had even tried. Casey pressed Z
+to compensate, then refreshed, and only the refresh auto-landed.
+
+Now: a bounded readiness poll (250ms x 12). Re-reads the TI from the OBJECT
+each attempt, since NVDA may swap it. Gives up silently after 3s.
+
+**Deliberately does NOT poll when the TI is None** (only when it exists but
+isn't ready). None is the Thunderbird case — every message preview fires
+documentLoadComplete with a null TI. Polling there would either burn cycles
+for nothing or, worse, eventually start auto-landing inside email, and email
+detection is deferred and undesigned.
+
+**Caveat: this fix is UNVERIFIED.** The poll never fired on any load we
+tested afterwards (the TI was ready immediately every time). It is backed by
+code reading and one observed trace, nothing more.
+
+### Open: landing speech gets eaten by page-placed focus (NOT a regression)
+
+Intermittent. On biblegateway the caret moves to the right paragraph and
+NOTHING is spoken; NVDA announces `button, collapsed, opens list, Lexham
+English Bible Open menu` instead. Same page, same build: failed once,
+worked once.
+
+A `[TMTS speak-probe]` diagnostic (still in the code, remove when fixed)
+proves we hand NVDA a valid 69-char range every time —
+`'There is no one who guides her among all the children she has borne,\n'`.
+So it is NOT an empty or stale captured position, which was my first theory
+and was wrong.
+
+What actually happens: the page moves focus to its menu button while our
+walk is blocking NVDA's main thread. NVDA's focus announcement carries an
+implicit speech cancel and eats our landing. We call `cancelSpeech()` then
+`speakTextInfo()`, so we speak FIRST and get cut off — the exact inverse of
+what SPEC intends ("the add-on's own speak call naturally cuts off whatever
+NVDA was saying").
+
+This is PRE-EXISTING, not caused by today's work. The race window is however
+long we block the main thread: it was 6.3s, it is now 2.1s. Today's changes
+make this bug LESS likely, not more.
+
+Likely fix (do NOT write it on one observation — collect samples first):
+defer the `speakTextInfo` by one event-loop turn so any focus announcement
+queued during the walk flushes first and ours lands last. Sequencing
+`speakTextInfo` against NVDA's queued focus events is an NVDA API question —
+per global CLAUDE.md, look it up in NV Access docs/source, do not recall it.
+
 ## 2026-07-06 (sixteenth round) — participle bylines (Phoronix)
 
 Soak report: phoronix.com article landed on the 85-char mixed-case

@@ -110,9 +110,62 @@ _captured_positions: dict = {}
 
 
 # Caps on the document walk. Real pages can be huge (Wikipedia has thousands
-# of paragraph units); the speed budget is <50ms per detection (SPEC). 1000
-# nodes is a starting cap — tune after we measure on real pages.
+# of paragraph units). The walk runs on NVDA's MAIN THREAD, so every
+# millisecond here is a millisecond NVDA is frozen.
+#
+# The old cap was 1000 nodes with no time limit, and the comment said "tune
+# after we measure on real pages." We measured (perf log, 2026-07-01..14):
+#
+#   biblegateway.com Isaiah 51-66   936 chunks   6261ms   (~6.7ms/chunk)
+#   nlsbard.loc.gov search results 1000 chunks   6861ms   (~6.9ms/chunk)
+#   github.com (long README)        742 chunks   6120ms   (~8.2ms/chunk)
+#   toptechtidbits newsletter       845 chunks   5438ms   (~6.4ms/chunk)
+#
+# So 1000 nodes is a ~7 SECOND main-thread freeze, and the node cap alone
+# can't bound it because per-chunk cost varies by a factor of ~2 across
+# sites. The wall-clock deadline is the real guard; the node cap is a
+# backstop for the (hypothetical) page with very cheap chunks.
+#
+# Truncating is safe for our purpose: we need enough of the top of the
+# document to pick a landing, not the whole document.
+#
+# The NODE CAP IS A BACKSTOP ONLY. The wall-clock budget below is what
+# bounds the freeze; this exists solely so a page of pathologically cheap
+# chunks can't spin forever under the time limit. It must stay high enough
+# that it NEVER binds before the clock does.
+#
+# It was briefly set to 400 and that was a mistake, caught in soak testing
+# the same day. This cap counts RAW CHUNKS WALKED, not content nodes KEPT,
+# and on a chrome-heavy tree most raw chunks get filtered out: GitHub's repo
+# page turned 400 raw chunks into just 195 in-scope nodes, which starved the
+# walk before it ever reached the README (the landing paragraph sits around
+# node 201). The page then landed on a commit message. Meanwhile GitHub
+# walks at ~4ms/chunk, so the 2s clock had not come close to firing — the
+# backstop was doing the truncating and the real guard was idle. Keep this
+# generous and let the clock govern.
 WALK_NODE_LIMIT = 1000
+
+# Wall-clock ceiling for the walk, in seconds. SPEC's aspirational budget is
+# 50ms; that is not reachable through NVDA's UNIT_PARAGRAPH walk on a real
+# document, and pretending otherwise is how we ended up with no time limit
+# at all.
+#
+# Was 1.5s, raised to 2.0s on the same day after soak-testing found the
+# margin too thin. The binding case is a page whose CONTENT STARTS DEEP:
+# github.com/Community-Access/accessibility-agents front-loads ~200 nodes of
+# chrome (fork/branch/tag counts, the file browser, commit messages) before
+# the README's prose, and the landing came in at main_nodes[201] of the 226
+# we had kept when the 1.5s budget cut the walk. About 25 nodes of headroom.
+#
+# That is the failure mode this whole mechanism can introduce: truncate
+# before the content starts and we return no landing at all, which sounds
+# EXACTLY like a page with nothing on it (two low beeps). A page that used
+# to work would silently stop working. 1.5s was tuned against BibleGateway
+# and a long newsletter, where content starts at the top; it did not have a
+# deep-content page in its sample. 2.0s still holds the freeze to roughly a
+# third of the old 6.1s on that same page, and half a second is a cheap
+# price for not losing landings on GitHub-shaped trees.
+WALK_TIME_BUDGET_SEC = 2.0
 
 # Text-content roles we treat as paragraph candidates when walking by
 # UNIT_PARAGRAPH. Non-content roles get silently skipped so they don't
@@ -278,32 +331,48 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	# not just empty ones (existing walk-empty log only fires when result
 	# is empty — leaves us blind on slow non-empty walks).
 	raw_count = [0]
-	summary.main_nodes = _walk_main_nodes(treeInterceptor, main_obj, scope_cache, positions, notice_match, raw_count, scope_range)
+	# Every node the walk produces, in-scope or not, with parallel positions.
+	# This IS the unscoped walk result — collected during the one traversal
+	# we were going to do anyway.
+	all_nodes: list = []
+	all_positions: list = []
+	notice_match_all = [False]
+	walk_truncated = [False]
+	summary.main_nodes = _walk_main_nodes(
+		treeInterceptor, main_obj, scope_cache, positions, notice_match, raw_count, scope_range,
+		all_nodes_out=all_nodes,
+		all_positions_out=all_positions,
+		notice_match_all_out=notice_match_all,
+		truncated_out=walk_truncated,
+	)
 	t3 = time.monotonic()
 	fallback_ran = False
-	fallback_raw_count = [0]
-	# Fallback: if the scoped walk produced zero nodes, skip the
-	# chrome-filtered intermediate walk and go straight to unscoped.
+	# Fallback: if the scoped walk produced zero nodes, the scope filter is
+	# bogus for this page (the identity-based parent-chain check is known
+	# unreliable — see CLAUDE.md "Known limitations"). Fall back to the
+	# whole document.
 	#
-	# Why skip chrome-filtered: it uses the SAME parent-chain walk we
-	# just used (just looking for landmark-type matches instead of
-	# main_obj identity). If the parent walk couldn't find main_obj
-	# reliably (which is what's wrong on Calendar, webaim.org/projects/
-	# million, etc. — see CLAUDE.md "Known limitations"), it almost
-	# certainly can't find chrome landmarks reliably either. The
-	# chrome-filtered fallback would visit all chunks again at the same
-	# cost as the failed walk and return empty 90% of the time.
+	# This used to RE-WALK the document from scratch with an unscoped
+	# filter, which doubled detection time on exactly the pages that were
+	# already slowest: hearthstoneaccess.com/changelog.html spent 3679ms on
+	# a scoped walk that found nothing, then 3614ms re-walking the identical
+	# 361 chunks (7373ms total). But the walk already visited every one of
+	# those chunks and knows their text, role, and position — the only thing
+	# the scope filter did was decline to keep them. So we keep them as we
+	# go and the fallback is now a list assignment.
 	#
-	# Doubling detection time on a 400-node page (~4 s → ~8 s) for a
-	# fallback that rarely succeeds is a bad trade. Unscoped reliably
-	# produces usable content; the classifier and landing finders handle
-	# the noise (nav and footer text getting through) better than they
-	# handle an empty walk result.
+	# The out-of-scope tolerance bail can truncate all_nodes early, but that
+	# bail only fires AFTER at least one in-scope node exists, in which case
+	# main_nodes is non-empty and this fallback doesn't run. So all_nodes is
+	# always complete when we actually use it.
 	counts_rescoped = False
-	if not summary.main_nodes:
+	if not summary.main_nodes and all_nodes:
 		fallback_ran = True
-		positions.clear()
-		summary.main_nodes = _walk_main_nodes(treeInterceptor, _UNSCOPED_SENTINEL, {}, positions, notice_match, fallback_raw_count)
+		summary.main_nodes = all_nodes
+		positions[:] = all_positions
+		# main_nodes is now the whole document, so the notice keyword must be
+		# the whole-document one too.
+		notice_match[0] = notice_match_all[0]
 		# Consistency: main_nodes now describe the WHOLE document. If the
 		# scoped counts came back all-zero (the scope was clearly bogus —
 		# Zoom counted 0 forms on a 7-input page), recount document-wide so
@@ -343,7 +412,8 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		f"counts={(t2-t1)*1000:.0f}ms "
 		f"walk={(t3-t2)*1000:.0f}ms "
 		f"fallback={(t4-t3)*1000:.0f}ms (ran={fallback_ran}) "
-		f"raw_seen={raw_count[0]} fb_raw_seen={fallback_raw_count[0]} "
+		f"truncated={walk_truncated[0]} "
+		f"raw_seen={raw_count[0]} all_nodes={len(all_nodes)} "
 		f"main_nodes={len(summary.main_nodes)} has_main={summary.has_main_landmark} scope={scope_kind} "
 		f"article={summary.article_count} forms={summary.form_input_count} "
 		f"interactive={summary.interactive_control_count} url={summary.url!r}"
@@ -584,9 +654,6 @@ def _single_article_scope_range(treeInterceptor):
 		return None
 
 
-_UNSCOPED_SENTINEL = "__unscoped__"
-
-
 def _in_scope(obj, main_obj, cache: dict) -> bool:
 	# Decide whether obj is "page content" for classification purposes.
 	# If main_obj is set: obj must be inside the main landmark.
@@ -595,13 +662,14 @@ def _in_scope(obj, main_obj, cache: dict) -> bool:
 	# `cache` is a {id(obj): bool} dict scoped to one build_tree_summary
 	# call; all ancestors visited during the walk are cached with the
 	# final decision, so subsequent siblings short-circuit immediately.
+	#
+	# There used to be an "unscoped sentinel" value for main_obj that made
+	# this accept everything, for the last-resort re-walk of the whole
+	# document. That re-walk is gone (the walk now collects out-of-scope
+	# nodes as it goes — see build_tree_summary), so nothing passes the
+	# sentinel and the branch was dead.
 	if obj is None:
 		return False
-	# Unscoped sentinel: accept everything. Used as the last-resort fallback
-	# on pages where both main-scoped and chrome-filtered walks produce no
-	# nodes (e.g., themes that wrap the article body in role="complementary").
-	if main_obj is _UNSCOPED_SENTINEL:
-		return True
 	key = id(obj)
 	if key in cache:
 		return cache[key]
@@ -721,16 +789,33 @@ def _count_in_range(treeInterceptor, item_type: str, scope_range, limit: int = 0
 _OUT_OF_SCOPE_TOLERANCE = 50
 
 
-def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None) -> list[MainNode]:
+def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None, all_nodes_out: Optional[list] = None, all_positions_out: Optional[list] = None, notice_match_all_out: Optional[list] = None, truncated_out: Optional[list] = None) -> list[MainNode]:
 	# Walk the whole document by UNIT_PARAGRAPH; emit only nodes that
 	# pass _in_scope (inside <main> if present, or outside chrome
 	# landmarks if not). Bail out once we've had _OUT_OF_SCOPE_TOLERANCE
-	# consecutive out-of-scope nodes (most likely we're in the footer).
+	# consecutive out-of-scope nodes (most likely we're in the footer),
+	# or once we exceed WALK_NODE_LIMIT / WALK_TIME_BUDGET_SEC.
 	#
 	# notice_match_out (optional, single-element list): the walker flips
 	# its first element to True the first time it sees a chunk of text
 	# matching the status-keyword regex. Used by the NOTICE classifier.
+	#
+	# all_nodes_out / all_positions_out (optional lists): every node this
+	# walk produces gets appended here REGARDLESS of scope, with its
+	# parallel position. This is what the caller uses instead of re-walking
+	# the document unscoped when the scope filter rejects everything. The
+	# old code ran a whole second walk for that case, which on
+	# hearthstoneaccess.com/changelog.html meant 3679ms of scoped walk that
+	# found nothing followed by 3614ms of unscoped walk over the identical
+	# 361 chunks. The chunks are already in hand the first time through;
+	# collecting them costs a _node_for call and a textInfo copy, not a
+	# second traversal.
+	#
+	# truncated_out (optional, single-element list): set to True if we
+	# stopped on the node cap or the time budget rather than reaching the
+	# end of the document.
 	result: list[MainNode] = []
+	deadline = time.monotonic() + WALK_TIME_BUDGET_SEC
 	try:
 		info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
 	except Exception:
@@ -751,7 +836,14 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	# Start position of the previously processed chunk, for the forward-
 	# progress check below.
 	prev_start = None
+	truncated = False
 	for _ in range(WALK_NODE_LIMIT):
+		# Wall-clock guard. Checked per-iteration: one time.monotonic() call
+		# is nanoseconds against a ~7ms expand(), so the check is free
+		# relative to the work it's bounding.
+		if time.monotonic() > deadline:
+			truncated = True
+			break
 		try:
 			info.expand(textInfos.UNIT_PARAGRAPH)
 			# Forward-progress guard. The old loop unconditionally did
@@ -802,10 +894,41 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 					in_scope = obj is None or _in_scope(obj, main_obj, cache)
 			else:
 				in_scope = obj is None or _in_scope(obj, main_obj, cache)
+			# Build the node once, regardless of scope. An out-of-scope node
+			# still goes into all_nodes_out so the caller can use it if the
+			# scope filter turns out to have rejected the entire document.
+			node = _node_for(obj, text)
+			pos = None
+			if node is not None:
+				# Capture a collapsed-to-start position parallel to the node
+				# list so get_landing_textinfo can move the caret there later
+				# without a second walk.
+				try:
+					pos = info.copy()
+					pos.collapse()
+				except Exception:
+					pos = None
+				if all_nodes_out is not None:
+					all_nodes_out.append(node)
+					if all_positions_out is not None:
+						all_positions_out.append(pos)
+					# The notice-keyword regex, evaluated over the whole
+					# document. Kept separate from the in-scope match below
+					# because a status keyword sitting in a cookie banner or
+					# footer must not boost NOTICE confidence on a page whose
+					# scope filter worked fine. Only the fallback path (where
+					# main_nodes IS the whole document) consults this.
+					if (
+						notice_match_all_out is not None
+						and not notice_match_all_out[0]
+						and text
+						and _NOTICE_RE.search(text)
+					):
+						notice_match_all_out[0] = True
+
 			if in_scope:
 				consecutive_out = 0
 				have_seen_in_scope = True
-				node = _node_for(obj, text)
 				if node is not None:
 					result.append(node)
 					# Run the notice-keyword regex against the FULL text
@@ -817,15 +940,7 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 						and _NOTICE_RE.search(text)
 					):
 						notice_match_out[0] = True
-					# Capture a collapsed-to-start position parallel to
-					# main_nodes so get_landing_textinfo can move the
-					# caret there later without a second walk.
-					try:
-						pos = info.copy()
-						pos.collapse()
-						positions_out.append(pos)
-					except Exception:
-						positions_out.append(None)
+					positions_out.append(pos)
 			else:
 				consecutive_out += 1
 				if have_seen_in_scope and len(dropped_after_start) < 10 and text.strip():
@@ -843,6 +958,20 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 			info.collapse(end=True)
 		except Exception:
 			break
+	else:
+		# The for loop ran to completion without breaking, which means we
+		# consumed every one of WALK_NODE_LIMIT iterations rather than
+		# reaching the end of the document.
+		truncated = True
+
+	if truncated:
+		log.debug(
+			f"[TMTS walk-truncated] stopped at raw_seen={raw_seen} "
+			f"(node cap {WALK_NODE_LIMIT}, time budget {WALK_TIME_BUDGET_SEC}s) — "
+			f"landing will be chosen from the document so far"
+		)
+	if truncated_out is not None:
+		truncated_out[0] = truncated
 
 	if dropped_after_start:
 		log.debug(

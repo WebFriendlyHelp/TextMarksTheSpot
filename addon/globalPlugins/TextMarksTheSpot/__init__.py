@@ -114,6 +114,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	# finish hydrating async content into NVDA's virtual buffer.
 	_RETRY_DELAY_MS = 1500
 
+	# Readiness poll for a TreeInterceptor that exists but hasn't finished
+	# building. 250ms x 12 = up to 3s of waiting, which covers the observed
+	# BibleGateway case (the buffer was still not ready 14s after the first
+	# documentLoadComplete, but a SECOND documentLoadComplete arrives on
+	# these pages and restarts the poll — we do not need one poll chain to
+	# span the whole load). Bounded so a document that never becomes ready
+	# (a non-browse-mode frame) can't leave a timer chain running forever.
+	_READY_POLL_MS = 250
+	_READY_POLL_MAX_ATTEMPTS = 12
+
 	# After a SUCCESSFUL landing on a URL, suppress further AUTOMATIC
 	# detections for that same URL for this long. SPA pages can re-render
 	# and fire fresh documentLoadComplete events well past the 2 s refire
@@ -145,6 +155,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Cancelled whenever a new detection cycle starts (real navigation,
 		# Z press, refresh, alt-tab to a new TI).
 		self._pending_retry = None
+		# Pending wx.CallLater handle for the TreeInterceptor readiness poll.
+		self._pending_ready_poll = None
 		# URLs seen this NVDA session (url -> monotonic timestamp). Backs
 		# the restored-position gate: Back navigation by definition returns
 		# to a URL we've already processed, so "caret mid-page" only means
@@ -168,6 +180,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._cancel_pending_retry()
 		except Exception:
 			log.exception("[TMTS] terminate: cancel_pending_retry failed")
+		try:
+			self._cancel_pending_ready_poll()
+		except Exception:
+			log.exception("[TMTS] terminate: cancel_pending_ready_poll failed")
 		try:
 			fb_mod.progress_stop()
 		except Exception:
@@ -203,12 +219,81 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def _maybe_fire(self, obj, bypass_exclusion=False):
 		ti = getattr(obj, "treeInterceptor", None)
+		# The TreeInterceptor can EXIST but not yet be built. documentLoadComplete
+		# fires when the DOM finished loading, which is not the same moment
+		# NVDA finishes constructing the virtual buffer — on a big page the
+		# buffer lags the load. We used to drop that event on the floor and
+		# there was no second chance, because event_treeInterceptor_gainFocus
+		# does not fire on this NVDA build (see CLAUDE.md). Net effect: on any
+		# slow-building page the add-on did NOTHING, silently — no tone, no
+		# landing, nothing to tell the user it had even tried.
+		#
+		# Observed 2026-07-14 on biblegateway.com: documentLoadComplete fired
+		# twice (07:40:33 and 07:40:47), both times with a real Gecko_ia2 TI
+		# whose isReady was False, both dropped. The user pressed Z to
+		# compensate, then refreshed, and only the refresh auto-landed.
+		#
+		# So: poll for readiness instead of giving up. Re-read the TI from the
+		# object each time rather than re-checking a stale handle, since NVDA
+		# may swap it.
+		if ti is not None and not getattr(ti, "isReady", False):
+			self._schedule_ready_poll(obj, bypass_exclusion, attempt=1)
+			return
 		self._maybe_fire_ti(ti, bypass_exclusion=bypass_exclusion)
+
+	def _schedule_ready_poll(self, obj, bypass_exclusion, attempt):
+		self._cancel_pending_ready_poll()
+		log.debug(f"[TMTS] ti not ready — readiness poll attempt {attempt}/{self._READY_POLL_MAX_ATTEMPTS}")
+		try:
+			self._pending_ready_poll = wx.CallLater(
+				self._READY_POLL_MS,
+				self._fire_ready_poll,
+				obj,
+				bypass_exclusion,
+				attempt,
+			)
+		except Exception:
+			log.exception("[TMTS] failed to schedule readiness poll")
+			self._pending_ready_poll = None
+
+	def _cancel_pending_ready_poll(self):
+		if self._pending_ready_poll is None:
+			return
+		try:
+			if self._pending_ready_poll.IsRunning():
+				self._pending_ready_poll.Stop()
+		except Exception:
+			pass
+		self._pending_ready_poll = None
+
+	def _fire_ready_poll(self, obj, bypass_exclusion, attempt):
+		# Runs on the wx main thread _READY_POLL_MS after scheduling.
+		self._pending_ready_poll = None
+		try:
+			ti = getattr(obj, "treeInterceptor", None)
+		except Exception:
+			# Object died under us (user navigated away). Nothing to do.
+			log.debug("[TMTS] readiness poll: object gone — abandon")
+			return
+		if ti is not None and getattr(ti, "isReady", False):
+			log.debug(f"[TMTS] readiness poll: ready after {attempt} attempt(s) — proceeding")
+			self._maybe_fire_ti(ti, bypass_exclusion=bypass_exclusion)
+			return
+		if attempt >= self._READY_POLL_MAX_ATTEMPTS:
+			# Give up silently. We never played a tone, so from the user's
+			# side nothing happened — same as before this poll existed. Z
+			# remains the manual escape hatch.
+			log.debug(f"[TMTS] readiness poll: still not ready after {attempt} attempts — giving up")
+			return
+		self._schedule_ready_poll(obj, bypass_exclusion, attempt + 1)
 
 	def _maybe_fire_ti(self, ti, bypass_exclusion=False):
 		if ti is None or not getattr(ti, "isReady", False):
 			log.debug(f"[TMTS] _maybe_fire_ti: ti not ready ({ti!r})")
 			return
+		# A ready TI means this cycle is live; any readiness poll still
+		# pending from an earlier event is now stale.
+		self._cancel_pending_ready_poll()
 		# A new detection cycle invalidates any pending retry from a prior
 		# load — the page state we'd have retried against is gone.
 		self._cancel_pending_retry()
@@ -546,6 +631,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# browse cursor in NVDA. Then we speak the destination so the
 			# user gets immediate feedback that we acted (NVDA's natural
 			# announce-on-caret-move is unreliable for programmatic moves).
+			# DIAGNOSTIC (2026-07-14): on biblegateway the caret moved to the
+			# right paragraph but NOTHING was spoken — speakTextInfo neither
+			# raised nor emitted any speech, which means it was handed an
+			# empty range. Log what we actually hand it, at each step, so we
+			# can tell an empty/stale captured position from NVDA swallowing
+			# our speech. Remove once the cause is known.
+			try:
+				pre_text = landing_info.text or ""
+			except Exception as e:
+				pre_text = f"<error: {e!r}>"
 			landing_info.updateCaret()
 			# Cancel pending chrome speech (page title, "Skip to content",
 			# any in-flight NVDA announcements) so the user hears ONLY our
@@ -554,6 +649,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Expand to the paragraph so we speak the full landing text.
 			speech_info = landing_info.copy()
 			speech_info.expand(textInfos.UNIT_PARAGRAPH)
+			try:
+				spoken_text = speech_info.text or ""
+			except Exception as e:
+				spoken_text = f"<error: {e!r}>"
+			log.debug(
+				f"[TMTS speak-probe] pre_collapsed_len={len(pre_text)} "
+				f"expanded_len={len(spoken_text)} expanded={spoken_text[:80]!r} "
+				f"expected={summary.main_nodes[idx].text_preview[:60]!r}"
+			)
 			speech.speakTextInfo(speech_info, reason=controlTypes.OutputReason.CARET)
 			landed_node = summary.main_nodes[idx]
 			first_eight = [
