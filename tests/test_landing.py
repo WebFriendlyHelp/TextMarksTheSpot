@@ -1640,3 +1640,36 @@ def test_lead_section_gate_does_not_fire_on_a_normal_article():
 	]
 	# Falls through to the normal cascade, which lands on the first of the run.
 	assert web.find_article_landing(_summary_with(nodes)) == 1
+
+
+def test_skips_sms_marketing_consent_for_real_lede():
+	# krdo.com (Chrome soak, 2026-07-14). Several KRDO pages carry an SMS signup
+	# widget whose consent blurb sits above the story. It is grammatical prose
+	# ending in a period, so the sentence rule waves it straight through, exactly
+	# like the affiliate disclosures did.
+	#
+	# Same family, same reason it is tractable: the wording is near-formulaic
+	# because telecom marketing law drives it ("you agree to receive", "message
+	# and data rates may apply", "unsubscribe at any time"). Closed vocabulary.
+	nodes = [
+		_node("heading", 45, level=1, preview="Look of the week: Zendaya nailing her red carpet"),
+		_node("paragraph", 160,
+		      preview="By signing up, you agree to receive text and multimedia mark",
+		      ends_sentence=True),
+		_node("paragraph", 230,
+		      preview="COLORADO SPRINGS, Colo. (KRDO) -- The actress turned heads a",
+		      ends_sentence=True),
+		_node("paragraph", 180, preview="She wore a custom gown to the premiere.",
+		      ends_sentence=True),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_consent_filter_does_not_eat_real_prose():
+	# Must not fire on a story ABOUT consent, marketing, or subscriptions.
+	assert not web._looks_like_editorial_disclosure(
+		"The senator said voters did not agree to receive a tax increase this year."
+	)
+	assert not web._looks_like_editorial_disclosure(
+		"Readers may unsubscribe from the paper, but circulation is still climbing."
+	)

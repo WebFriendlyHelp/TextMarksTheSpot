@@ -21,6 +21,7 @@
 # that don't fire event_documentLoadComplete.
 
 import time
+import weakref
 from urllib.parse import urlparse
 
 import api
@@ -95,6 +96,32 @@ def _get_current_gesture_display(class_name: str, script_name: str) -> str:
 # Translators: NVDA input help category name for Text Marks the Spot.
 _CATEGORY = _("Text Marks the Spot")
 
+# URL schemes that mean "this is a web document". Mirrors the allowlist NVDA
+# itself uses to tell web pages from email messages
+# (browseMode.py:2406-2413 -- "we don't want to remember caret positions for
+# email messages, etc."). Mail clients expose imap: / mailbox: / news: URLs, so
+# this keeps us out of Thunderbird message previews without hard-coding an app
+# name, and keeps us out of the next mail client too.
+_WEB_URL_SCHEMES = ("http:", "https:", "file:")
+
+
+def _is_web_document(ti) -> bool:
+	"""True if this TreeInterceptor is a web document (not an email message).
+
+	Only consulted on the readiness-poll path, which is the one place we act on a
+	document NVDA did not hand us a TreeInterceptor for up front. Email detection
+	is deferred and undesigned; moving the user's cursor inside their inbox would
+	be exactly the "act when unsure" the guardrails forbid.
+	"""
+	try:
+		url = str(getattr(ti, "documentConstantIdentifier", "") or "").strip().lower()
+	except Exception:
+		return False
+	if not url:
+		return False
+	return url.startswith(_WEB_URL_SCHEMES)
+
+
 log.info("[TMTS] module imported; defining GlobalPlugin")
 
 
@@ -140,8 +167,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		super().__init__()
 		cfg_mod.load()
 		log.info("[TMTS] GlobalPlugin.__init__ — addon loaded, Z binding registered")
-		# Cheap fast-path debounce: same TI as last time → already handled.
-		self._last_ti = None
+		# Last TreeInterceptor we fired on, held WEAKLY.
+		#
+		# A strong reference here pins a dead TreeInterceptor, its rootNVDAObject,
+		# and its COM proxies in memory for as long as the add-on runs. NVDA itself
+		# stores TI references on NVDAObjects as weakrefs precisely so killed
+		# interceptors can be collected (NVDAObjects/__init__.py:461,467). We were
+		# leaking one per browsing session.
+		#
+		# Paired with the URL below: "same document" means same TI AND same URL.
+		# The TI alone is NOT a document identity -- NVDA reuses the interceptor
+		# across navigations and the URL changes in place underneath it.
+		self._last_ti_ref = None
 		# URL + timestamp debounce: catches the case where NVDA gives us a
 		# NEW TI object for what is logically the same page load (common on
 		# sites that swap the DOM during hydration / JS routing).
@@ -200,43 +237,77 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		finally:
 			nextHandler()
 
-	def event_treeInterceptor_gainFocus(self, treeInterceptor, nextHandler):
-		# Narrower than event_gainFocus — only fires when a TreeInterceptor
-		# specifically gains focus, NOT for every focus change inside a
-		# document or on alt-tab between windows. This is the right hook
-		# for "user just arrived at a browse-mode document".
-		#
-		# On refresh: NVDA tears down the old TI and creates a new one →
-		# event_treeInterceptor_gainFocus fires with a different TI object.
-		# On alt-tab back: same TI regains focus → fires, but the URL
-		# matches and the cooldown might NOT have elapsed if recent. The
-		# TI-identity check in _maybe_fire catches the same-TI case.
-		log.debug(f"[TMTS event] treeInterceptor_gainFocus ti={treeInterceptor!r}")
+	# NOTE: there used to be an event_treeInterceptor_gainFocus handler here,
+	# described as our second trigger and our backstop for a missed
+	# documentLoadComplete. It NEVER FIRED. Not "not on this build" -- it cannot
+	# fire, on any NVDA version, by construction.
+	#
+	# Verified in NVDA source by two independent reviews: global plugins only
+	# receive events dispatched through eventHandler.executeEvent ->
+	# _EventExecuter.gen (eventHandler.py:141-167). treeInterceptor_gainFocus is
+	# never dispatched that way. It is a plain METHOD that core calls directly on
+	# the TreeInterceptor object itself (eventHandler.py:425, and
+	# virtualBuffers/__init__.py:611 and :620). Its base definition
+	# (browseMode.py:319-324) documents it as "only fired upon entering this
+	# treeInterceptor when it was not the current treeInterceptor before".
+	#
+	# The field data agrees exactly: 0 firings across 31 page loads.
+	#
+	# So documentLoadComplete is our ONLY trigger and always has been. It never
+	# had a backstop. Do not re-add this handler; if you want the "browse document
+	# became ready" moment, the poll in _maybe_fire is the supported route.
+
+	def _last_ti(self):
+		"""The last TreeInterceptor we fired on, or None if it has been collected.
+
+		Held weakly (see __init__). A dead TI can never compare equal to a live
+		one, so a collected referent simply means "no match" -- which is the
+		correct answer anyway.
+		"""
+		ref = self._last_ti_ref
+		if ref is None:
+			return None
 		try:
-			self._maybe_fire_ti(treeInterceptor)
-		finally:
-			nextHandler()
+			return ref()
+		except Exception:
+			return None
+
+	def _set_last_ti(self, ti):
+		try:
+			self._last_ti_ref = weakref.ref(ti) if ti is not None else None
+		except TypeError:
+			# Not weak-referenceable. Rather than take a strong reference (which is
+			# the leak we are fixing), forget it -- the URL gate still debounces.
+			log.debug("[TMTS] TI is not weak-referenceable; not remembering it")
+			self._last_ti_ref = None
 
 	def _maybe_fire(self, obj, bypass_exclusion=False):
 		ti = getattr(obj, "treeInterceptor", None)
-		# The TreeInterceptor can EXIST but not yet be built. documentLoadComplete
-		# fires when the DOM finished loading, which is not the same moment
-		# NVDA finishes constructing the virtual buffer — on a big page the
-		# buffer lags the load. We used to drop that event on the floor and
-		# there was no second chance, because event_treeInterceptor_gainFocus
-		# does not fire on this NVDA build (see CLAUDE.md). Net effect: on any
-		# slow-building page the add-on did NOTHING, silently — no tone, no
-		# landing, nothing to tell the user it had even tried.
+		# documentLoadComplete is our ONLY trigger (the treeInterceptor_gainFocus
+		# hook never existed in practice -- see the note above), so anything we
+		# drop here is dropped forever.
 		#
-		# Observed 2026-07-14 on biblegateway.com: documentLoadComplete fired
-		# twice (07:40:33 and 07:40:47), both times with a real Gecko_ia2 TI
-		# whose isReady was False, both dropped. The user pressed Z to
-		# compensate, then refreshed, and only the refresh auto-landed.
+		# Two ways the TI isn't usable at event time:
+		#   - it EXISTS but isn't built yet. documentLoadComplete means "the DOM
+		#     finished loading", which is not when NVDA finishes constructing the
+		#     virtual buffer; on a big page the buffer lags. (biblegateway fired
+		#     twice with a real Gecko_ia2 TI whose isReady was False, both dropped;
+		#     the user pressed Z, then refreshed, and only the refresh landed.)
+		#   - it is None. NVDA only builds a TI in its pre-step when the loaded
+		#     object is the focus or a focus ancestor (eventHandler.py:431-432), so
+		#     unfocused and sub-document loads arrive with none.
 		#
-		# So: poll for readiness instead of giving up. Re-read the TI from the
-		# object each time rather than re-checking a stale handle, since NVDA
-		# may swap it.
-		if ti is not None and not getattr(ti, "isReady", False):
+		# Poll in BOTH cases. We used to skip the None case entirely for fear of
+		# auto-landing inside Thunderbird message previews, which fire
+		# documentLoadComplete with a null TI. That fear was right; dropping the
+		# event was the wrong cure. The principled filter is the one NVDA itself
+		# uses to tell web documents from email: a URL-SCHEME allowlist.
+		# browseMode.py:2406-2413 gates on http/https/ftp/ftps/file, commented "we
+		# don't want to remember caret positions for email messages, etc." Mail
+		# clients expose imap:/mailbox:/news: URLs, so the scheme check keeps us
+		# out of Thunderbird without hard-coding an app name -- and keeps us out of
+		# the next mail client too.
+		if ti is None or not getattr(ti, "isReady", False):
 			self._schedule_ready_poll(obj, bypass_exclusion, attempt=1)
 			return
 		self._maybe_fire_ti(ti, bypass_exclusion=bypass_exclusion)
@@ -276,6 +347,16 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.debug("[TMTS] readiness poll: object gone — abandon")
 			return
 		if ti is not None and getattr(ti, "isReady", False):
+			# Now that a TI exists we can see the URL, so this is where we enforce
+			# the web-only rule. NVDA uses the same scheme allowlist to separate web
+			# documents from email (browseMode.py:2406-2413). Without this, polling
+			# the TI-is-None case would eventually auto-land inside a Thunderbird
+			# message preview -- email detection is deferred and undesigned, and
+			# hijacking the user's cursor in their inbox is exactly the kind of
+			# "act when unsure" the guardrails forbid.
+			if not _is_web_document(ti):
+				log.debug("[TMTS] readiness poll: not a web document (scheme) — abandon")
+				return
 			log.debug(f"[TMTS] readiness poll: ready after {attempt} attempt(s) — proceeding")
 			self._maybe_fire_ti(ti, bypass_exclusion=bypass_exclusion)
 			return
@@ -294,9 +375,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# A ready TI means this cycle is live; any readiness poll still
 		# pending from an earlier event is now stale.
 		self._cancel_pending_ready_poll()
-		# A new detection cycle invalidates any pending retry from a prior
-		# load — the page state we'd have retried against is gone.
-		self._cancel_pending_retry()
+		# NOTE: the pending-retry cancel used to live HERE, above the gates. That
+		# was a bug: a duplicate/iframe documentLoadComplete would cancel the
+		# useful 1500ms hydration retry from the real page load, then hit a gate
+		# below and return WITHOUT scheduling a new one. The retry died silently.
+		# Only an ACCEPTED navigation may cancel the previous page's retry, so the
+		# cancel now sits after the gates, just before we proceed.
+		#
 		# User-managed site exclusion list. The double-Z one-shot path
 		# sets bypass_exclusion=True to force detection regardless of the
 		# saved exclusion entry, without modifying the persisted list.
@@ -309,13 +394,43 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if not bypass_exclusion and hostname and cfg_mod.is_site_disabled(hostname):
 			log.debug(f"[TMTS] _maybe_fire_ti: site {hostname!r} is on exclusion list — skip")
 			return
-		# TI-identity check: on alt-tab back to a browser tab, NVDA reuses
-		# the existing TreeInterceptor Python object — same object identity
-		# means the document hasn't reloaded. Refresh creates a NEW TI
-		# (different identity). If your NVDA version does the opposite,
-		# log lines below tell us which.
-		if ti is self._last_ti:
-			log.debug(f"[TMTS] _maybe_fire_ti: same TI as last fire — skip")
+		# SAME DOCUMENT = same TreeInterceptor AND same URL.
+		#
+		# This gate used to be TI identity ALONE, on the belief that "NVDA tears
+		# down the TI on reload, so a reused TI means the document didn't change."
+		# That belief is false, and it was the single most damaging bug in the
+		# add-on: it silently swallowed 17 of 31 real page loads in one session.
+		#
+		# What NVDA actually does (verified in source, twice, independently):
+		# a TreeInterceptor is bound to an ACCESSIBILITY-TREE ROOT, not to a URL or
+		# a navigation. treeInterceptorHandler.update() returns the EXISTING
+		# interceptor whenever the object already has one (treeInterceptorHandler.py
+		# :48-78) and only builds a new one when none exists. Gecko keeps its
+		# interceptor alive as long as the root accessible is not defunct
+		# (gecko_ia2.py:309-329). So on same-tab navigation Firefox commonly keeps
+		# the root, NVDA reuses the TI, and the URL changes IN PLACE underneath it.
+		# NVDA documents that explicitly for SPAs: documentConstantIdentifier
+		# "should reflect the most up to date URL" (browseMode.py:2387-2396), and on
+		# Gecko it is a live COM call, not a cached value (gecko_ia2.py:610-614).
+		#
+		# So the URL is the document's identity; the TI object is just the container.
+		#
+		# Why this still skips what it should: an iframe/ad load fires its own
+		# documentLoadComplete, but its obj resolves through containment to the MAIN
+		# page's TI, whose URL is the MAIN page's URL -- same TI, same URL, skipped.
+		# Duplicate double-fires for one document likewise.
+		#
+		# Known gap, accepted: a genuine re-navigation to the IDENTICAL url on a
+		# reused TI (F5, a form POST that returns the same URL) is skipped. That is
+		# not a regression -- the old identity gate skipped it too -- and Z covers
+		# it. Fixing it needs a document-generation signal NVDA does not expose.
+		if ti is self._last_ti() and url and url == self._last_url:
+			log.debug("[TMTS] _maybe_fire_ti: same TI AND same URL — skip")
+			return
+		if ti is self._last_ti() and not url:
+			# No URL to compare (Gecko returns None on COMError). Fall back to the
+			# old identity-only behaviour rather than firing blind.
+			log.debug("[TMTS] _maybe_fire_ti: same TI, no URL available — skip")
 			return
 		# URL + cooldown catches the SPA-ish case where NVDA gives us a
 		# fresh TI for what is actually still the same logical page load
@@ -329,7 +444,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			and elapsed < self._REFIRE_COOLDOWN_SEC
 		):
 			log.debug(f"[TMTS] _maybe_fire_ti: cooldown blocking url={url!r} elapsed={elapsed:.2f}s")
-			self._last_ti = ti
+			self._set_last_ti(ti)
 			return
 		# Post-landing suppression: we already landed on this URL recently.
 		# SPA re-renders (new TI, same URL, seconds to minutes later) must
@@ -345,12 +460,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				f"[TMTS] _maybe_fire_ti: already landed on url={url!r} "
 				f"{landed_elapsed:.1f}s ago — suppressing re-detection"
 			)
-			self._last_ti = ti
+			self._set_last_ti(ti)
 			self._last_url = url
 			self._last_fire_time = now
 			return
-		log.debug(f"[TMTS] _maybe_fire_ti: PROCEEDING url={url!r} elapsed={elapsed:.2f}s ti_changed={ti is not self._last_ti}")
-		self._last_ti = ti
+		log.debug(f"[TMTS] _maybe_fire_ti: PROCEEDING url={url!r} elapsed={elapsed:.2f}s ti_changed={ti is not self._last_ti()}")
+		# This is an ACCEPTED navigation, and only now may we cancel the previous
+		# page's pending hydration retry. Doing it earlier (above the gates) meant
+		# a duplicate or iframe documentLoadComplete killed the real page's retry
+		# and then bailed at a gate without scheduling a replacement.
+		self._cancel_pending_retry()
+		self._set_last_ti(ti)
 		self._last_url = url
 		self._last_fire_time = now
 		# Session URL memory for the restored-position gate below. Membership
@@ -811,7 +931,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		is_double_press = getLastScriptRepeatCount() >= 1
 		# All Z paths bypass the URL+cooldown debounce AND the post-landing
 		# suppression — Z is an explicit user request to redo detection.
-		self._last_ti = None
+		self._last_ti_ref = None
 		self._last_url = None
 		self._last_fire_time = 0.0
 		self._last_landed_url = None

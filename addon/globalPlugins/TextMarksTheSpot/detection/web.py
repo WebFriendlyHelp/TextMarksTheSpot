@@ -568,6 +568,23 @@ _DISCLOSURE_UNAMBIGUOUS = (
 	"republished with permission",
 	"syndicated from",
 	"news partner",
+	# Marketing-consent boilerplate on newsletter / SMS signup widgets. Same
+	# family, same reason it is tractable: telecom marketing law drives the
+	# wording, so it is formulaic. KRDO carries this ABOVE the story and we
+	# landed on it repeatedly (Chrome soak, 2026-07-14).
+	#
+	# Each phrase is deliberately narrow enough that ordinary prose about
+	# marketing or subscriptions cannot match: "voters did not agree to receive
+	# a tax increase" has no "YOU agree to receive"; "readers may unsubscribe
+	# from the paper" has no "unsubscribe AT ANY TIME".
+	"you agree to receive",
+	"message and data rates",
+	"msg and data rates",
+	"msg & data rates",
+	"standard message rates",
+	"unsubscribe at any time",
+	"frequency of messages may vary",
+	"consent is not a condition",
 )
 
 # "originally appeared on" is NOT safe alone -- "She originally appeared on the
