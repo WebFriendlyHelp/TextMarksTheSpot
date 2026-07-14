@@ -1444,3 +1444,75 @@ def test_article_landing_falls_back_when_no_sentence_enders():
 		      preview="▪ Nuclear plant goes offline after unexplained fault"),
 	]
 	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+# ---------------------------------------------------------------------------
+# Stale-position guard
+#
+# The addon captures a TextInfo per node during the walk and speaks it later.
+# On pages that keep hydrating, NVDA rebuilds the buffer underneath us and the
+# captured position points at a DIFFERENT paragraph. 2026-07-14 soak: 7 of 42
+# landings spoke text that was NOT the paragraph the classifier chose.
+#
+# These tests guard BOTH directions, and the false-mismatch direction is the
+# dangerous one: if this says "drifted" on a page that did NOT drift, we throw
+# away a perfectly good landing and the page goes quiet.
+# ---------------------------------------------------------------------------
+
+def test_landing_match_accepts_identical_text():
+	n = _node("paragraph", 60, preview="Glaucoma is an eye condition that damages the optic nerve.")
+	assert web.landing_text_matches("Glaucoma is an eye condition that damages the optic nerve.", n)
+
+
+def test_landing_match_tolerates_whitespace_and_nbsp():
+	# News sites litter NBSPs through ledes, and the expanded range carries
+	# leading/trailing whitespace and a trailing newline. None of that is drift.
+	n = _node("paragraph", 60, preview="Pentagon chief\xa0Pete Hegseth\xa0on Monday announced")
+	actual = "  Pentagon chief Pete Hegseth  on Monday announced the creation of a task force.\n"
+	assert web.landing_text_matches(actual, n)
+
+
+def test_landing_match_accepts_preview_truncated_at_60_chars():
+	# text_preview is only the first ~60 chars; the real range is the full
+	# paragraph. A longer actual must still match.
+	preview = "NVDA (NonVisual Desktop Access) is a free, open source scree"
+	n = _node("paragraph", 257, preview=preview)
+	actual = ("NVDA (NonVisual Desktop Access) is a free, open source screen reader for "
+	          "Microsoft Windows, developed by NV Access.")
+	assert web.landing_text_matches(actual, n)
+
+
+def test_landing_match_rejects_real_drift():
+	# The seven real drifts from the soak. In every case the classifier chose
+	# correctly and the buffer had moved on to something else entirely.
+	drifts = [
+		("Keep your Allrecipes favorites in MyRecipes for free.", "My Recipes Logo"),
+		("Keep your Simply Recipes favorites in MyRecipes for free.", "Start Saving These Dishes"),
+		("This slow-cooker beef stew recipe certainly satisfies when i",
+		 " We're loading your content, stay tuned!"),
+		("A “disaster waiting to happen”? Industry officials worry abo",
+		 "hackers-quickly-prove-that-neo…"),
+		("DALLAS — Some North Texas health agencies have provided upda",
+		 "Cincinnati Reds Future HINGES on New MLB Rules as Keeping Elly De La Cruz"),
+		("The U.S. military announced it will begin its blockade of Ir",
+		 "Trump scraps his Hormuz shipping charge idea but presses ahead"),
+		("AppleVis is the premier online resource for blind, DeafBlind", "Welcome to AppleVis"),
+	]
+	for preview, buffer_now in drifts:
+		n = _node("paragraph", max(len(preview), 60), preview=preview)
+		assert not web.landing_text_matches(buffer_now, n), f"should reject drift: {buffer_now!r}"
+
+
+def test_landing_match_returns_true_when_nothing_to_compare():
+	# An empty preview is NOT evidence of drift. This guard must never be the
+	# reason a page goes silent on its own.
+	n = _node("paragraph", 0, preview="")
+	assert web.landing_text_matches("", n)
+	assert web.landing_text_matches("anything at all", n)
+
+
+def test_landing_match_rejects_empty_buffer_for_real_paragraph():
+	# The biblegateway silent-landing: the stale position expanded to an EMPTY
+	# range, so speakTextInfo neither raised nor spoke. Same root cause.
+	n = _node("paragraph", 68, preview="There is no one who guides her among all the children she ha")
+	assert not web.landing_text_matches("", n)

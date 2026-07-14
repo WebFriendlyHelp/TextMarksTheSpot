@@ -434,6 +434,51 @@ def get_landing_textinfo(summary, index: int):
 	return None
 
 
+# Shortest paragraph-preview we'll accept as a search needle when re-locating a
+# landing by text. Too short and we risk matching some unrelated fragment of
+# chrome earlier in the document; find() returns the FIRST hit, not the best
+# one. 20 chars of real paragraph text is effectively unique on a real page.
+_MIN_FIND_NEEDLE_CHARS = 20
+
+
+def find_landing_by_text(treeInterceptor, needle: str):
+	"""Re-locate a paragraph by its TEXT in the CURRENT buffer.
+
+	Why this exists (2026-07-14 soak):
+
+	We capture a TextInfo per node during the walk and use it afterwards. But
+	the walk takes 1.5-2 seconds, and on a page that is still hydrating NVDA
+	rebuilds its virtual buffer DURING that window. Positions captured early in
+	the walk are already stale by the time the walk ends. So the offset is not a
+	reliable anchor, and re-walking does NOT fix it -- the retry hits the same
+	race and just adds another 2s of staleness. (Serious Eats: chose a Caesar
+	salad description, buffer held "15 mins"; the retry landed nowhere and the
+	page went silent.)
+
+	The text is the stable anchor, not the offset. NVDA's TextInfo.find(text)
+	searches forward from the TextInfo's position and, per NVDA's source,
+	"locates the given text and positions this TextInfo object at the start",
+	returning True/False. So we search the buffer as it exists NOW.
+
+	Returns a TextInfo collapsed to the start of the match, or None.
+	"""
+	if not _NVDA_AVAILABLE or treeInterceptor is None:
+		return None
+	needle = (needle or "").strip()
+	if len(needle) < _MIN_FIND_NEEDLE_CHARS:
+		# Too short to search for safely -- caller falls back to "no landing".
+		return None
+	try:
+		info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
+		if not info.find(needle):
+			return None
+		info.collapse()
+		return info
+	except Exception:
+		log.exception("[TMTS] find_landing_by_text failed")
+		return None
+
+
 def release_summary(summary) -> None:
 	"""Drop captured positions for a summary we're done with."""
 	_captured_positions.pop(id(summary), None)

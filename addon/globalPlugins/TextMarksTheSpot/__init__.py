@@ -625,41 +625,100 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if is_retry:
 				fb_mod.not_found()
 			return False
+		landed_node = summary.main_nodes[idx]
 		try:
+			# STALE-POSITION GUARD (2026-07-14 soak — the big one).
+			#
+			# We capture a TextInfo per node during the walk and speak it
+			# afterwards. But the page keeps hydrating and re-rendering while we
+			# walk, NVDA rebuilds its virtual buffer, and the captured position
+			# then points somewhere else entirely. We choose the right paragraph
+			# and read from a stale bookmark.
+			#
+			# Observed on 7 of 42 landings. The classifier's choice was often
+			# CORRECT and the user still heard something else:
+			#
+			#   allrecipes    chose the signup promo   spoke "My Recipes Logo"
+			#   simplyrecipes chose the signup promo   spoke "Start Saving These Dishes"
+			#   tasteofhome   chose the real lede      spoke "We're loading your content, stay tuned!"
+			#   arstechnica   chose a real headline    spoke "hackers-quickly-prove-that-neo…" (a URL slug)
+			#   wfaa          chose the correct lede   spoke a Cincinnati Reds sports headline
+			#   npr           chose the Iran story     spoke a different story
+			#   applevis      chose the intro para     spoke "Welcome to AppleVis"
+			#
+			# It also explains the biblegateway silent-landing: when the stale
+			# position lands on an empty range, speakTextInfo neither raises nor
+			# speaks. Same root cause, different symptom.
+			#
+			# So: re-expand the captured position and check it still holds the
+			# paragraph we chose. This runs BEFORE updateCaret — a stale position
+			# moves the browse cursor to the wrong place too, not just the speech.
+			#
+			# On mismatch we act as if we found nothing, which hands the page to
+			# the existing retry (a fresh walk at +_RETRY_DELAY_MS against the
+			# now-settled buffer). No new machinery.
+			speech_info = landing_info.copy()
+			speech_info.expand(textInfos.UNIT_PARAGRAPH)
+			try:
+				actual_text = speech_info.text or ""
+			except Exception:
+				actual_text = ""
+			if not web_mod.landing_text_matches(actual_text, landed_node):
+				# RECOVER BY TEXT, don't just give up.
+				#
+				# The offset drifted, but we still know WHAT we chose. Re-find
+				# that text in the buffer as it exists right now.
+				#
+				# The retry is NOT a substitute for this. The buffer drifts
+				# DURING the 1.5-2s walk, so a re-walk races exactly the same
+				# way and lands stale again -- Serious Eats bailed, retried,
+				# and went silent. Re-anchoring on the text sidesteps the race
+				# entirely and costs one find() instead of a second walk.
+				recovered = ts_mod.find_landing_by_text(ti, landed_node.text_preview)
+				recovered_info = None
+				if recovered is not None:
+					cand = recovered.copy()
+					cand.expand(textInfos.UNIT_PARAGRAPH)
+					try:
+						cand_text = cand.text or ""
+					except Exception:
+						cand_text = ""
+					# Verify the re-found position really is our paragraph.
+					# find() returns the FIRST hit; if that hit isn't the text we
+					# wanted, we are no better off than before.
+					if web_mod.landing_text_matches(cand_text, landed_node):
+						recovered_info = recovered
+						speech_info = cand
+				if recovered_info is None:
+					log.debug(
+						f"[TMTS stale-landing] captured position drifted and text "
+						f"re-find failed — NOT speaking. "
+						f"chose={landed_node.text_preview[:60]!r} "
+						f"buffer_now={web_mod.normalize_for_match(actual_text)[:60]!r} "
+						f"idx={idx} url={summary.url!r} retry={is_retry}"
+					)
+					# Reading the WRONG paragraph is worse than reading none.
+					if is_retry:
+						fb_mod.not_found()
+					return False
+				log.debug(
+					f"[TMTS stale-recovered] offset drifted; re-anchored by text. "
+					f"chose={landed_node.text_preview[:60]!r} "
+					f"stale_buffer_had={web_mod.normalize_for_match(actual_text)[:40]!r} "
+					f"idx={idx} url={summary.url!r}"
+				)
+				landing_info = recovered_info
 			# Move the browse-mode caret to the landing position. We use
 			# updateCaret first; that's the canonical way to position the
 			# browse cursor in NVDA. Then we speak the destination so the
 			# user gets immediate feedback that we acted (NVDA's natural
 			# announce-on-caret-move is unreliable for programmatic moves).
-			# DIAGNOSTIC (2026-07-14): on biblegateway the caret moved to the
-			# right paragraph but NOTHING was spoken — speakTextInfo neither
-			# raised nor emitted any speech, which means it was handed an
-			# empty range. Log what we actually hand it, at each step, so we
-			# can tell an empty/stale captured position from NVDA swallowing
-			# our speech. Remove once the cause is known.
-			try:
-				pre_text = landing_info.text or ""
-			except Exception as e:
-				pre_text = f"<error: {e!r}>"
 			landing_info.updateCaret()
 			# Cancel pending chrome speech (page title, "Skip to content",
 			# any in-flight NVDA announcements) so the user hears ONLY our
 			# landing paragraph. The cursor has already moved.
 			speech.cancelSpeech()
-			# Expand to the paragraph so we speak the full landing text.
-			speech_info = landing_info.copy()
-			speech_info.expand(textInfos.UNIT_PARAGRAPH)
-			try:
-				spoken_text = speech_info.text or ""
-			except Exception as e:
-				spoken_text = f"<error: {e!r}>"
-			log.debug(
-				f"[TMTS speak-probe] pre_collapsed_len={len(pre_text)} "
-				f"expanded_len={len(spoken_text)} expanded={spoken_text[:80]!r} "
-				f"expected={summary.main_nodes[idx].text_preview[:60]!r}"
-			)
 			speech.speakTextInfo(speech_info, reason=controlTypes.OutputReason.CARET)
-			landed_node = summary.main_nodes[idx]
 			first_eight = [
 				(n.kind, n.text_length, n.text_preview[:40])
 				for n in summary.main_nodes[:8]

@@ -1189,3 +1189,50 @@ def find_next_heading_landing(
 		if tree.main_nodes[i].kind == "heading":
 			return i
 	return None
+
+
+# ---------------------------------------------------------------------------
+# Stale-position guard (2026-07-14 soak)
+#
+# The addon captures a TextInfo per node during the walk and speaks it
+# afterwards. On pages that keep hydrating, NVDA rebuilds its virtual buffer
+# underneath us and the captured position then points at a DIFFERENT paragraph.
+# We choose correctly and read from a stale bookmark. Observed on 7 of 42
+# landings, e.g. chose the correct WFAA lede and spoke a Cincinnati Reds sports
+# headline; chose a recipe lede and spoke "We're loading your content, stay
+# tuned!".
+#
+# The caller re-expands the captured position and asks whether the buffer still
+# holds the paragraph it chose. Lives here (not in __init__.py) so it is pure
+# and unit-testable -- a FALSE mismatch would silently kill a GOOD landing, so
+# this logic is the last thing that should go untested.
+# ---------------------------------------------------------------------------
+
+# How many leading characters must still match. Deliberately lenient: real drift
+# is never subtle (a wholly different paragraph), while a false mismatch costs a
+# good landing.
+LANDING_MATCH_CHARS = 24
+
+
+def normalize_for_match(text: str) -> str:
+	# Collapse whitespace runs, including the NBSPs news sites litter through
+	# their ledes, so cosmetic spacing differences can't read as drift.
+	return " ".join((text or "").replace("\xa0", " ").split()).strip()
+
+
+def landing_text_matches(actual_text: str, node) -> bool:
+	"""True if the buffer still holds the paragraph the classifier chose.
+
+	``node.text_preview`` is the paragraph's first ~60 chars AT WALK TIME.
+	``actual_text`` is what the captured position expands to NOW.
+
+	Returns True when there is nothing to compare against: an empty preview is
+	not evidence of drift, and this guard must never itself be the reason a page
+	goes silent.
+	"""
+	expected = normalize_for_match(getattr(node, "text_preview", "") or "")
+	actual = normalize_for_match(actual_text)
+	if not expected:
+		return True
+	n = min(len(expected), LANDING_MATCH_CHARS)
+	return actual[:n] == expected[:n]
