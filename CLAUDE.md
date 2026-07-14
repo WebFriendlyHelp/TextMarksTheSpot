@@ -130,11 +130,32 @@ Releases are published automatically by `.github/workflows/release.yml`. Pushing
 
 The release flow is:
 
-1. Bump `addon_version` in `buildVars.py` and update `changelog.md`.
-2. Commit.
-3. `git tag vX.Y.Z` — must match `addon_version` (CI verifies the built filename against the tag and fails the run if they differ).
-4. `git push origin main`, then `git push origin vX.Y.Z`.
-5. Stop. CI builds and publishes. Watch it with `gh run watch <run-id> --exit-status`.
+1. Bump `addon_version` in `buildVars.py`.
+2. **Write the changelog. In BOTH places. This is not optional for a real release.**
+3. Commit.
+4. `git tag vX.Y.Z` — must match `addon_version` (CI verifies the built filename against the tag and fails the run if they differ).
+5. `git push origin main`, then `git push origin vX.Y.Z`.
+6. Stop. CI builds and publishes. Watch it with `gh run watch <run-id> --exit-status`.
+
+#### The changelog is a release deliverable, not paperwork
+
+Every real release — anything tagged, anything that reaches GitHub Releases or the NV Access store, anything we've decided is a keeper — ships with a written, user-facing "What's new". During test iterations (rebuild, reinstall, try again), don't bother; nobody reads a changelog for a build that exists for ten minutes. The moment a version is real, the changelog is part of it.
+
+**It has to go in TWO places, and they are easy to get out of sync (this happened on 1.0.10):**
+
+- `changelog.md` at the repo root — the human-readable history.
+- `addon_changelog` in `buildVars.py` — this is what NVDA actually shows the user. SCons writes it into `manifest.ini`. Updating only `changelog.md` ships stale release notes to every user.
+
+**Write it for the person using the add-on, not for a developer.** They do not know what a TreeInterceptor is, they do not care which function changed, and "fixed a bug in the classifier" tells them nothing. Say what they will *notice*:
+
+- Bad: "Fixed TI-identity gate to compare URL." Good: "The add-on now actually runs when you open a page. It was skipping roughly two out of every three page loads and doing nothing at all."
+- Lead with the change that matters most to them, not the one that was hardest to fix.
+- Name the real-world symptom they'd have hit ("this is why pages so often needed a refresh, or a press of Z").
+- **State the known gaps honestly.** If recipe sites still land on a marketing line, say so. Users trust a changelog that admits what's still broken.
+
+**Run it through the `humanizer` skill before shipping**, same as any other prose deliverable, and obey Casey's punctuation rules: no em dashes, straight quotes. Remember this text is read aloud by a screen reader — no emoji, no symbol bullets, no decorative characters.
+
+**A side-loaded add-on will NOT show "What's new" even when the changelog is correct.** NVDA's store reads it from the installed manifest fine (`addonStore/models/addon.py:230-232`), but the menu item is gated on the add-on having come from the store (`gui/addonStoreGui/viewModels/store.py:289-291`). So the absence of "What's new" on a local install is expected and is NOT evidence of a packaging bug. Don't go chasing it.
 
 **Do NOT also run `gh release create` after pushing the tag.** CI already creates the release; a manual one collides (CI fails with "a release with the same tag name already exists") and omits the unversioned asset the Latest URL depends on. If a manual release got created by mistake: `gh release delete vX.Y.Z --yes` (keeps the tag), then `gh run rerun <run-id>` to let CI publish properly.
 
