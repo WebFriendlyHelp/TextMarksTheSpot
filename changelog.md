@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.10
+
+The add-on was quietly ignoring most page loads. It isn't anymore.
+
+- **The add-on now actually runs when you open a page.** It was skipping roughly two out of every three page loads and doing nothing at all — no tone, no landing, no sign it had tried. This is why pages so often needed a refresh, or a press of Z, before anything happened. The cause was a wrong assumption about how NVDA tracks documents: the add-on decided "this is the same page as last time" by looking at an internal NVDA object, but NVDA reuses that object across navigations and simply changes the page address underneath it. The address is now what tells one page from another. This affects Firefox, Chrome and Edge alike.
+- **The add-on no longer reads out a different paragraph than the one it moved you to.** On pages that are still loading themselves in, the page could shift under the add-on between choosing a paragraph and reading it, so it would move your cursor to the right place and then read something else entirely — a sports headline on a health story, a photo credit, a "we're loading your content" placeholder. It now checks that the paragraph is still there before speaking, and finds it again by its text if the page moved.
+- **Long pages no longer freeze NVDA.** A long Bible chapter or a big newsletter could lock NVDA up for five to twelve seconds. Reading now stops at a time limit and lands with what it has, which on every page tested was the same paragraph it would have picked anyway.
+- **Movie pages and news home pages no longer steal your keyboard focus.** IMDb film pages and TV station front pages were being treated as forms, so the add-on announced the title and then dropped your cursor into the site's search box. They are now recognised as content: an IMDb page lands on the plot summary.
+- **Sign-in and account-creation pages are treated as forms again**, so you land in the first field instead of on the help text beside it.
+- **The cursor skips more of the text that isn't the story.** Affiliate and referral disclosures ("this post contains affiliate links"), syndication notes ("republished with permission from our news partner"), marketing-consent blurbs ("by signing up, you agree to receive text messages"), photo credits, ad banners, and other stories' headlines all sat exactly where a story begins and were being read as if they were the article. They are now recognised and passed over.
+- **Landings prefer real prose.** A landing spot should read like a sentence. Headlines, credits and labels that merely look substantial no longer win. Sites that are nothing but headlines, like link aggregators, still land on the first item.
+
+Known gaps in this release: recipe sites can still land on a site's own marketing line ("all our recipes are tested in our test kitchen") or a newsletter promo, which is one Down-arrow away from the recipe; and a recipe page can land on a reader's review instead of the recipe itself.
+
 ## 1.0.9
 
 The cursor no longer lands on copyright and legal text.
