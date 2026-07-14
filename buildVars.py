@@ -26,29 +26,23 @@ addon_info = AddonInfo(
 	addon_version="1.0.10",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""The cursor no longer lands on copyright and legal text.
+	addon_changelog=_("""The add-on was quietly ignoring most page loads. It isn't anymore.
 
-On pages that draw their content in after the page first loads, such as Zoom webinar registration pages, the only text present at first is the site's footer, and the add-on would land there and read the copyright line as if it were the page. Copyright lines and legal footer links are now recognized and never used as a landing spot; the add-on waits its usual moment and looks again once the real content has arrived. The Z key skips past copyright text too.
+The add-on now actually runs when you open a page. It was skipping roughly two out of every three page loads and doing nothing at all: no tone, no landing, no sign it had tried. This is why pages so often needed a refresh, or a press of Z, before anything happened. The cause was a wrong assumption about how NVDA tracks documents. The add-on decided "this is the same page as last time" by looking at an internal NVDA object, but NVDA reuses that object across navigations and simply changes the page address underneath it. The address is now what tells one page from another. Firefox, Chrome and Edge were all affected.
 
-Registration pages that open with a real description now land on the page title so you can arrow through the description and into the form, instead of being dropped on the first field with everything above it skipped. Plain forms with no description still put you right on the first field.
+The add-on no longer reads out a different paragraph than the one it moved you to. On pages that are still loading themselves in, the page could shift under the add-on between choosing a paragraph and reading it, so it would move your cursor to the right place and then read something else entirely: a sports headline on a health story, a photo credit, or a "we're loading your content" placeholder. It now checks the paragraph is still there before speaking, and finds it again by its text if the page has moved.
 
-One page visit, one landing: some web apps quietly rebuild their page seconds after it loads, and each rebuild used to trigger a fresh detection that yanked the cursor away from a good landing. Now, once the add-on has landed on a page, later rebuilds of that same page leave your cursor alone. Press Z any time for a fresh detection.
+Long pages no longer freeze NVDA. A long Bible chapter or a big newsletter could lock NVDA up for five to twelve seconds. Reading now stops at a time limit and lands with what it has, which on every page tested was the same paragraph it would have chosen anyway.
 
-Going back to a page no longer yanks you to the top. When you press Back to return to search results or a list you were working through, your browser restores your place, and the add-on respects it: on a page you have already visited, if your cursor is anywhere past the top, it stays quiet. First visits still land as usual, and links that point into a specific section of a page are respected too.
+Movie pages and news home pages no longer steal your keyboard focus. Film pages on IMDb and TV station front pages were being treated as forms, so the add-on announced the title and then dropped your cursor into the site's search box. They are now recognized as content, and an IMDb page lands on the plot summary.
 
-Posts on X (Twitter) now land on the post text instead of the generic "Post" heading. A tweet reaches NVDA as several short lines, each too short to qualify on its own; runs of short lines that read like sentences are now recognized as real content.
+Sign-in and account-creation pages are treated as forms again, so you land in the first field instead of on the help text beside it.
 
-News articles no longer land on "READ MORE" promo boxes or bylines (both the all-caps "By ..." style and the "Written by ..." style); these are now skipped as page furniture so the cursor reaches the story's real opening paragraph. And blog posts that carry a newsletter signup widget are no longer mistaken for form pages: two long body paragraphs in a row now count as proof the page is an article, while real registration pages are unaffected.
+The cursor skips more of the text that is not the story. Affiliate and referral disclosures, syndication notes such as "republished with permission from our news partner", marketing-consent blurbs such as "by signing up, you agree to receive text messages", photo credits, ad banners, and other stories' headlines all sat exactly where a story begins and were being read as if they were the article. They are now recognized and passed over.
 
-Paragraphs that follow images or link-heavy blocks are no longer invisible: a stepping quirk in how the add-on read through the page could silently skip the paragraph right after a picture or a logo heading, so it could never be landed on or found with Z.
+Landings prefer real prose. A landing spot should read like a sentence, so headlines, credits and labels that merely look substantial no longer win. Sites that are nothing but headlines, such as link aggregators, still land on the first item.
 
-Pages whose address says they're content (news, blog, podcast, article) are no longer treated as forms just because they carry a comment box, login, search, and newsletter widgets; pages whose address says form (register, signup, contact) keep the form treatment.
-
-And when a form page hides its description inside collapsed sections, the add-on lands on the page heading at the top of the form instead of a lone question partway down.
-
-Detection is also much faster: the slowest internal step could add a second or more of sluggishness per page load, and it has been reworked. The same rework fixes form detection on pages that previously counted as having no form fields at all.
-
-Confirmation pages such as "You have successfully registered" now land on the confirmation message even when the page carries a control like Add to Calendar."""),
+Known gaps in this release: recipe sites can still land on a site's own marketing line or a newsletter promo, and a recipe page can land on a reader's review instead of the recipe. Both are one Down arrow away from the content."""),
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support
