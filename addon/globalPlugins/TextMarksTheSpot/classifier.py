@@ -107,6 +107,23 @@ class TreeSummary:
 	# the NOTICE intent to boost confidence when the page shape is ambiguous.
 	notice_keyword_match: bool = False
 
+	# Set by tree_summary when the counts phase hit its wall-clock budget or
+	# a scan cap, so form_input_count / interactive_control_count may be
+	# UNDERCOUNTS. Undercounting is fail-safe for FORM and APP (both fire on
+	# LARGE counts), but NOTICE's shape-only path and KEY_RESULT fire on
+	# SMALL counts — a truncated interactive count of 0 on a busy page would
+	# make them MORE likely, so they must decline when this is set and leave
+	# the page to the 1500 ms retry instead.
+	counts_truncated: bool = False
+
+	# Set when the ARTICLE count specifically was truncated (budget, scan
+	# cap, or iterator exception). Tracked separately from counts_truncated
+	# because article_count==0 is the undercount that is NOT fail-safe: it
+	# drops the has_editorial_content FORM block, and FORM moves keyboard
+	# focus. When set, FORM treats editorial content as UNKNOWN and blocks
+	# (with the same form-URL escape hatch as a present <article>).
+	article_count_truncated: bool = False
+
 
 @dataclass
 class ClassifierResult:
@@ -311,7 +328,13 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# Block FORM whenever <article> is present unless the URL explicitly
 	# looks like a form (/signup, /register, /apply, /intake, /contact).
 	# Legitimate signup pages match that URL pattern.
-	has_editorial_content = tree.article_count >= 1
+	#
+	# A TRUNCATED article count (budget / scan cap / iterator exception)
+	# counts as editorial-content-UNKNOWN and blocks the same way: a zeroed
+	# undercount here is the one truncation that would make FORM MORE
+	# likely, and FORM moves keyboard focus. The form-URL escape hatch
+	# still applies, so a genuine /register page survives.
+	has_editorial_content = tree.article_count >= 1 or tree.article_count_truncated
 	# A pair of ADJACENT massive paragraphs (>= MASSIVE_DUO_MIN_CHARS_EACH
 	# each, no heading between) is article body even though it misses the
 	# 3-paragraph cluster bar. Same URL escape hatch as the <article>
@@ -457,6 +480,12 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 
 
 def _classify_notice(tree: TreeSummary) -> Optional[ClassifierResult]:
+	# NOTICE's shape evidence is SMALL counts, and truncated counts read as
+	# small — a busy page whose count phase timed out at 0 interactives
+	# would sail through shape_ok. When the counts are untrustworthy, only
+	# the keyword path (real text evidence from the walk) may proceed.
+	if tree.counts_truncated and not tree.notice_keyword_match:
+		return None
 	# Shape: small total text, few headings, few interactives, no real form.
 	total_chars = sum(n.text_length for n in tree.main_nodes)
 	heading_count = sum(1 for n in tree.main_nodes if n.kind == "heading")
@@ -617,6 +646,11 @@ def _classify_key_result(tree: TreeSummary) -> Optional[ClassifierResult]:
 	if tree.interactive_control_count > APP_CONTROL_FLOOR:
 		return None
 	if tree.form_input_count > 0:
+		return None
+	# Both gates above lean on counts being real. A count phase that hit its
+	# budget can report 0 controls on a control-dense page, so decline and
+	# let the retry see the page with honest counts.
+	if tree.counts_truncated:
 		return None
 	label_idx = find_key_result_pattern_index(tree.main_nodes)
 	if label_idx is None:

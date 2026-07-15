@@ -23,26 +23,18 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Get to the actual content on a web page without working so hard to find it. Hands off. Let the page load, listen for the short beeps, and you're at the start of the article. NVDA reads the first paragraph. Press Z to skim forward, Shift+Z to jump back to the start, NVDA+Z to turn the add-on off on a specific site. Runs locally, no network calls."""),
 	# version
-	addon_version="1.0.10",
+	addon_version="1.0.11",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""The add-on was quietly ignoring most page loads. It isn't anymore.
+	addon_changelog=_("""Stuck pages can no longer freeze NVDA.
 
-The add-on now actually runs when you open a page. It was skipping roughly two out of every three page loads and doing nothing at all: no tone, no landing, no sign it had tried. This is why pages so often needed a refresh, or a press of Z, before anything happened. The cause was a wrong assumption about how NVDA tracks documents. The add-on decided "this is the same page as last time" by looking at an internal NVDA object, but NVDA reuses that object across navigations and simply changes the page address underneath it. The address is now what tells one page from another. Firefox, Chrome and Edge were all affected.
+A page that hangs while loading no longer locks NVDA up. One news site froze NVDA for over ten seconds while the add-on tried to size the page up. Every step of that inspection now runs on a strict clock, so even a completely stuck page costs about a second, and the same page lands correctly once it finishes loading. Normal pages are unaffected.
 
-The add-on no longer reads out a different paragraph than the one it moved you to. On pages that are still loading themselves in, the page could shift under the add-on between choosing a paragraph and reading it, so it would move your cursor to the right place and then read something else entirely: a sports headline on a health story, a photo credit, or a "we're loading your content" placeholder. It now checks the paragraph is still there before speaking, and finds it again by its text if the page has moved.
+Busy, link-heavy pages come up faster. Counting the controls on a Stack Overflow topic listing took two extra seconds before the cursor moved. The count now stops as soon as it has learned enough, and the same landing arrives about a second and a half sooner.
 
-Long pages no longer freeze NVDA. A long Bible chapter or a big newsletter could lock NVDA up for five to twelve seconds. Reading now stops at a time limit and lands with what it has, which on every page tested was the same paragraph it would have chosen anyway.
+When the clock does cut an inspection short, the add-on stops guessing. A half-inspected page can look smaller and simpler than it really is. Before, that could make a busy page read as a small notice page, or in the worst case treat an article as a form and move your keyboard focus into a field. Now, when the add-on could not finish looking, it declines those judgment calls, stays quiet, and takes its usual second look a moment later.
 
-Movie pages and news home pages no longer steal your keyboard focus. Film pages on IMDb and TV station front pages were being treated as forms, so the add-on announced the title and then dropped your cursor into the site's search box. They are now recognized as content, and an IMDb page lands on the plot summary.
-
-Sign-in and account-creation pages are treated as forms again, so you land in the first field instead of on the help text beside it.
-
-The cursor skips more of the text that is not the story. Affiliate and referral disclosures, syndication notes such as "republished with permission from our news partner", marketing-consent blurbs such as "by signing up, you agree to receive text messages", photo credits, ad banners, and other stories' headlines all sat exactly where a story begins and were being read as if they were the article. They are now recognized and passed over.
-
-Landings prefer real prose. A landing spot should read like a sentence, so headlines, credits and labels that merely look substantial no longer win. Sites that are nothing but headlines, such as link aggregators, still land on the first item.
-
-Known gaps in this release: recipe sites can still land on a site's own marketing line or a newsletter promo, and a recipe page can land on a reader's review instead of the recipe. Both are one Down arrow away from the content."""),
+Known gaps, unchanged from 1.0.10: recipe sites can still land on a marketing line or a reader's review, and pages that draw a single result widget by script, like the fast.com speed test, are not detected at all. The two low beeps there are the add-on saying it found nothing, not an error."""),
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.11
+
+Stuck pages can no longer freeze NVDA.
+
+- **A page that hangs while loading no longer locks NVDA up.** One news site froze NVDA for over ten seconds while the add-on tried to size the page up. Every step of that inspection now runs on a strict clock, so even a completely stuck page costs about a second, and the same page lands correctly once it finishes loading. Normal pages are unaffected.
+- **Busy, link-heavy pages come up faster.** Counting the controls on a Stack Overflow topic listing took two extra seconds before the cursor moved. The count now stops as soon as it has learned enough, and the same landing arrives about a second and a half sooner.
+- **When the clock does cut an inspection short, the add-on stops guessing.** A half-inspected page can look smaller and simpler than it really is. Before, that could make a busy page read as a small notice page, or in the worst case treat an article as a form and move your keyboard focus into a field. Now, when the add-on could not finish looking, it declines those judgment calls, stays quiet, and takes its usual second look a moment later.
+
+Known gaps, unchanged from 1.0.10: recipe sites can still land on a marketing line or a reader's review, and pages that draw a single result widget by script, like the fast.com speed test, are not detected at all. The two low beeps there are the add-on saying it found nothing, not an error.
+
 ## 1.0.10
 
 The add-on was quietly ignoring most page loads. It isn't anymore.

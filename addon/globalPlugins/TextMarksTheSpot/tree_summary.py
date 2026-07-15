@@ -73,6 +73,7 @@ except ImportError:
 	_NVDA_AVAILABLE = False
 	# Stub for unit tests outside NVDA.
 	class _StubLog:
+		def debug(self, *a, **k): pass
 		def info(self, *a, **k): pass
 		def warning(self, *a, **k): pass
 	log = _StubLog()
@@ -293,19 +294,52 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	scope_range = main_range
 	scope_kind = "main-pos" if main_range is not None else ("main-id" if main_obj is not None else "chrome")
 
-	# Article count first — the article-scope decision below needs it.
+	# ONE wall-clock deadline for the whole counts phase (article + form
+	# inputs + interactive), checked per item inside every enumeration —
+	# see the comment on _COUNT_TIME_BUDGET_SEC for the krdo/stackoverflow
+	# incidents that made this necessary. counts_truncated records whether
+	# any budget or scan cap fired: truncated counts are UNDERCOUNTS, which
+	# is fail-safe for FORM/APP (they fire on large counts) but poison for
+	# NOTICE/KEY_RESULT (they fire on small ones) — the classifier consults
+	# the flag to keep truncation from manufacturing those intents.
+	counts_deadline = time.monotonic() + _COUNT_TIME_BUDGET_SEC
+	counts_truncated = [False]
+	# The article count gets its OWN truncation flag on top of the shared
+	# one: an untrusted article count is the one undercount that is NOT
+	# fail-safe. article_count==0 is what drops the has_editorial_content
+	# FORM block, and FORM is the branch that moves keyboard focus — the
+	# deadline-order argument below covers deadline exhaustion, but the
+	# 300-item scan cap (or an iterator exception) can zero the article
+	# count WITH time remaining, letting the form count still reach its
+	# threshold. The classifier treats a truncated article count as
+	# "editorial content unknown" and blocks FORM (same URL escape hatch
+	# as a present <article>).
+	article_truncated = [False]
+
+	# Article count first — the article-scope decision below needs it, and
+	# the ORDER is load-bearing for the fail-safe argument: if the article
+	# count is ever truncated to 0 by the DEADLINE (dropping the
+	# has_editorial_content FORM block), the budget is by then exhausted,
+	# so the form count that follows breaks at its first item and comes
+	# back too small to clear FORM_INPUT_THRESHOLD anyway. Moving the form
+	# count first would break that implicit guarantee. (Scan-cap and
+	# exception truncation leave time on the clock — article_truncated
+	# covers those.)
 	if scope_range is not None:
-		summary.article_count = _count_in_range(treeInterceptor, "article", scope_range, limit=_ARTICLE_LIMIT)
+		summary.article_count = _count_in_range(treeInterceptor, "article", scope_range, limit=_ARTICLE_LIMIT, deadline=counts_deadline, truncated_out=article_truncated)
 	else:
-		summary.article_count = _count_in_scope(treeInterceptor, "article", main_obj, scope_cache, limit=_ARTICLE_LIMIT)
+		summary.article_count = _count_in_scope(treeInterceptor, "article", main_obj, scope_cache, limit=_ARTICLE_LIMIT, deadline=counts_deadline, truncated_out=article_truncated)
+	if article_truncated[0]:
+		counts_truncated[0] = True
 	if main_obj is None and summary.article_count == 1:
-		article_range = _single_article_scope_range(treeInterceptor)
+		article_range = _single_article_scope_range(treeInterceptor, deadline=counts_deadline)
 		if article_range is not None:
 			scope_range = article_range
 			scope_kind = "article"
 
 	summary.form_input_count = _count_form_inputs(
 		treeInterceptor, scope_range, main_obj, scope_cache, _FORM_LIMIT,
+		deadline=counts_deadline, truncated_out=counts_truncated,
 	)
 	# Interactive subtypes ordered most-common first so the running-sum
 	# short-circuit usually triggers on the first one or two enumerations
@@ -316,10 +350,17 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		remaining = _INTERACTIVE_LIMIT - running
 		if remaining <= 0:
 			break
+		if time.monotonic() > counts_deadline:
+			log.debug(
+				f"[TMTS count-budget] interactive count stopped at type "
+				f"'{t}' (running={running})"
+			)
+			counts_truncated[0] = True
+			break
 		if scope_range is not None:
-			running += _count_in_range(treeInterceptor, t, scope_range, limit=remaining)
+			running += _count_in_range(treeInterceptor, t, scope_range, limit=remaining, deadline=counts_deadline, truncated_out=counts_truncated)
 		else:
-			running += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining)
+			running += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining, deadline=counts_deadline, truncated_out=counts_truncated)
 	summary.interactive_control_count = running
 	t2 = time.monotonic()
 	positions: list = []
@@ -385,16 +426,31 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 			and summary.interactive_control_count == 0
 		):
 			counts_rescoped = True
-			summary.article_count = _count_in_range(treeInterceptor, "article", None, limit=_ARTICLE_LIMIT)
+			# Fresh budget: the phase deadline above expired during the walk.
+			# These are unscoped capped enumerations (no per-item work), so
+			# they normally finish in a few ms — the deadline only matters on
+			# a page whose iterator itself hangs. The recount REPLACES the
+			# scoped counts wholesale, so the truncation flag is reset and
+			# reflects the recount alone.
+			recount_deadline = time.monotonic() + _COUNT_TIME_BUDGET_SEC
+			counts_truncated = [False]
+			article_truncated = [False]
+			summary.article_count = _count_in_range(treeInterceptor, "article", None, limit=_ARTICLE_LIMIT, deadline=recount_deadline, truncated_out=article_truncated)
+			if article_truncated[0]:
+				counts_truncated[0] = True
 			summary.form_input_count = _count_form_inputs(
 				treeInterceptor, None, None, {}, _FORM_LIMIT,
+				deadline=recount_deadline, truncated_out=counts_truncated,
 			)
 			running = 0
 			for t in ("link", "button", "edit", "comboBox", "checkBox", "radioButton"):
 				remaining = _INTERACTIVE_LIMIT - running
 				if remaining <= 0:
 					break
-				running += _count_in_range(treeInterceptor, t, None, limit=remaining)
+				if time.monotonic() > recount_deadline:
+					counts_truncated[0] = True
+					break
+				running += _count_in_range(treeInterceptor, t, None, limit=remaining, deadline=recount_deadline, truncated_out=counts_truncated)
 			summary.interactive_control_count = running
 		scope_kind = "unscoped-recount" if counts_rescoped else "unscoped"
 	t4 = time.monotonic()
@@ -406,6 +462,8 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	# (PCMag's pre-H1 disclaimer was the canonical case).
 	summary.positionally_scoped = scope_kind == "article" and not fallback_ran
 	summary.notice_keyword_match = notice_match[0]
+	summary.counts_truncated = counts_truncated[0]
+	summary.article_count_truncated = article_truncated[0]
 	_captured_positions[id(summary)] = positions
 	perf_line = (
 		f"[TMTS perf] total={(t4-t0)*1000:.0f}ms "
@@ -413,7 +471,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		f"counts={(t2-t1)*1000:.0f}ms "
 		f"walk={(t3-t2)*1000:.0f}ms "
 		f"fallback={(t4-t3)*1000:.0f}ms (ran={fallback_ran}) "
-		f"truncated={walk_truncated[0]} "
+		f"truncated={walk_truncated[0]} counts_trunc={counts_truncated[0]} "
 		f"raw_seen={raw_count[0]} all_nodes={len(all_nodes)} "
 		f"main_nodes={len(summary.main_nodes)} has_main={summary.has_main_landmark} scope={scope_kind} "
 		f"article={summary.article_count} forms={summary.form_input_count} "
@@ -608,6 +666,20 @@ def _landmark_type(obj) -> str:
 	return str(lm).lower() if lm else ""
 
 
+# Wall-clock ceiling for the <main> landmark lookup. Normally this returns in
+# a few tens of ms, but on a page in a broken loading state each quick-nav
+# item can hang on a COM call: krdo.com (2026-07-14 perf log) spent 1868ms in
+# find_main on a document that produced ZERO walkable nodes. Giving up just
+# means falling back to chrome scope, which the counts-phase budget below now
+# bounds — so a slow landmark scan is never worth multiple seconds of frozen
+# main thread.
+_FIND_MAIN_TIME_BUDGET_SEC = 0.5
+# Items scanned backstop for the same loop (a page with hundreds of cheap
+# landmarks shouldn't spin under the clock; <main> is essentially always
+# among the first few).
+_FIND_MAIN_SCAN_LIMIT = 50
+
+
 def _find_main_landmark(treeInterceptor):
 	"""Return (main_obj, main_range) for the first <main> landmark, or
 	(None, None). One enumeration finds both.
@@ -623,12 +695,23 @@ def _find_main_landmark(treeInterceptor):
 	chain per item. The parent chains were the dominant detection cost
 	(~1 s on Zoom's 44-node page, 12.4 s on judysdogblog).
 	"""
+	deadline = time.monotonic() + _FIND_MAIN_TIME_BUDGET_SEC
+	scanned = 0
 	try:
 		for item in treeInterceptor._iterNodesByType("landmark"):
+			scanned += 1
 			obj = getattr(item, "obj", None)
-			if obj is None:
-				continue
-			if _landmark_type(obj) != "main":
+			if obj is None or _landmark_type(obj) != "main":
+				# Budget checks AFTER examining the item in hand: the COM
+				# cost was fetching it, and throwing away an already-fetched
+				# <main> would degrade the page to chrome scope for zero
+				# time saved. The check only guards fetching the NEXT item.
+				if scanned >= _FIND_MAIN_SCAN_LIMIT or time.monotonic() > deadline:
+					log.debug(
+						f"[TMTS count-budget] landmark scan stopped after "
+						f"{scanned} item(s) — treating page as having no <main>"
+					)
+					break
 				continue
 			rng = getattr(item, "textInfo", None)
 			if rng is None:
@@ -647,7 +730,7 @@ def _find_main_landmark(treeInterceptor):
 	return None, None
 
 
-def _single_article_scope_range(treeInterceptor):
+def _single_article_scope_range(treeInterceptor, deadline: Optional[float] = None):
 	"""Return a TextInfo spanning the single <article> element, or None.
 
 	Used for POSITIONAL scoping when the document has no <main> landmark but
@@ -661,10 +744,24 @@ def _single_article_scope_range(treeInterceptor):
 
 	Returns None when there isn't exactly one article, or the range can't be
 	built — caller then falls back to the identity-based chrome filter.
+
+	`deadline` is the shared counts-phase budget: this runs INSIDE the counts
+	phase, and even on a genuinely single-article page the iterator must be
+	pumped a second time to prove there is no second article — on a page
+	stuck mid-load that second fetch is a hanging COM call (the krdo freeze
+	class). Past the deadline we return None; unconfirmed single-ness must
+	not positionally scope the walk.
 	"""
 	try:
 		found = None
+		scanned = 0
+		# Expired budget → no new enumeration at all; and per-item checks at
+		# the loop BOTTOM so they guard fetching the NEXT item (the hanging
+		# COM call) rather than discarding the one already paid for.
+		if deadline is not None and time.monotonic() > deadline:
+			return None
 		for item in treeInterceptor._iterNodesByType("article"):
+			scanned += 1
 			# Prefer the quick-nav item's own textInfo: the tree interceptor
 			# built it in the SAME coordinate space as the walk's positions,
 			# so compareEndPoints is meaningful. obj.makeTextInfo() does NOT
@@ -681,13 +778,20 @@ def _single_article_scope_range(treeInterceptor):
 						ti = treeInterceptor.makeTextInfo(obj)
 					except Exception:
 						ti = None
-			if ti is None:
-				continue
-			if found is not None:
-				# More than one <article> (e.g. related-post cards). Ambiguous
-				# which is the post body — skip positional scoping.
+			if ti is not None:
+				if found is not None:
+					# More than one <article> (e.g. related-post cards).
+					# Ambiguous which is the post body — skip positional
+					# scoping.
+					return None
+				found = ti
+			if scanned >= _COUNT_SCAN_LIMIT or (
+				deadline is not None and time.monotonic() > deadline
+			):
+				# Out of budget before the enumeration finished: single-ness
+				# is UNCONFIRMED, and unconfirmed single-ness must not
+				# positionally scope the walk.
 				return None
-			found = ti
 		if found is None:
 			return None
 		rng = found.copy()
@@ -758,24 +862,55 @@ def _in_scope(obj, main_obj, cache: dict) -> bool:
 	return result
 
 
-def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limit: int = 0) -> int:
+def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limit: int = 0, deadline: Optional[float] = None, truncated_out: Optional[list] = None) -> int:
 	# Count quick-nav items of item_type that pass _in_scope. If `limit` is
 	# positive, return as soon as count reaches it — the classifier only
 	# compares counts against fixed thresholds (e.g. APP_CONTROL_FLOOR=10),
 	# so anything above the largest threshold is wasted precision and an
 	# expensive parent-walk for nothing. Saves hundreds of _in_scope calls
 	# on heavy pages with many links.
+	#
+	# Scan cap + deadline: the in-scope LIMIT alone can't bound this loop —
+	# when the parent-chain identity check is failing (its known failure
+	# mode), nothing counts as in scope, so the loop scans EVERY item of the
+	# type and pays a parent walk for each. Stack Overflow's tag page spent
+	# 2038ms here across its hundreds of links (2026-07-14 perf log). The
+	# scan cap mirrors _count_in_range's; the deadline is the shared
+	# counts-phase budget, checked per item because a single enumeration
+	# can outlive any between-enumeration check.
+	#
+	# Check placement (both loops): an already-expired deadline is checked
+	# BEFORE the loop so no new enumeration starts at all, and the per-item
+	# checks sit at the BOTTOM so they guard fetching the NEXT item — the
+	# fetch is the hanging COM call; the item in hand is already paid for.
+	# On any truncation OR iterator exception the count is a partial
+	# UNDERCOUNT, so truncated_out is set — an exception must not
+	# masquerade as a trustworthy zero (it would sail through the small-
+	# count intents the counts_truncated flag exists to protect).
+	count = 0
+	if deadline is not None and time.monotonic() > deadline:
+		if truncated_out is not None:
+			truncated_out[0] = True
+		return count
 	try:
-		count = 0
+		scanned = 0
 		for item in treeInterceptor._iterNodesByType(item_type):
+			scanned += 1
 			obj = getattr(item, "obj", None)
 			if obj is not None and _in_scope(obj, main_obj, cache):
 				count += 1
 				if limit and count >= limit:
 					return count
-		return count
+			if scanned >= _COUNT_SCAN_LIMIT or (
+				deadline is not None and time.monotonic() > deadline
+			):
+				if truncated_out is not None:
+					truncated_out[0] = True
+				break
 	except Exception:
-		return 0
+		if truncated_out is not None:
+			truncated_out[0] = True
+	return count
 
 
 # Hard cap on quick-nav items SCANNED per count enumeration. The classifier
@@ -784,7 +919,7 @@ def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limi
 _COUNT_SCAN_LIMIT = 300
 
 
-def _count_in_range(treeInterceptor, item_type: str, scope_range, limit: int = 0) -> int:
+def _count_in_range(treeInterceptor, item_type: str, scope_range, limit: int = 0, deadline: Optional[float] = None, truncated_out: Optional[list] = None) -> int:
 	"""Count quick-nav items of item_type POSITIONALLY: an item counts when
 	its range STARTS inside scope_range. With scope_range=None, counts the
 	whole document. No parent-chain walks — a buffer-offset comparison per
@@ -795,31 +930,52 @@ def _count_in_range(treeInterceptor, item_type: str, scope_range, limit: int = 0
 
 	Items that expose no textInfo are counted as in scope (inclusive bias:
 	the classifier's FORM/APP gates are guarded by content signals anyway).
+
+	`deadline` (the shared counts-phase budget) is checked per item: on a
+	page stuck mid-load, the quick-nav iterator itself can hang on COM
+	calls, and a between-enumerations check can't stop an enumeration
+	already in progress.
+
+	Check placement and exception handling mirror _count_in_scope: expired
+	deadline pre-checked so no new enumeration starts, per-item checks at
+	the loop BOTTOM so they guard the NEXT fetch (and an out-of-range item
+	can't skip them), truncated_out set on any truncation or iterator
+	exception so a partial count never reads as a trustworthy small one.
 	"""
+	count = 0
+	if deadline is not None and time.monotonic() > deadline:
+		if truncated_out is not None:
+			truncated_out[0] = True
+		return count
 	try:
-		count = 0
 		scanned = 0
 		for item in treeInterceptor._iterNodesByType(item_type):
 			scanned += 1
-			if scanned > _COUNT_SCAN_LIMIT:
-				break
+			in_range = True
 			if scope_range is not None:
 				ti = getattr(item, "textInfo", None)
 				if ti is not None:
 					try:
-						if not (
+						in_range = (
 							ti.compareEndPoints(scope_range, "startToStart") >= 0
 							and ti.compareEndPoints(scope_range, "startToEnd") < 0
-						):
-							continue
+						)
 					except Exception:
-						pass
-			count += 1
-			if limit and count >= limit:
-				return count
-		return count
+						in_range = True
+			if in_range:
+				count += 1
+				if limit and count >= limit:
+					return count
+			if scanned >= _COUNT_SCAN_LIMIT or (
+				deadline is not None and time.monotonic() > deadline
+			):
+				if truncated_out is not None:
+					truncated_out[0] = True
+				break
 	except Exception:
-		return 0
+		if truncated_out is not None:
+			truncated_out[0] = True
+	return count
 
 
 # ---------------------------------------------------------------------------
@@ -856,43 +1012,69 @@ _OUT_OF_SCOPE_TOLERANCE = 50
 # combos / checkboxes / radios, while a content page has a lone search box.
 _FORM_INPUT_TYPES = ("edit", "comboBox", "checkBox", "radioButton")
 
-# Wall-clock ceiling for the whole form-input count. Four enumerations instead
-# of one is four times the work, and on a page with no <main> landmark each item
-# pays for an identity-based parent-chain walk -- the known hotspot. Stack
-# Overflow's tag page spent 2038ms counting before this cap existed, which is a
-# two-second freeze to answer "is this a form?" and undoes the walk budget we
-# just fought for.
+# Wall-clock ceiling for the ENTIRE counts phase of build_tree_summary: the
+# article count, all four form-input enumerations, and all six interactive
+# enumerations share ONE deadline, checked per item inside every enumeration.
 #
-# The types are ordered so the cheap, decisive one runs first: "edit" alone
-# separates a real form (many text inputs) from a content page (one search box),
-# so if we run out of time after it we still have the signal that matters. An
-# undercount can only ever make us LESS likely to call something a FORM, and the
-# FORM branch is the one that moves the user's focus -- so failing this way is
-# failing safe.
-_COUNT_TIME_BUDGET_SEC = 0.4
+# This used to be a 0.4s budget covering only the form-input count, checked
+# only BETWEEN enumerations with "edit" exempt. Two ways real pages blew
+# through it (2026-07-14 perf log):
+#   - krdo.com stuck mid-load: every _iterNodesByType call hung on COM, and
+#     the unbudgeted enumerations (article, always-run "edit", all six
+#     interactive types) stacked up to counts=8436ms on a page that produced
+#     ZERO walkable nodes. A between-types check can't stop an enumeration
+#     already hanging; a per-item check stops it at the next item.
+#   - stackoverflow.com tag page (no <main>): the identity path scanned
+#     hundreds of links at a parent-chain walk each — 2038ms. (Also capped
+#     by _COUNT_SCAN_LIMIT in _count_in_scope now.)
+#
+# 0.6s covers the whole phase: healthy pages finish counts in 4-300ms, so the
+# budget only bites on pathological ones. Undercounting is failing safe — a
+# smaller count can only make the classifier LESS likely to call FORM or APP,
+# and the FORM branch is the one that moves the user's focus.
+#
+# The form-input types stay ordered so the decisive one runs first: "edit"
+# alone separates a real form (many text inputs) from a content page (one
+# search box), so if the clock cuts the rest we still have the signal that
+# matters.
+_COUNT_TIME_BUDGET_SEC = 0.6
 
 
-def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict, limit: int) -> int:
+def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict, limit: int, deadline: Optional[float] = None, truncated_out: Optional[list] = None) -> int:
 	# Sum the real input types, stopping as soon as we reach the cap (so an
 	# obvious form doesn't pay for four full enumerations) or the clock.
-	deadline = time.monotonic() + _COUNT_TIME_BUDGET_SEC
+	# `deadline` is the shared counts-phase deadline from build_tree_summary
+	# (every current caller passes one); the None default is defensive for
+	# future callers and takes a fresh budget so no path can run unbounded.
+	if deadline is None:
+		deadline = time.monotonic() + _COUNT_TIME_BUDGET_SEC
 	total = 0
 	for i, t in enumerate(_FORM_INPUT_TYPES):
 		remaining = limit - total
 		if remaining <= 0:
 			break
-		# Always run the first ("edit") -- it carries most of the signal. Only
-		# the extra types are subject to the clock.
-		if i > 0 and time.monotonic() > deadline:
+		# The between-types check stops us starting a new enumeration past
+		# the deadline; the per-item deadline inside each enumeration stops
+		# one that's already running. This applies to "edit" too: on a
+		# healthy page the article count ahead of us costs milliseconds, so
+		# edit always effectively runs — the only way to arrive here expired
+		# is the pathological hanging-COM page, where starting one more
+		# enumeration is exactly the freeze this budget exists to prevent.
+		# The undercount is safe because truncated_out gates every
+		# count-sensitive intent (FORM via article trust, NOTICE/KEY_RESULT
+		# via counts_truncated).
+		if time.monotonic() > deadline:
 			log.debug(
 				f"[TMTS count-budget] form-input count stopped after {i} of "
 				f"{len(_FORM_INPUT_TYPES)} types (total={total})"
 			)
+			if truncated_out is not None:
+				truncated_out[0] = True
 			break
 		if scope_range is not None:
-			total += _count_in_range(treeInterceptor, t, scope_range, limit=remaining)
+			total += _count_in_range(treeInterceptor, t, scope_range, limit=remaining, deadline=deadline, truncated_out=truncated_out)
 		else:
-			total += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining)
+			total += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining, deadline=deadline, truncated_out=truncated_out)
 	return total
 
 

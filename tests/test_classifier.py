@@ -54,6 +54,38 @@ def test_form_fires_with_enough_inputs_and_no_content_competition():
 	assert result.intent == cls.Intent.FORM
 
 
+def test_form_blocked_when_article_count_is_untrusted():
+	# A truncated article count (budget / scan cap / iterator exception) can
+	# be a zeroed UNDERCOUNT on a real news article, which would drop the
+	# has_editorial_content FORM block and let the page's scattered inputs
+	# (newsletter, search, comments) classify it FORM — moving keyboard
+	# focus. Editorial content unknown → FORM must decline. (Neutral URL:
+	# neither a form hint nor an editorial hint, so this pins the
+	# article-trust gate alone.)
+	tree = _summary(
+		url="https://example.com/page/",
+		form_input_count=5,
+		article_count=0,
+		article_count_truncated=True,
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.FORM
+
+
+def test_form_survives_untrusted_article_count_on_form_url():
+	# The form-URL escape hatch outranks the editorial block, exactly as it
+	# does for a present <article> — a genuine /register page stays FORM
+	# even when the article count couldn't be trusted.
+	tree = _summary(
+		url="https://example.com/register/",
+		form_input_count=5,
+		article_count=0,
+		article_count_truncated=True,
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.FORM
+
+
 def test_form_blocked_by_substantial_hero():
 	# Wordpress homepage pattern: contact form widgets + intro paragraph.
 	# With weak form signal (3 inputs, just at the threshold), hero blocks.
@@ -206,6 +238,40 @@ def test_notice_does_not_fire_on_real_article_pages():
 	assert result.intent == cls.Intent.ARTICLE
 
 
+def test_shape_only_notice_declines_when_counts_truncated():
+	# Same shape as the shape-only NOTICE above, but the counts phase hit
+	# its wall-clock budget — interactive_control_count may be a huge
+	# undercount (a busy page reading as 0 controls). Shape evidence IS
+	# small counts, so shape-only NOTICE must decline and leave the page
+	# to the 1500 ms retry, which will see honest counts.
+	tree = _summary(
+		counts_truncated=True,
+		main_nodes=[
+			_node("heading", 28, level=1),
+			_node("paragraph", 45),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.NOTICE
+
+
+def test_keyword_notice_survives_counts_truncated():
+	# The keyword path rests on real walked TEXT (status keyword), not on
+	# counts, so a truncated count phase must not silence a genuine
+	# "no longer accepting responses" page.
+	tree = _summary(
+		counts_truncated=True,
+		notice_keyword_match=True,
+		main_nodes=[
+			_node("heading", 28, level=1, preview="Web App Accessibility Survey"),
+			_node("paragraph", 130, preview="The form ... is no longer accepting responses"),
+			_node("paragraph", 50),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.NOTICE
+
+
 def test_notice_blocked_by_too_many_headings():
 	# Many headings = not a notice page.
 	tree = _summary(
@@ -272,6 +338,22 @@ def test_key_result_fires_with_implicit_unit_in_value():
 	)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.KEY_RESULT
+
+
+def test_key_result_declines_when_counts_truncated():
+	# KEY_RESULT's whole premise is "few controls, no form" — both gates
+	# lean on counts being real. A budget-truncated count phase can report
+	# 0 controls on a control-dense page, so KEY_RESULT must decline.
+	tree = _summary(
+		counts_truncated=True,
+		main_nodes=[
+			_node("paragraph", 22, preview="Your Internet speed is"),
+			_node("paragraph", 3, preview="170"),
+			_node("paragraph", 4, preview="Mbps"),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.KEY_RESULT
 
 
 def test_key_result_does_not_fire_when_body_cluster_precedes():
