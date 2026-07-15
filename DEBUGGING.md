@@ -73,6 +73,35 @@ the run is worthless.
 (SendKeys, CDP) does not reliably reproduce real focus and document lifecycle. Ask
 Casey to browse normally for two minutes; it is faster and it cannot lie.
 
+### D. Automated sweeps (Start-Process per URL): what they can and cannot prove
+
+The 2026-07-15 perf-hardening day ran sweeps by launching URLs with
+`Start-Process firefox <url>` in a loop. Three rounds were silently void before the
+rules below were learned. A sweep CAN validate detection timing, classification, and
+landing choice on pages that fire. It CANNOT validate the trigger gates.
+
+1. **The browser must be FOCUSED for the whole sweep.** NVDA only builds a browse
+   buffer for the focused document. If Casey's focus is on the terminal reading
+   output (the common case — the sweep is chatty), pages load, zero
+   `documentLoadComplete` events reach the add-on, and the readiness poll gives up
+   on any late unfocused one. The silence is indistinguishable from "add-on broken".
+   Tell Casey to switch to the browser BEFORE starting, and verify the sweep worked
+   by counting new perf-log lines, never by absence of errors.
+2. **Play a heartbeat.** Casey asked for a beep every ~3 seconds so he knows the
+   sweep is alive: `[console]::beep(750,120)` inside the wait loops, a few 600 Hz
+   lead-in beeps before the first navigation, `[console]::beep(900,300)` at the end.
+   Those pitches are deliberately distinct from the add-on's own tones (500/400/220).
+3. **Give slow pages 30+ seconds each.** BibleGateway multi-chapter passages, the
+   Hearthstone deckbuilder, and NLS BARD all need longer than 30 s to reach DOM
+   load; navigate away sooner and their load event simply never fires — another
+   false "did not run".
+4. **A URL-list sweep never exercises the TI-reuse gates.** Cross-site navigation
+   tears down the document and gets a fresh TreeInterceptor even in the same tab
+   (`ti_changed=True` on every PROCEEDING line of the 2026-07-15 sweeps). The
+   same-TI/URL-swap paths — where the 1.0.10 bug class lived — only run on
+   same-SITE navigation and SPA route changes. For those, only Casey's real
+   browsing counts (see the rule above this section).
+
 ## Step 1: Logs before theories
 
 Two logs, different lifetimes:
