@@ -116,6 +116,119 @@ def test_form_overrides_hero_when_input_count_is_strong():
 	assert result.intent == cls.Intent.FORM
 
 
+def test_signup_page_with_short_intro_stays_form_on_form_url():
+	# starttesting.net/signup (2026-07-16): 3 real inputs (Name, Email,
+	# Password) meets FORM_INPUT_THRESHOLD but sits below
+	# STRONG_FORM_INPUT_COUNT, and the one-line intro "You can join an
+	# existing organization or create one later." (58 chars) clears the
+	# 50-char hero bar. The hero block had no form-URL escape hatch, so the
+	# page classified ARTICLE(0.65) and the prose-run gate landed the user
+	# on "Use at least 6 characters." — the password hint mid-form. With
+	# the hatch, the /signup URL keeps it FORM.
+	tree = _summary(
+		url="https://starttesting.net/signup?utm_source=substack&utm_medium=email",
+		form_input_count=3,
+		interactive_control_count=8,
+		main_nodes=[
+			_node("heading", 33, level=1, preview="Create your Start Testing account"),
+			_node("paragraph", 58, preview="You can join an existing organization or"),
+			_node("paragraph", 4, preview="Name"),
+			_node("paragraph", 13, preview="Email address"),
+			_node("paragraph", 8, preview="Password"),
+			_node("paragraph", 26, preview="Use at least 6 characters."),
+			_node("paragraph", 33, preview="Already have an account? Sign in."),
+			_node("paragraph", 77, preview="By creating an account, you agree to our"),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.FORM
+
+
+def test_login_page_with_two_inputs_is_form_on_auth_url():
+	# starttesting.net/login (2026-07-16): email + password is only 2 real
+	# inputs, below FORM_INPUT_THRESHOLD, so the page classified UNKNOWN and
+	# played the not-found beeps. An unambiguous auth URL (whole path
+	# segment /login) lowers the bar to AUTH_FORM_MIN_INPUTS.
+	tree = _summary(
+		url="https://starttesting.net/login?redirect=%2fhome&email=",
+		form_input_count=2,
+		interactive_control_count=6,
+		main_nodes=[
+			_node("heading", 12, level=1, preview="Welcome back"),
+			_node("paragraph", 13, preview="Email address"),
+			_node("paragraph", 8, preview="Password"),
+			_node("paragraph", 16, preview="Forgot password?"),
+			_node("paragraph", 31, preview="Don't have an account? Sign up."),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.FORM
+
+
+def test_two_inputs_need_a_whole_auth_segment_not_a_substring():
+	# The lowered bar must not fire on a content URL that merely CONTAINS an
+	# auth word. /login-security-tips substring-matches the loose "/login"
+	# hint, but the strict segment matcher rejects it, so 2 inputs (search +
+	# newsletter) stay below the bar and the page must not become FORM —
+	# FORM moves keyboard focus.
+	tree = _summary(
+		url="https://example.com/login-security-tips/",
+		form_input_count=2,
+		main_nodes=[
+			_node("heading", 40, level=1),
+			_node("paragraph", 90, preview="Keeping your accounts safe starts with"),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.FORM
+
+
+def test_one_input_on_auth_url_stays_below_the_bar():
+	# The floor is 2. A single input on an auth-looking URL is as likely a
+	# search box; staged email-first logins are a known accepted gap.
+	tree = _summary(
+		url="https://example.com/login",
+		form_input_count=1,
+		main_nodes=[_node("heading", 12, level=1, preview="Welcome back")],
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.FORM
+
+
+def test_auth_url_with_real_body_cluster_still_not_form():
+	# The body-cluster block is unconditional: a help-center article that
+	# happens to live under /login/ must keep its article landing.
+	tree = _summary(
+		url="https://example.com/login/troubleshooting",
+		form_input_count=2,
+		main_nodes=[
+			_node("heading", 40, level=1),
+			_node("paragraph", 250),
+			_node("paragraph", 300),
+			_node("paragraph", 280),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.FORM
+
+
+def test_hero_still_blocks_weak_form_on_neutral_url():
+	# The mirror of the signup case: same weak form signal and hero, but a
+	# URL with no form hint. The hero block must still win — a WordPress
+	# homepage with an intro paragraph and a few sidebar widgets is not a
+	# form page.
+	tree = _summary(
+		url="https://example.com/",
+		form_input_count=3,
+		main_nodes=[
+			_node("heading", 30, level=1),
+			_node("paragraph", 90, preview="Welcome to our site, where we write about"),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent != cls.Intent.FORM
+
+
 def test_form_still_blocked_by_real_body_cluster_even_with_many_inputs():
 	# A real article with embedded survey widgets shouldn't get demoted to
 	# FORM just because the form_input_count is high. Real body cluster

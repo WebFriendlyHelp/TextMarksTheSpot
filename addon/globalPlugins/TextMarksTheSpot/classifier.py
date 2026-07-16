@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import enum
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -158,6 +159,26 @@ MASSIVE_DUO_MIN_CHARS_EACH = 200
 HEADING_CLUSTER_MAX_CHARS_BETWEEN = 300
 
 FORM_INPUT_THRESHOLD = 3          # min inputs to suspect a form intent
+
+# A login form is only 2 real inputs (username/email + password), so it can
+# never reach FORM_INPUT_THRESHOLD by count alone — starttesting.net/login
+# classified UNKNOWN and played the not-found beeps (2026-07-16). When the
+# URL says unambiguously "this is an auth page", 2 inputs meet the bar.
+# "Unambiguously" is doing real work: unlike the loose substring hints in
+# URL_HINTS (which only ever BOOST or UNBLOCK a count that already met the
+# threshold), this check LOWERS the bar on a path that ends with FORM moving
+# keyboard focus — so it requires the auth word to be a whole path segment.
+# /login, /signup?next=/home and auth.example.org match; a blog post at
+# /login-security-tips does not. The floor stays at 2: one input plus an
+# auth-ish URL is still just a search box on a page whose URL happens to
+# contain the word. (Known gap, accepted: single-input staged logins like
+# Google's email-first page stay below the bar; Z covers them.)
+AUTH_FORM_MIN_INPUTS = 2
+_AUTH_URL_SEGMENT_RE = re.compile(
+	r"(?:^|[/.:])"
+	r"(?:log-?in|sign-?in|sign-?up|register|registration|createaccount|userlogin|auth)"
+	r"(?:$|[/?#&.:])"
+)
 # When form_input_count crosses this bar, the page is unambiguously a form
 # regardless of how much hero_chars or other "looks like article" signal
 # accumulates from form label text in the lead run. Without this override,
@@ -318,6 +339,13 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# hero block — a page with 5+ form inputs is a form even if its label
 	# text accumulates into a "hero" run. Real-article body cluster still
 	# blocks FORM (a sidebar form widget on a news article shouldn't win).
+	# The hero block also yields to the form-URL escape hatch, same as the
+	# <article> and massive-duo blocks: a signup page's one-line intro
+	# ("You can join an existing organization or create one later.", 58
+	# chars on starttesting.net/signup) clears the 50-char hero bar while a
+	# 3-input registration form sits below STRONG_FORM_INPUT_COUNT, so
+	# without the hatch the page classified ARTICLE and the prose-run gate
+	# landed the user on the password hint mid-form (2026-07-16).
 	strong_form_signal = tree.form_input_count >= STRONG_FORM_INPUT_COUNT
 	# Any <article> element on the page is a strong editorial-content
 	# signal. A news article (CNET, Wired, NYT, etc.) commonly wraps the
@@ -347,18 +375,28 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# a strong input count, and sites like thurrott.com expose no
 	# <article> for the editorial block to key on. A URL that matches
 	# BOTH (e.g. /blog/contact) stays eligible for FORM.
-	has_editorial_url = _url_matches(url, Intent.ARTICLE) and not _url_matches(url, Intent.FORM)
+	# The strict segment match also counts as a form-URL hint for the escape
+	# hatches and the confidence boost (it is stronger evidence than the
+	# loose substring hints, not weaker) — without this, a 2-input login on
+	# a URL the loose hints miss (e.g. /auth with no trailing slash) would
+	# meet the bar but stall at 0.52 confidence and return UNKNOWN.
+	is_auth_url = _url_is_auth_form(url)
+	form_url_hint = _url_matches(url, Intent.FORM) or is_auth_url
+	has_editorial_url = _url_matches(url, Intent.ARTICLE) and not form_url_hint
 	form_blocked = (
 		strong_article_cluster
 		or has_body_cluster_strong
-		or (has_hero and not strong_form_signal)
-		or (has_editorial_content and not _url_matches(url, Intent.FORM))
-		or (has_massive_duo and not _url_matches(url, Intent.FORM))
+		or (has_hero and not strong_form_signal and not form_url_hint)
+		or (has_editorial_content and not form_url_hint)
+		or (has_massive_duo and not form_url_hint)
 		or has_editorial_url
 	)
-	if tree.form_input_count >= FORM_INPUT_THRESHOLD and not form_blocked:
+	meets_input_bar = tree.form_input_count >= FORM_INPUT_THRESHOLD or (
+		is_auth_url and tree.form_input_count >= AUTH_FORM_MIN_INPUTS
+	)
+	if meets_input_bar and not form_blocked:
 		confidence = min(0.6 + 0.08 * (tree.form_input_count - FORM_INPUT_THRESHOLD), 0.9)
-		if _url_matches(url, Intent.FORM):
+		if form_url_hint:
 			confidence = min(confidence + 0.15, 0.99)
 		if confidence >= CONFIDENCE_THRESHOLD:
 			return ClassifierResult(
@@ -634,6 +672,12 @@ def _hero_paragraph_chars(nodes: list[MainNode]) -> int:
 
 def _url_matches(url: str, intent: Intent) -> bool:
 	return any(hint in url for hint in URL_HINTS.get(intent, ()))
+
+
+def _url_is_auth_form(url: str) -> bool:
+	# Whole-path-segment auth-page match (see _AUTH_URL_SEGMENT_RE). Caller
+	# passes the already-lowercased URL.
+	return bool(_AUTH_URL_SEGMENT_RE.search(url))
 
 
 # ---------------------------------------------------------------------------

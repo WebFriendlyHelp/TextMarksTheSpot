@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.12
+
+Login and signup pages land you in the form, and Shift+Z can now summon a landing anywhere.
+
+- **Login pages are recognized.** A login form is just two fields, email and password, and the add-on's bar for "this page is a form" needed three, so login pages got no landing at all, just the two low not-found beeps. When the page's address plainly says it is a sign-in page (/login, /signin, /register and the like), two fields are now enough: the page title is announced and your focus lands in the email field. An article that merely mentions login in its address, like a "login-security-tips" post, is left alone.
+- **Signup pages that open with a line of welcome text land in the form now too.** One short line like "You can join an existing organization or create one later." was enough to make the add-on read the whole page as an article, and the cursor landed on the password hint sitting in the middle of the form. Pages whose address says signup or register now keep their form treatment even with that intro line present.
+- **Shift+Z now works on pages the add-on never saw load.** Switching back to a tab that was already open never triggers an automatic landing, and some web apps swap in a whole new page without a real page load, so the add-on has no way to know you arrived. Shift+Z used to answer "No saved landing on this page" and leave you there. Now it runs the detection on the spot and takes you to the result. The rule of thumb: if the page didn't speak and you want a landing, press Shift+Z.
+
+Known gaps: sign-in pages that ask only for your email and save the password for a second page still get no landing (the two low beeps); Shift+Z works there like everywhere else. Recipe sites can still land on a marketing line or a reader's review, and script-drawn result widgets like the fast.com speed test are still not detected.
+
 ## 1.0.11
 
 Stuck pages can no longer freeze NVDA.

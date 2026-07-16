@@ -124,7 +124,7 @@ These are the principles the add-on must satisfy. They override any feature that
    - Z never rebinds or interferes with NVDA's built-in quick-nav keys. Tab, h, f, t, k, b, etc. continue to work exactly as NVDA defines them.
 
    **Current and deferred behavior:**
-   - **Current:** Z scans forward to next content paragraph; Shift+Z returns to the saved automatic landing; NVDA+Z toggles the site exclusion list.
+   - **Current:** Z scans forward to next content paragraph; Shift+Z returns to the saved automatic landing, or runs one-time detection when none is saved for the page (stale-tab rescue; exclusion still honored); NVDA+Z toggles the site exclusion list.
    - **Deferred:** article section sequence, form-context sequence (errors, next empty, submit), email sequence, and search-result sequence.
 
    Resist the urge to ship the full sequence until the simpler content-forward scan has more real-world feedback. Each larger sequence should get its own user feedback loop.
@@ -202,7 +202,7 @@ Status: working public add-on, version 1.0.8 in `buildVars.py`, end-to-end in Fi
 - Landing strategies (`detection/web.py`) cover ARTICLE, LIST, FORM, NOTICE, KEY_RESULT, and Z forward scan. Article landing skips tag lists, share-link payloads, accessibility instructions, figure captions/photo credits, and protects short news dateline ledes.
 - Trigger (`__init__.py`) hooks `event_documentLoadComplete` only (see the correction above — the `treeInterceptor_gainFocus` hook never fired and is gone). It debounces by **TreeInterceptor identity AND URL together** (a TI is bound to an accessibility-tree ROOT, not a document: NVDA reuses it across navigations while the URL changes in place underneath it, so identity alone was swallowing two thirds of real page loads) plus a same-URL cooldown, honors the site exclusion list, pre-checks editable focus before any feedback tone, and schedules one retry after 1500 ms when the first attempt produces no action.
 - Action: ARTICLE / LIST / NOTICE / KEY_RESULT move the browse-mode caret, cancel speech only immediately before the add-on speaks, expand to the paragraph, and call `speech.speakTextInfo`. FORM announces the form title with `ui.message` and moves keyboard focus to the first form input.
-- Gestures: `Z` scans forward from the current cursor to the next substantial content paragraph; `Shift+Z` returns to the saved automatic landing; `NVDA+Z` toggles the current site in the exclusion list. Outside browse mode, `Z` and `Shift+Z` pass through.
+- Gestures: `Z` scans forward from the current cursor to the next substantial content paragraph; `Shift+Z` returns to the saved automatic landing, or runs one-time detection when none is saved for the page (tab switches fire no documentLoadComplete, so a revisited tab has nothing saved; exclusion still honored); `NVDA+Z` toggles the current site in the exclusion list. Outside browse mode, `Z` and `Shift+Z` pass through.
 - Audio feedback: short working tone at detection start, pulse while detection runs, two low beeps after retry finds nothing, no success tone.
 - Unit-test suite currently covers classifier, landing logic, hostname handling, and tree-summary node filtering.
 - Build: `scons` from the project root produces the `.nvda-addon` using NV Access's official addon template (buildVars.py, sconstruct, site_scons/). `probes/build_probe.py` is still used for the small probe add-ons.

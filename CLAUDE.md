@@ -209,7 +209,7 @@ For each NVDA API the add-on uses for the first time, write a minimal standalone
 Current shipped behavior:
 
 - `Z` in browse mode scans forward from the user's current browse cursor to the next substantial content paragraph. It skips headings because NVDA's `H` already handles heading navigation, and it skips known chrome paragraphs. If nothing qualifies below the cursor, it says "Nothing else to land on" and does not wrap.
-- `Shift+Z` returns to the saved automatic landing on the current page without recalculating.
+- `Shift+Z` returns to the saved automatic landing on the current page without recalculating. If NO landing is saved for the page (the auto-trigger structurally can't fire on tab switches — no `documentLoadComplete` — so a stale tab has nothing saved), Shift+Z runs full one-time detection instead, resetting the debounce gates like Z does; on an excluded site it keeps the plain "No saved landing" message (double-Z stays the only exclusion override). Added 2026-07-16 after the starttesting.net login tab left the user stranded with no gesture that could summon detection.
 - `NVDA+Z` toggles the current hostname in the per-site exclusion list after confirmation. On an excluded site, double-pressing `Z` runs one-time detection without changing the list.
 - Outside browse mode or while browse mode is pass-through, `Z` and `Shift+Z` pass through to the host app.
 

@@ -45,7 +45,7 @@ The landing depends on the kind of page:
 The add-on binds three gestures. Every other NVDA key behaves the way it always has.
 
 - `Z` in browse mode: scan forward from the cursor to the next real paragraph. The add-on skips headings (use NVDA's `H` for those) and skips ads, menus, and share buttons.
-- `Shift+Z` in browse mode: return to where the add-on first placed you on this page. A quick jump back.
+- `Shift+Z` in browse mode: return to where the add-on first placed you on this page. A quick jump back. If the add-on has not placed you anywhere yet, for example when you switch back to a tab that was already open, `Shift+Z` runs the detection right then and takes you to the result.
 - `NVDA+Z` in browse mode: add or remove the current site from the exclusion list. NVDA asks before changing it. On an excluded site, press `Z` twice quickly for a one-time detection that does not change the list.
 
 Outside browse mode (terminals, edit fields, native apps), `Z` types a normal letter.
@@ -54,6 +54,7 @@ Outside browse mode (terminals, edit fields, native apps), `Z` types a normal le
 
 - The cursor lands on the first real paragraph automatically. If that pick is off, press NVDA's `H` to find the heading of the section you want, then press `Z` to drop onto the first paragraph below it.
 - `Shift+Z` at any time returns you to where the add-on first placed you. Handy after wandering with arrow keys when you want to start over.
+- Switching between browser tabs never triggers an automatic landing; that is deliberate, so quiet tab checks stay quiet. When you come back to a tab and want a landing, press `Shift+Z`.
 - On slow-loading sites (Gmail, some news pages), the content sometimes shows up after the add-on's first scan. The add-on retries once automatically about a second and a half later. You can also press `Z` to trigger a fresh scan from where you are.
 - `NVDA+S` cycles NVDA's speech mode and the add-on respects it. In beeps mode NVDA beeps for each line. In off mode the cursor still moves but nothing is spoken.
 

@@ -1047,7 +1047,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help for the Shift+Z return-to-landing gesture.
-		description=_("Return the cursor to the add-on's last detected landing position on this page."),
+		description=_("Return the cursor to the add-on's landing position on this page, running detection first if none is saved."),
 		gesture="kb:shift+z",
 		category=_CATEGORY,
 	)
@@ -1074,9 +1074,37 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._last_initial_landing_info is None
 			or self._last_initial_landing_url != url
 		):
-			# Translators: spoken when Shift+Z has no saved landing for
-			# the current page (no detection has run, or URL changed).
-			ui.message(_("No saved landing on this page."))
+			# No saved landing for THIS page. Announcing that and stopping
+			# left the user stranded whenever the auto-trigger structurally
+			# could not fire: switching to an already-open tab produces no
+			# documentLoadComplete, so detection never ran and no gesture
+			# could summon it (the starttesting.net login tab, 2026-07-16).
+			# Shift+Z means "take me to the landing" -- if none exists yet,
+			# compute one now, same one-shot path as double-Z on an excluded
+			# site. Feedback is the working tone + landing speech (or the
+			# two-beep not-found), deliberately no spoken preamble, matching
+			# the double-Z one-shot rationale.
+			hostname = _hostname_from_url(url)
+			if hostname and cfg_mod.is_site_disabled(hostname):
+				# Exclusion is still honored here -- the user turned this
+				# site off, and double-Z is the documented one-time
+				# override, not Shift+Z.
+				# Translators: spoken when Shift+Z has no saved landing for
+				# the current page (no detection has run, or URL changed).
+				ui.message(_("No saved landing on this page."))
+				return
+			# An explicit user request must not be debounced: reset the
+			# document-identity / cooldown / post-landing gates exactly as
+			# the Z script does. bypass_exclusion=True additionally lifts
+			# the restored-position caret gate (the flag gates both);
+			# exclusion itself was already checked just above.
+			self._last_ti_ref = None
+			self._last_url = None
+			self._last_fire_time = 0.0
+			self._last_landed_url = None
+			self._last_landed_time = 0.0
+			log.debug(f"[TMTS] Shift+Z: no saved landing for url={url!r} — running on-demand detection")
+			self._maybe_fire(focus, bypass_exclusion=True)
 			return
 		fb_mod.working()
 		try:
