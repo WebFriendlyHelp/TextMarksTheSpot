@@ -117,6 +117,18 @@ class TreeSummary:
 	# the page to the 1500 ms retry instead.
 	counts_truncated: bool = False
 
+	# Set when the paragraph WALK stopped on a limit (the 2.0 s time budget
+	# or the node cap) instead of reaching the end of the document, so
+	# main_nodes is a PREFIX of the page. Anything keyed on the ABSENCE of
+	# a node shape must treat that absence as unknown when this is set —
+	# form_wants_browse_landing was the incident: a slow hydrating refresh
+	# of store.payproglobal.com's checkout truncated the walk before the
+	# 200+ char preamble paragraphs, "no rich preamble" selected the
+	# bare-form path, and keyboard focus jumped to the Quantity field,
+	# while a fast walk of the same page landed in browse mode at the top
+	# of the order (2026-07-17). Landing must not depend on walk timing.
+	walk_truncated: bool = False
+
 	# Set when the ARTICLE count specifically was truncated (budget, scan
 	# cap, or iterator exception). Tracked separately from counts_truncated
 	# because article_count==0 is the undercount that is NOT fail-safe: it
@@ -567,12 +579,25 @@ def _classify_notice(tree: TreeSummary) -> Optional[ClassifierResult]:
 def _largest_paragraph_cluster(nodes: list[MainNode]) -> tuple[int, int]:
 	# Largest run of consecutive paragraph nodes, each >= PARAGRAPH_MIN_CHARS,
 	# uninterrupted by any heading. Returns (cluster_size, total_chars).
+	#
+	# Caption/boilerplate-flagged paragraphs are TRANSPARENT — skipped, not
+	# run-breaking. They must not COUNT as body: store.payproglobal.com's
+	# 10-input checkout carried three adjacent 100+ char "paragraphs" near
+	# the Submit button (trust-badge alt-text blob, the "By placing your
+	# order, you agree to our Terms..." consent line, a data-sharing note)
+	# that formed a fake strong cluster, blocking FORM and classifying the
+	# checkout as ARTICLE — the user landed in the legalese (2026-07-17).
+	# But they must not BREAK the run either: a long mid-article figure
+	# caption splitting a real article's body cluster would drop the very
+	# FORM block that keeps keyboard focus out of a news page's widgets.
 	best_size, best_chars = 0, 0
 	cur_size, cur_chars = 0, 0
 	for n in nodes:
 		if n.kind == "heading":
 			cur_size, cur_chars = 0, 0
 		elif n.kind == "paragraph":
+			if n.is_caption or n.is_boilerplate:
+				continue
 			if n.text_length >= PARAGRAPH_MIN_CHARS:
 				cur_size += 1
 				cur_chars += n.text_length

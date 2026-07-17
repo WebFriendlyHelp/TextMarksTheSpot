@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.13
+
+Checkout pages land on what you're buying, not in the legal fine print.
+
+- **Checkout pages are recognized as forms.** On a software checkout page, the add-on read the legal notice beside the Submit order button, "By placing your order, you agree to our Terms and Conditions...", as if that were the point of the page. That notice and the security-badge text next to it were long enough to pass for article paragraphs, so the whole checkout, ten input fields and all, got treated as an article. Consent wording like "you agree to our Terms and Conditions" now counts as legal boilerplate: it can't pass for content anymore, and the checkout is treated as the form it is.
+- **The landing goes to the line that says what you're buying.** That checkout has no headings at all, and the fallback for that case used to pick the first longish text on the page, which turned out to be the seller's slogan up in the page header. A form's real description reads like a sentence, and a slogan doesn't, so the landing now prefers the first paragraph that ends like one: on that checkout, the product description right under "You're Buying".
+- **The same page now lands the same way every time.** On a slow load, the add-on's reading of the page runs out of clock partway down, and it used to decide "this form has no description worth reading" just because it hadn't gotten far enough to see one. That could drop your keyboard focus into the quantity box on one visit and land you at the top of the page in reading mode on the next. When the add-on knows it only saw part of a page, it now always takes the reading-mode landing, which never moves your focus.
+
+Known gaps, unchanged from 1.0.12: single-field sign-in pages that ask for your email first still get no landing (the two low beeps); recipe sites can still land on a marketing line or a reader's review; script-drawn result widgets like the fast.com speed test are still not detected.
+
 ## 1.0.12
 
 Login and signup pages land you in the form, and Shift+Z can now summon a landing anywhere.

@@ -116,6 +116,64 @@ def test_form_overrides_hero_when_input_count_is_strong():
 	assert result.intent == cls.Intent.FORM
 
 
+def test_checkout_form_not_blocked_by_legal_boilerplate_cluster():
+	# store.payproglobal.com/checkout?products[1][id]=69131 (2026-07-17): a
+	# 10-input checkout with zero headings and no <article>. Near the Submit
+	# button sit three adjacent 100+ char paragraphs: a trust-badge alt-text
+	# blob (237), the "By placing your order, you agree to our Terms and
+	# Conditions..." consent line (263 — flagged is_boilerplate at walk
+	# time), and a data-sharing note (127). The trio formed a fake strong
+	# body cluster that blocked FORM, classified the page ARTICLE at 0.70,
+	# and landed the user in the legalese. Flagged paragraphs must not count
+	# as article body.
+	consent = cls.MainNode(
+		kind="paragraph", text_length=263,
+		text_preview="By placing your order, you agree to our Terms and Condition",
+		is_boilerplate=True, ends_sentence=True,
+	)
+	tree = _summary(
+		url="https://store.payproglobal.com/checkout?products[1][id]=69131",
+		has_main_landmark=False,
+		form_input_count=10,
+		interactive_control_count=11,
+		main_nodes=[
+			_node("paragraph", 8, preview="xplorer²"),
+			_node("paragraph", 50, preview="exponential growth in file management productivity"),
+			_node("paragraph", 13, preview="You're Buying"),
+			_node("paragraph", 108, preview="xplorer² professional  Explore, preview,"),
+			_node("paragraph", 42, preview="Volume discount available for this produ"),
+			_node("paragraph", 237, preview="PCI DSS Compliancy Status Trustedsite sites help k"),
+			consent,
+			_node("paragraph", 127, preview="Once the transaction is complete, your contact inf"),
+			_node("paragraph", 61, preview="24/7 English phone support for online payment rela"),
+			_node("paragraph", 100, preview="Do not hesitate to contact our CUSTOMER CARE CENTE"),
+			_node("paragraph", 107, preview="Please state the order ID from the confirmation em"),
+		],
+	)
+	result = cls.classify(tree)
+	assert result.intent == cls.Intent.FORM
+
+
+def test_cluster_treats_flagged_nodes_as_transparent_not_breaking():
+	# The fail-safe direction of the fix above: a long mid-article figure
+	# caption must NOT split a real article's body cluster — that cluster is
+	# what blocks FORM (and a FORM misfire moves keyboard focus) on news
+	# pages whose scattered widgets add up to a strong input count. Flagged
+	# nodes are transparent: they contribute nothing, but the run survives.
+	caption = cls.MainNode(
+		kind="paragraph", text_length=120,
+		text_preview="The mayor at the ribbon cutting. (Photo: Getty Images)",
+		is_caption=True,
+	)
+	nodes = [
+		_node("paragraph", 200),
+		_node("paragraph", 180),
+		caption,
+		_node("paragraph", 220),
+	]
+	assert cls._largest_paragraph_cluster(nodes) == (3, 600)
+
+
 def test_signup_page_with_short_intro_stays_form_on_form_url():
 	# starttesting.net/signup (2026-07-16): 3 real inputs (Name, Email,
 	# Password) meets FORM_INPUT_THRESHOLD but sits below

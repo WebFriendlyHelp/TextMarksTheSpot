@@ -981,6 +981,39 @@ def test_boilerplate_detector_positives_and_negatives():
 	assert not web._looks_like_legal_boilerplate("")
 
 
+def test_purchase_consent_line_is_legal_boilerplate():
+	# store.payproglobal.com/checkout (2026-07-17): the checkout's
+	# "By placing your order, you agree to our Terms and Conditions..."
+	# consent paragraph is 263 chars of sentence-ending prose sitting next
+	# to the Submit button, so it won the article cascade's very-substantial
+	# gate and the user landed in the legalese. Purchase/terms-consent
+	# wording is contract-formula language — as enumerable as "All rights
+	# reserved". Note the real page uses non-breaking spaces inside
+	# "Terms\xa0and\xa0Conditions"; the detector must tolerate them.
+	assert web._looks_like_legal_boilerplate(
+		"By placing your order, you agree to our Terms\xa0and\xa0Conditions and "
+		"Privacy\xa0Policy and acknowledge that you are purchasing from PayPro "
+		"Global (PayPro Global, Inc., PayPro Europe Limited, PPG DIGITAL Sp. z "
+		"o.o. or PayPro U.S. Inc.), an authorized e-Commerce reseller."
+	)
+	assert web._looks_like_legal_boilerplate(
+		"By clicking Submit, you agree to the Terms of Service."
+	)
+	assert web._looks_like_legal_boilerplate(
+		"By creating an account you consent to our Privacy Policy."
+	)
+	# Second-person consent is required — reported speech about other
+	# parties agreeing is ordinary prose.
+	assert not web._looks_like_legal_boilerplate(
+		"The two sides did not agree to the terms of the ceasefire until dawn."
+	)
+	# And the consent verb must target the legal terms — shopping advice
+	# that happens to open with "By placing your order" is prose.
+	assert not web._looks_like_legal_boilerplate(
+		"By placing your order early, you can avoid holiday shipping delays."
+	)
+
+
 def test_article_landing_returns_none_on_zoom_shell():
 	# The pre-hydration Zoom shell: short header links + the copyright line.
 	# No landing may be produced — None triggers the caller's retry.
@@ -1072,6 +1105,56 @@ def test_bare_form_keeps_focus_landing():
 		_node("paragraph", 61, preview="I would like to subscribe to the small business mailing lis"),
 	]
 	assert web.form_wants_browse_landing(_summary_with(nodes)) is False
+
+
+def test_headingless_form_lands_on_sentence_not_slogan():
+	# store.payproglobal.com/checkout, third round (2026-07-17): the page
+	# has NO headings, so find_form_landing fell to its paragraph fallback,
+	# and the first >= 30 char paragraph is the vendor's slogan under the
+	# logo — "exponential growth in file management productivity", a
+	# fragment with no terminal punctuation. The user landed there instead
+	# of on the order summary. A form's description reads like a sentence;
+	# header furniture doesn't. The sentence-ending product description
+	# below "You're Buying" must win.
+	nodes = [
+		_node("paragraph", 8, preview="xplorer²"),
+		_node("paragraph", 50, preview="exponential growth in file management productivity"),
+		_node("paragraph", 13, preview="You're Buying"),
+		_node("paragraph", 108, ends_sentence=True,
+			preview="xplorer² professional  Explore, preview,"),
+		_node("paragraph", 42, preview="Volume discount available for this produ"),
+	]
+	assert web.find_form_landing(cls.TreeSummary(main_nodes=nodes)) == 3
+	# A fragments-only form (nothing ends like a sentence) keeps the old
+	# first-substantive landing — no form loses its landing to this rule.
+	frag = [
+		_node("paragraph", 8, preview="Logo"),
+		_node("paragraph", 45, preview="Just labels and fragments with no punctuation"),
+	]
+	assert web.find_form_landing(cls.TreeSummary(main_nodes=frag)) == 1
+
+
+def test_truncated_walk_takes_browse_landing_not_focus_jump():
+	# store.payproglobal.com/checkout, second visit (2026-07-17): a slow
+	# hydrating refresh hit the 2.0 s walk budget at 34 nodes, so the
+	# 200+ char preamble paragraphs near the Submit button were never
+	# walked. "No rich preamble" then selected the bare-form path and
+	# keyboard focus jumped to the Quantity field — while the earlier
+	# fast walk of the SAME page (47 nodes) landed in browse mode at the
+	# top of the order. A truncated walk cannot prove the preamble is
+	# absent, and the landing must not depend on walk timing: truncation
+	# takes the browse landing, the branch that never moves focus.
+	nodes = [
+		_node("paragraph", 8, preview="xplorer²"),
+		_node("paragraph", 50, preview="exponential growth in file management productivity"),
+		_node("paragraph", 13, preview="You're Buying"),
+		_node("paragraph", 108, preview="xplorer² professional  Explore, preview,"),
+	]
+	tree = cls.TreeSummary(main_nodes=nodes, walk_truncated=True)
+	assert web.form_wants_browse_landing(tree) is True
+	# Same shape with a complete walk stays a bare form.
+	complete = cls.TreeSummary(main_nodes=nodes, walk_truncated=False)
+	assert web.form_wants_browse_landing(complete) is False
 
 
 def test_form_rich_preamble_ignores_boilerplate_and_chrome():

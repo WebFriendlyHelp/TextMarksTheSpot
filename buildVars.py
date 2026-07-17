@@ -23,18 +23,18 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Get to the actual content on a web page without working so hard to find it. Hands off. Let the page load, listen for the short beeps, and you're at the start of the article. NVDA reads the first paragraph. Press Z to skim forward, Shift+Z to jump back to the start, NVDA+Z to turn the add-on off on a specific site. Runs locally, no network calls."""),
 	# version
-	addon_version="1.0.12",
+	addon_version="1.0.13",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""Login and signup pages land you in the form, and Shift+Z can now summon a landing anywhere.
+	addon_changelog=_("""Checkout pages land on what you're buying, not in the legal fine print.
 
-Login pages are recognized. A login form is just two fields, email and password, and the add-on's bar for "this page is a form" needed three, so login pages got no landing at all, just the two low not-found beeps. When the page's address plainly says it is a sign-in page (/login, /signin, /register and the like), two fields are now enough: the page title is announced and your focus lands in the email field. An article that merely mentions login in its address, like a "login-security-tips" post, is left alone.
+Checkout pages are recognized as forms. On a software checkout page, the add-on read the legal notice beside the Submit order button, "By placing your order, you agree to our Terms and Conditions...", as if that were the point of the page. That notice and the security-badge text next to it were long enough to pass for article paragraphs, so the whole checkout, ten input fields and all, got treated as an article. Consent wording like "you agree to our Terms and Conditions" now counts as legal boilerplate: it can't pass for content anymore, and the checkout is treated as the form it is.
 
-Signup pages that open with a line of welcome text land in the form now too. One short line of introduction was enough to make the add-on read the whole page as an article, and the cursor landed on the password hint sitting in the middle of the form. Pages whose address says signup or register now keep their form treatment even with that intro line present.
+The landing goes to the line that says what you're buying. That checkout has no headings at all, and the fallback for that case used to pick the first longish text on the page, which turned out to be the seller's slogan up in the page header. A form's real description reads like a sentence, and a slogan doesn't, so the landing now prefers the first paragraph that ends like one: on that checkout, the product description right under "You're Buying".
 
-Shift+Z now works on pages the add-on never saw load. Switching back to a tab that was already open never triggers an automatic landing, and some web apps swap in a whole new page without a real page load, so the add-on has no way to know you arrived. Shift+Z used to answer "No saved landing on this page" and leave you there. Now it runs the detection on the spot and takes you to the result. The rule of thumb: if the page didn't speak and you want a landing, press Shift+Z.
+The same page now lands the same way every time. On a slow load, the add-on's reading of the page runs out of clock partway down, and it used to decide "this form has no description worth reading" just because it hadn't gotten far enough to see one. That could drop your keyboard focus into the quantity box on one visit and land you at the top of the page in reading mode on the next. When the add-on knows it only saw part of a page, it now always takes the reading-mode landing, which never moves your focus.
 
-Known gaps: sign-in pages that ask only for your email and save the password for a second page still get no landing (the two low beeps); Shift+Z works there like everywhere else. Recipe sites can still land on a marketing line or a reader's review, and script-drawn result widgets like the fast.com speed test are still not detected."""),
+Known gaps, unchanged from 1.0.12: single-field sign-in pages that ask for your email first still get no landing (the two low beeps); recipe sites can still land on a marketing line or a reader's review; script-drawn result widgets like the fast.com speed test are still not detected."""),
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support

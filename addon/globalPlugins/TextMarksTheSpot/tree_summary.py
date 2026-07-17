@@ -464,6 +464,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	summary.notice_keyword_match = notice_match[0]
 	summary.counts_truncated = counts_truncated[0]
 	summary.article_count_truncated = article_truncated[0]
+	summary.walk_truncated = walk_truncated[0]
 	_captured_positions[id(summary)] = positions
 	perf_line = (
 		f"[TMTS perf] total={(t4-t0)*1000:.0f}ms "

@@ -416,11 +416,25 @@ def _node_is_caption(node) -> bool:
 #     in 2026...") from matching.
 #   - The CCPA-mandated "Do Not Sell (or Share) My Personal Information"
 #     link text — footer-only language, catches merged footer link rows.
+#   - Purchase/terms-consent formula: "you agree to our Terms and
+#     Conditions", "you agree to the Terms of Service", "you consent to
+#     our Privacy Policy". Contract-law wording, as enumerable as the
+#     rest. Checkout pages put this next to the Submit button as long,
+#     sentence-ending prose, so it won the article cascade's
+#     very-substantial gate AND (with its neighbours) faked the strong
+#     body cluster that blocks FORM — store.payproglobal.com's 10-input
+#     checkout classified ARTICLE and landed the user in the legalese
+#     (2026-07-17). Second person + consent verb + legal object are all
+#     required: "the sides agreed to the terms" (no "you") and "By
+#     placing your order early, you can avoid delays" (no consent verb
+#     targeting the terms) stay prose. \s covers the non-breaking spaces
+#     real pages use inside "Terms\xa0and\xa0Conditions".
 _LEGAL_BOILERPLATE_RE = _re.compile(
 	r"\ball rights reserved\b"
 	r"|\bcopyright\s*(?:©|\(c\))?\s*(?:19|20)\d{2}\b"
 	r"|©\s*(?:19|20)\d{2}\b"
-	r"|\bdo not sell (?:or share )?my personal information\b",
+	r"|\bdo not sell (?:or share )?my personal information\b"
+	r"|\byou\s+(?:agree|consent)\s+to\s+(?:our|the|these)\s+(?:terms|privacy\s+policy)\b",
 	_re.IGNORECASE,
 )
 
@@ -1161,7 +1175,22 @@ def form_wants_browse_landing(tree: TreeSummary) -> bool:
 
 	Bare forms (Google-Forms-style title + field labels, login pages) have
 	no such paragraph and keep the focus-first-input behavior.
+
+	A TRUNCATED walk cannot prove the preamble is ABSENT — the paragraph
+	may sit past where the clock stopped, and this check keys on absence.
+	store.payproglobal.com's checkout flipped on exactly that: a fast walk
+	(47 nodes) saw the 237-char trust-badge paragraph and landed in browse
+	mode at the top of the order, while a slow hydrating refresh truncated
+	at 34 nodes, read as "bare form", and jumped keyboard focus to the
+	Quantity field (2026-07-17). The landing must not depend on walk
+	timing, so a truncated walk takes the browse landing — the fail-safe
+	branch, since it never moves focus. Genuinely bare forms almost never
+	truncate (they are small pages); a huge survey that does truncate
+	lands on its title in browse mode, which is still a correct entry
+	point.
 	"""
+	if tree.walk_truncated:
+		return True
 	return any(
 		n.kind == "paragraph"
 		and n.text_length >= VERY_SUBSTANTIAL_PARAGRAPH_CHARS
@@ -1182,9 +1211,18 @@ def find_form_landing(tree: TreeSummary) -> Optional[int]:
 
 	Priority:
 	  1. First heading — typically the form's title or section label.
-	  2. First substantive paragraph (>= 30 chars) — fallback for forms
-	     with no heading but a description above the fields.
-	  3. First node — last resort.
+	  2. First substantive paragraph (>= 30 chars) that ENDS LIKE A
+	     SENTENCE — a form's description reads like a sentence, while the
+	     page-header furniture above it doesn't. The PayPro Global
+	     checkout is the canonical case (2026-07-17): no heading anywhere,
+	     and the plain first-substantive rule landed on the vendor's
+	     slogan under the logo ("exponential growth in file management
+	     productivity" — a 50-char fragment, no terminal punctuation)
+	     instead of the order summary's product description right below
+	     "You're Buying", which does end like a sentence.
+	  3. First substantive paragraph regardless of punctuation — so a
+	     fragments-only form still gets its old landing.
+	  4. First node — last resort.
 	"""
 	nodes = tree.main_nodes
 	if not nodes:
@@ -1192,11 +1230,17 @@ def find_form_landing(tree: TreeSummary) -> Optional[int]:
 	for i, n in enumerate(nodes):
 		if n.kind == "heading":
 			return i
+	fallback = None
 	for i, n in enumerate(nodes):
 		if n.kind == "paragraph" and n.text_length >= 30:
 			if _is_chrome_paragraph(n):
 				continue
-			return i
+			if _node_ends_sentence(n):
+				return i
+			if fallback is None:
+				fallback = i
+	if fallback is not None:
+		return fallback
 	return 0
 
 
