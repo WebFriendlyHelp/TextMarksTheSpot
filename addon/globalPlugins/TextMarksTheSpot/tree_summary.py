@@ -311,14 +311,23 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	#   main-pos:  <main> present and its positional range built (fast path)
 	#   main-id:   <main> present, no usable range → identity checks (old path)
 	#   article:   no <main>, exactly one <article> → positional article range
-	#   chrome:    no <main>, no single article → identity chrome filter.
-	#              The last path still paying a parent chain per chunk, and
-	#              measurably the expensive one (1808 ms of a 2035 ms walk on
-	#              store.payproglobal.com's checkout). Replacing it with
-	#              positional exclusion of the chrome landmark ranges was
-	#              built and then SHELVED — the safety interlock it needs
-	#              cannot be implemented. See CLAUDE.md "Known limitations"
-	#              and the `chrome-pos-attempt` branch before trying again.
+	#   chrome-pos: no <main>, ordered scan with a trust boundary → exclude
+	#              the chrome landmark ranges by START position before the
+	#              boundary, outside untrusted_ranges. This is the path that
+	#              removes the parent chains, which are measurably the whole
+	#              cost here: 1887 ms of a 2041 ms walk on stevequayle.com,
+	#              275 parent dereferences for 19 chunks, and the walk
+	#              truncating with too few nodes to classify anything.
+	#   chrome:    no <main> and nothing to bound trust with → identity
+	#              chrome filter, the old per-chunk parent walk.
+	#
+	# NOTE for anyone reading an older copy of this comment: it used to say
+	# positional chrome scoping "was built and then SHELVED — the safety
+	# interlock it needs cannot be implemented". That was true of the FIRST
+	# design (branch `chrome-pos-attempt`, which gated on whether the landmark
+	# enumeration completed — unobservable). It is not true of this one, which
+	# never asks whether the scan finished, only how far it got. See
+	# _select_scope.
 	scope_kind, scope_range, chrome_exclude, trust_boundary, untrusted_ranges = _select_scope(landmarks)
 
 	# ONE wall-clock deadline for the whole counts phase (article + form
@@ -491,7 +500,9 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		# widening is firing where it should — or, if a landing regresses on a
 		# page that used to be fine, whether this is why.
 		if depleted:
-			scope_kind = "unscoped-depleted"
+			# Keep the recount fact rather than losing it to the rename: both
+			# are useful when reading a soak log.
+			scope_kind = "unscoped-depleted-recount" if counts_rescoped else "unscoped-depleted"
 		else:
 			scope_kind = "unscoped-recount" if counts_rescoped else "unscoped"
 	t4 = time.monotonic()
@@ -614,6 +625,48 @@ def is_focus_editable() -> bool:
 	return _is_focus_editable()
 
 
+def _form_field_in_scope(item, scope_kind, scope_range, chrome_exclude, trust_boundary, untrusted_ranges, main_obj, cache) -> bool:
+	"""Is this form field somewhere we are willing to MOVE KEYBOARD FOCUS?
+
+	Mirrors the walk's scope decision exactly, because the two disagreeing is
+	precisely how a blind user's focus ends up in a header search box while
+	the landing logic knows perfectly well that region is chrome.
+
+	Fails CLOSED throughout. Everywhere else in this module an undecidable
+	chunk is kept, on the reasoning that showing a stray line is recoverable.
+	That reasoning does not transfer here: the cost of being wrong is not a
+	line of nav read aloud, it is the caret leaving the page content. When
+	nothing can decide, the answer is "not this field" — the caller then
+	announces the form title and moves nothing, which is the fail-safe
+	branch.
+	"""
+	ti = getattr(item, "textInfo", None)
+	obj = getattr(item, "obj", None)
+
+	# Positional INCLUSION (main-pos / article): must be inside the range.
+	if scope_range is not None:
+		if ti is None:
+			return obj is not None and _in_scope(obj, main_obj, cache)
+		try:
+			return (
+				ti.compareEndPoints(scope_range, "startToStart") >= 0
+				and ti.compareEndPoints(scope_range, "startToEnd") < 0
+			)
+		except Exception:
+			return False
+
+	# Positional EXCLUSION (chrome-pos): same three-step verdict the walk
+	# uses, with the same deferral to identity for untrusted territory.
+	if scope_kind == "chrome-pos" and ti is not None:
+		verdict = _chrome_pos_verdict(ti, trust_boundary, chrome_exclude, untrusted_ranges)
+		if verdict is not None:
+			return verdict
+
+	# Identity (main-id, chrome, or anything the above could not decide).
+	# No object means no evidence, and no evidence means no focus move.
+	return obj is not None and _in_scope(obj, main_obj, cache)
+
+
 def set_focus_on_first_form_input(treeInterceptor) -> bool:
 	"""For FORM intent: move keyboard focus to the first form input found
 	in document order. Triggers NVDA's own focus speech (field name +
@@ -635,37 +688,34 @@ def set_focus_on_first_form_input(treeInterceptor) -> bool:
 	# the form the user came for. Also prefer real EDIT boxes over the
 	# broader formField quick-nav class (which includes buttons and
 	# pickers): "the first named box" means a text field when one exists.
-	# With NO <main> this filter used to return True for EVERY field, so
-	# "first form input in document order" meant the first editable element
-	# anywhere in the document — routinely the header search box. That is the
-	# same class of failure the <main> filter was added to stop (Zoom's
-	# language picker), just on the branch nobody scoped: this add-on MOVES
-	# KEYBOARD FOCUS here, so getting it wrong drops a blind user into site
-	# chrome. Found in review 2026-07-18; pre-existing, unrelated to scoping.
+	# THIS BRANCH MOVES KEYBOARD FOCUS, so it gets the walk's FULL scope
+	# decision, not a private approximation of it.
 	#
-	# So when there is no <main>, exclude fields that start inside a CHROME
-	# landmark instead. Same scan, no extra cost. A page with neither <main>
-	# nor landmarks keeps the old behaviour — no information, no change.
+	# It has been wrong twice. Originally it filtered against <main> only,
+	# and with no <main> that returned True for EVERY field — so "first form
+	# input in document order" meant the first editable element anywhere,
+	# routinely the header search box. The first repair added a chrome-range
+	# rejection, which fixed the common case but still diverged from the
+	# walker in three ways review found (2026-07-18): a main-id page (a
+	# <main> exists but its range is unusable) fell into the no-main branch
+	# and could focus a field OUTSIDE <main>; an emitted non-chrome region
+	# that may hide a reseed-omitted nav was treated as safe here while the
+	# walker treats it as untrusted; and a failed comparison answered
+	# "eligible" — fail-OPEN on the path that calls setFocus().
+	#
+	# So: one scope decision, made by _select_scope, applied by
+	# _form_field_in_scope. Divergence between "where the article is" and
+	# "where we are willing to put the user's focus" is the bug, not the
+	# implementation detail.
 	landmarks = _find_main_landmark(treeInterceptor)
-	main_range = landmarks.main_range
-	chrome_ranges = landmarks.chrome_ranges
+	scope_kind, scope_range, chrome_exclude, trust_boundary, untrusted_ranges = _select_scope(landmarks)
+	cache: dict = {}
 
 	def _in_main(item) -> bool:
-		ti = getattr(item, "textInfo", None)
-		if ti is None:
-			return True
-		if main_range is not None:
-			try:
-				return (
-					ti.compareEndPoints(main_range, "startToStart") >= 0
-					and ti.compareEndPoints(main_range, "startToEnd") < 0
-				)
-			except Exception:
-				return True
-		# No <main>: reject anything sitting in nav / banner / footer.
-		# _starts_in_any is tri-state; only a definite True rejects, so an
-		# unreadable comparison leaves the field eligible exactly as before.
-		return _starts_in_any(ti, chrome_ranges) is not True
+		return _form_field_in_scope(
+			item, scope_kind, scope_range, chrome_exclude, trust_boundary,
+			untrusted_ranges, landmarks.main_obj, cache,
+		)
 
 	for item_type in ("edit", "formField"):
 		try:
@@ -896,7 +946,7 @@ _DEPLETED_SCOPED_SUBSTANTIAL = 100
 _DEPLETED_DOC_SUBSTANTIAL = 200
 
 
-def _scope_looks_depleted(scope_kind: str, main_nodes: list, all_nodes: list, positional_hits: int = 0) -> bool:
+def _scope_looks_depleted(scope_kind: str, main_nodes: list, all_nodes: list, positional_drops: int = 0) -> bool:
 	"""True when the scope filter kept nodes but threw away the article.
 
 	The existing fallback only fires when the scoped walk produces NOTHING.
@@ -937,7 +987,7 @@ def _scope_looks_depleted(scope_kind: str, main_nodes: list, all_nodes: list, po
 	chrome heuristics still run over whatever we hand them.
 	"""
 	# chrome-pos is eligible ONLY when the walk actually fell back to
-	# identity, which is what `positional_hits == 0` means.
+	# identity, which is what `positional_drops == 0` means.
 	#
 	# Two wrong answers were tried before this one. Excluding chrome-pos
 	# outright re-opened the bug the net exists to fix: on a page whose only
@@ -949,12 +999,21 @@ def _scope_looks_depleted(scope_kind: str, main_nodes: list, all_nodes: list, po
 	# the strength of two long chrome paragraphs, re-admitting the very
 	# navigation and cookie text that was correctly removed.
 	#
-	# The scope NAME cannot tell those apart; the decision COUNT can. Zero
-	# positional decisions means positional scoping contributed nothing to
-	# this walk, so there is no correct exclusion work to undo.
+	# The scope NAME cannot tell those apart; the count of positional
+	# EXCLUSIONS can. Zero means positional scoping REMOVED nothing here, so
+	# there is no correct exclusion work for widening to undo. Counting all
+	# positional decisions was wrong: an ordinary content chunk outside every
+	# landmark scores an INCLUSION, which is not evidence of removal, and one
+	# of those could block a needed widening (review, 2026-07-18).
+	#
+	# HONEST LIMIT, do not oversell this: zero drops does not PROVE widening
+	# is right. Identity can correctly remove chrome on a page that made no
+	# positional exclusion, and widening would re-admit it. This narrows the
+	# failure window; it does not close it. The 100/200-twice bars and the
+	# `unscoped-depleted` perf tag are the other two layers.
 	if scope_kind in ("chrome", "main-id"):
 		pass
-	elif scope_kind == "chrome-pos" and positional_hits == 0:
+	elif scope_kind == "chrome-pos" and positional_drops == 0:
 		pass
 	else:
 		return False
@@ -1089,8 +1148,10 @@ def _select_scope(landmarks: "LandmarkScan"):
 	descendants. And `findNodeByAttributes` reseeds via
 	`locateTextFieldNodeAtOffset`, which returns the TEXT LEAF at that offset,
 	so the next search resumes from inside the just-matched landmark's own
-	subtree. Everything skipped is therefore a DESCENDANT of an emitted
-	landmark, which is stronger than the equal-start case alone. The outer
+	subtree. Every otherwise-eligible landmark skipped BECAUSE OF THE RESEED
+	is therefore a DESCENDANT of an emitted landmark (stated precisely: native
+	code also skips hidden, zero-length and non-matching nodes for unrelated
+	reasons, which is not this case), which is stronger than the equal-start case alone. The outer
 	member is always the one emitted; the dangerous inverse (inner emitted,
 	outer skipped and extending past it) cannot occur.
 
@@ -1245,8 +1306,13 @@ def _find_main_landmark(treeInterceptor) -> "LandmarkScan":
 					rng = None
 			# Found <main>: we stop enumerating, so this page tells us nothing
 			# about ordering past this point and is NOT probe evidence. The
-			# chrome inventory is partial by construction here, which costs
-			# nothing — a <main> page scopes by main_range and never reads it.
+			# chrome inventory is partial by construction here, which is
+			# harmless: _select_scope never routes a <main> page to chrome-pos.
+			# One caveat, since "never read" would be too strong — on a
+			# main-id page (main found, range unusable)
+			# set_focus_on_first_form_input DOES consult this partial list.
+			# Safe because that filter only ever REJECTS candidates, so a
+			# missing range leaves a field eligible exactly as before.
 			return LandmarkScan(obj, rng, chrome_ranges, trust_boundary, probe_ordered, other_ranges)
 	except Exception:
 		probe_stopped = "exception"
@@ -1722,6 +1788,7 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	# only mop up the tail past the last landmark; if these come back the
 	# other way round on real pages, the boundary is landing too early.
 	positional_hits = 0
+	positional_drops = 0
 	identity_hits = 0
 	# Start position of the previously processed chunk, for the forward-
 	# progress check below.
@@ -1805,6 +1872,8 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 				)
 				if verdict is not None:
 					positional_hits += 1
+					if verdict is False:
+						positional_drops += 1
 				if verdict is None:
 					if obj is None:
 						# NO EVIDENCE AT ALL. Positional could not decide and
@@ -1926,7 +1995,7 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 		f"chunks={raw_seen} parent_derefs={scope_stats.get('parent_derefs', 0)} "
 		f"cache_hits={scope_stats.get('cache_hits', 0)} "
 		f"cache_misses={scope_stats.get('cache_misses', 0)} "
-		f"positional={positional_hits} identity={identity_hits}"
+		f"positional={positional_hits} pos_drops={positional_drops} identity={identity_hits}"
 	)
 	log.debug(phase_line)
 	if truncated or walk_total >= _WALK_PHASE_LOG_THRESHOLD_SEC:
@@ -1950,7 +2019,7 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 		)
 
 	if positional_out is not None:
-		positional_out[0] = positional_hits
+		positional_out[0] = positional_drops
 	if raw_count_out is not None:
 		raw_count_out[0] = raw_seen
 	# If we produced nothing, log raw-walk diagnostics so we can tell

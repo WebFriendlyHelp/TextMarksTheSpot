@@ -504,3 +504,81 @@ def test_ordering_comparison_failure_kills_chrome_pos():
 	kind, _, exclude, _b, _u = ts._select_scope(scan)
 	assert kind == "chrome"
 	assert exclude is None
+
+
+# ---------------------------------------------------------------------------
+# Form-field focus eligibility. THIS PATH MOVES KEYBOARD FOCUS, and it had no
+# test of any kind through four review rounds while being wrong twice. It
+# fails CLOSED everywhere: elsewhere an undecidable chunk is kept because a
+# stray line read aloud is recoverable, but here being wrong takes the caret
+# out of the page content entirely.
+# ---------------------------------------------------------------------------
+
+class FieldItem:
+	def __init__(self, rng, obj=None):
+		self.textInfo = rng
+		self.obj = obj
+
+
+def _eligible(item, kind, scope_range=None, chrome=None, boundary=None, untrusted=None, main_obj=None):
+	return ts._form_field_in_scope(
+		item, kind, scope_range, chrome or [], boundary, untrusted or [], main_obj, {}
+	)
+
+
+def test_field_inside_main_range_is_eligible():
+	assert _eligible(FieldItem(FakeRange(40, 45)), "main-pos", scope_range=FakeRange(10, 90)) is True
+
+
+def test_field_outside_main_range_is_rejected():
+	assert _eligible(FieldItem(FakeRange(2, 5)), "main-pos", scope_range=FakeRange(10, 90)) is False
+
+
+def test_main_range_comparison_failure_refuses_to_move_focus():
+	# Fail-CLOSED. This used to answer "eligible", which is fail-open on the
+	# one path that calls setFocus().
+	assert _eligible(ExplodingRange(40, 45), "main-pos", scope_range=FakeRange(10, 90)) is False
+
+
+def test_chrome_pos_field_in_a_nav_is_rejected():
+	assert _eligible(
+		FieldItem(FakeRange(2, 5)), "chrome-pos",
+		chrome=[NAV], boundary=FakeRange(90, 100),
+	) is False
+
+
+def test_chrome_pos_field_in_content_is_eligible():
+	assert _eligible(
+		FieldItem(FakeRange(40, 45)), "chrome-pos",
+		chrome=[NAV], boundary=FakeRange(90, 100),
+	) is True
+
+
+def test_chrome_pos_field_in_untrusted_territory_needs_an_object():
+	# An emitted non-chrome region may hide a reseed-omitted nav. The walker
+	# defers to identity there; so must this. With no object there is no
+	# identity check available, so no focus move.
+	region = FakeRange(30, 60)
+	assert _eligible(
+		FieldItem(FakeRange(40, 45)), "chrome-pos",
+		chrome=[NAV], boundary=FakeRange(90, 100), untrusted=[region],
+	) is False
+
+
+def test_field_past_the_trust_boundary_needs_an_object():
+	assert _eligible(
+		FieldItem(FakeRange(95, 98)), "chrome-pos",
+		chrome=[NAV], boundary=FakeRange(90, 100),
+	) is False
+
+
+def test_main_id_page_does_not_fall_into_the_no_main_branch():
+	# The regression review caught: a <main> exists but its range is
+	# unusable, so scope is main-id. Treating that as "no main" would let a
+	# field OUTSIDE <main> take focus. With no object to test identity
+	# against, the answer must be no.
+	assert _eligible(FieldItem(FakeRange(2, 5)), "main-id", main_obj=FakeObj("main")) is False
+
+
+def test_a_field_with_no_object_and_no_range_is_never_focused():
+	assert _eligible(FieldItem(None, None), "chrome") is False

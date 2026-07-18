@@ -168,9 +168,9 @@ def test_chrome_pos_that_actually_scoped_positionally_is_not_widened():
 	# positional exclusions WORKED, correctly removing nav and a cookie
 	# banner, then widened back open on the strength of two long chrome
 	# paragraphs - re-admitting exactly the text that was correctly removed.
-	# One positional decision is enough to prove exclusion work happened.
+	# One positional EXCLUSION is evidence that removal work happened.
 	assert ts._scope_looks_depleted(
-		"chrome-pos", chrome_ish(), article_doc(), positional_hits=1
+		"chrome-pos", chrome_ish(), article_doc(), positional_drops=1
 	) is False
 
 
@@ -179,7 +179,7 @@ def test_chrome_pos_with_zero_positional_decisions_is_still_eligible():
 	# at offset 0 means nothing is decided positionally, so the page is
 	# chrome-scoped in all but name and needs the net.
 	assert ts._scope_looks_depleted(
-		"chrome-pos", chrome_ish(), article_doc(), positional_hits=0
+		"chrome-pos", chrome_ish(), article_doc(), positional_drops=0
 	) is True
 
 
@@ -188,5 +188,5 @@ def test_identity_scopes_ignore_the_positional_count():
 	# must not change their eligibility.
 	for kind in ("chrome", "main-id"):
 		assert ts._scope_looks_depleted(
-			kind, chrome_ish(), article_doc(), positional_hits=7
+			kind, chrome_ish(), article_doc(), positional_drops=7
 		) is True
