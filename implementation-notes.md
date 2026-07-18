@@ -2,6 +2,85 @@
 
 Newest entries at the top.
 
+## 2026-07-18 — a wrong-answer cache, a regression from fixing it, and four review rounds
+
+All of today's work is on branch `scope-hardening` (4 commits). **`main` is untouched
+at v1.0.13.** A first, dead design is preserved on `chrome-pos-attempt` — read its
+commit message before ever rebuilding it. 260 tests.
+
+### What shipped to the branch
+
+1. **`_in_scope`'s memo was a WRONG-ANSWER bug.** `{id(obj): bool}`, no strong
+   reference, so recycled CPython addresses produced false hits. Reproduced against
+   the old code: after 100 nav chunks, all 100 following CONTENT chunks answered
+   out-of-scope. That empties `main_nodes`, trips the unscoped fallback, and is why
+   the symptom always read as "the identity check unreliably fails."
+2. **`[TMTS walk-phase]`** — per-call-site timing. This ended the guesswork and found
+   TWO different bottlenecks: on chrome pages the parent chains are ~92% of the walk;
+   on big `main-pos` pages `NVDAObjectAtStart` is ~98% and the walk truncates. Only
+   measurement separated them.
+3. **`_scope_looks_depleted`** — the old net only fired when the scope filter returned
+   NOTHING. deadsimpletech kept 3 of 16 nodes, all chrome, and discarded a 1439-char
+   article; the net stayed shut and the user got silence.
+4. **`chrome-pos`** — positional chrome exclusion, bounded by `trust_boundary`.
+5. **`chrome-none`** — skip the parent walk entirely on landmark-free documents.
+6. **The focus-move path** now uses the walk's real scope decision.
+
+### The three things worth remembering
+
+**A probe can be hollow.** A probe reported `ordered=True` on 15 of 15 pages and was
+presented as the evidence that made bounded trust buildable. It was worthless: NVDA
+seeds each landmark search from the previous match's start offset, so nondecreasing
+starts are guaranteed a priori and `ordered=False` could never have occurred. *When a
+probe comes back unanimous, ask whether it could ever have come back the other way.*
+
+**Fixing a bug can remove an accidental optimization.** The broken cache's false hits
+were short-circuiting the parent walk. stevequayle.com: 113 chunks at ~10.7 ms with the
+bug and a good landing; 16 chunks at ~129 ms with the fix, truncated, NO LANDING. Casey
+caught it, not me — and I had seen `cache_hits=0` hours earlier and read it as "useless"
+rather than "only ever working by being wrong." `chrome-none` recovered the speed
+honestly (113 chunks, no truncation, 2778 ms to 1761 ms).
+
+**Go to NVDA's source, and read it yourself.** Two designs died on beliefs about NVDA
+that turned out false, both caught by reading real source. Note that the installed
+NVDA's `library.zip` holds `.pyc` only — `marshal.loads(data[16:])` then `dis.dis`
+works, and reflects the NVDA actually running on this machine rather than master.
+
+### Open, in the order I would take them
+
+1. **Purchase/licensing boilerplate beats real content.** vovsoft product pages: two of
+   four landed on a 387-char "To receive license key..." blurb instead of the product
+   description (131/178 chars). Mechanism is the documented rule-order fault — any
+   paragraph 200+ chars wins immediately, so shorter genuine content must clear the
+   weaker cluster/hero gates and sometimes doesn't. Fix at the CLASS level by extending
+   `_looks_like_editorial_disclosure` to purchase/licensing vocabulary; this is every
+   software download page, not one site. **Start here next session.**
+2. **Cross-origin consent iframes fire their own landing.** BBC spoke the same paragraph
+   twice 1.63 s apart; radiotimes read a cookie-consent dialog before the article.
+   `url=''` fired 31 times in one day. CLAUDE.md's assumption that an iframe resolves to
+   the MAIN page's TI/URL does NOT hold for cross-origin frames under Firefox site
+   isolation — they get their own TreeInterceptor and no URL. Needs an NVDA-source
+   answer for "is this the top-level document" before coding.
+3. **Counts are still identity-scoped on `chrome-pos`** (641 ms on stevequayle,
+   `counts_trunc=True`), so counts and walk can describe different trees. FORM is the
+   intent that moves focus, which is why this matters.
+4. **Stale positional ranges.** Captured before a walk that can run ~2 s while the buffer
+   re-renders; offset comparisons don't raise, so the tri-state never fires.
+5. **Before any tagged release:** Fable found three wirings that pass tests while
+   sabotaged (the objectless-chunk rejection, the focus filter, the `positional_hits`
+   increment) because they sit inside the NVDA-bound walk. Pin them by extraction. Also
+   `_document_has_no_landmarks` has never been reviewed — it was written after round 4.
+
+### Verified fact worth not re-deriving
+
+In `nvdaHelper/vbufBase/storage.cpp`: `nextNodeInTree(TREEDIRECTION_FORWARD)` goes to
+`firstChild` when present, else up and to `next` — PRE-ORDER, so an ancestor is always
+emitted before its descendants. `findNodeByAttributes` reseeds via
+`locateTextFieldNodeAtOffset`, which returns the TEXT LEAF. So every otherwise-eligible
+landmark skipped because of the reseed is a DESCENDANT of an emitted one. Both reviewers
+confirmed independently; Fable checked at the release tag matching the installed
+2026.2beta7.
+
 ## 2026-07-14 (rest of the day) — the trigger was the real bug all along
 
 The morning's perf work (below) was real but secondary. Two much bigger bugs were
