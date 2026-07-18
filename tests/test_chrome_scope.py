@@ -418,3 +418,89 @@ def test_equal_start_nesting_is_covered_by_the_outer_range():
 		assert ts._chrome_pos_verdict(
 			FakeRange(chunk_start, chunk_start + 3), BOUNDARY, [], [region]
 		) is None
+
+
+# ---------------------------------------------------------------------------
+# The untrusted_ranges WIRING, end to end.
+#
+# Both reviewers independently verified that deleting the `other_ranges`
+# append, or dropping the value on the way to the walk, left all 238 tests
+# green - so the entire equal-start defence could vanish without a single
+# failure. This codebase has now lost safety inputs that way twice. These
+# tests exist so it cannot happen a third time.
+# ---------------------------------------------------------------------------
+
+def test_scan_collects_non_chrome_landmarks_separately():
+	scan = ts._find_main_landmark(FakeTI([
+		FakeItem("navigation", FakeRange(0, 10)),
+		FakeItem("region", FakeRange(20, 60)),
+		FakeItem("contentinfo", FakeRange(90, 100)),
+	]))
+	chrome_starts = sorted(r.start for r in scan.chrome_ranges)
+	other_starts = sorted(r.start for r in scan.other_ranges)
+	assert chrome_starts == [0, 90]
+	# The region is NOT an exclusion - it marks where an omitted nested
+	# landmark could hide.
+	assert other_starts == [20]
+
+
+def test_a_non_chrome_landmark_still_advances_the_trust_boundary():
+	# It was placed, so everything before it remains fully known.
+	scan = ts._find_main_landmark(FakeTI([
+		FakeItem("navigation", FakeRange(0, 10)),
+		FakeItem("region", FakeRange(20, 60)),
+	]))
+	assert scan.trust_boundary.start == 20
+
+
+def test_an_unplaceable_non_chrome_landmark_freezes_trust_too():
+	scan = ts._find_main_landmark(FakeTI([
+		FakeItem("navigation", FakeRange(0, 10)),
+		FakeItem("region", None),
+		FakeItem("contentinfo", FakeRange(90, 100)),
+	]))
+	assert scan.trust_boundary.start == 0
+	assert scan.other_ranges == []
+
+
+def test_select_scope_hands_the_non_chrome_ranges_to_the_caller():
+	# The link in the chain that had no coverage at all: every previous
+	# _select_scope test unpacked this value and then never asserted on it.
+	scan = ts._find_main_landmark(FakeTI([
+		FakeItem("navigation", FakeRange(0, 10)),
+		FakeItem("region", FakeRange(20, 60)),
+		FakeItem("contentinfo", FakeRange(90, 100)),
+	]))
+	kind, scope_range, exclude, boundary, untrusted = ts._select_scope(scan)
+	assert kind == "chrome-pos"
+	assert untrusted is scan.other_ranges
+	assert len(untrusted) == 1
+
+
+def test_the_chain_end_to_end_protects_a_chunk_inside_a_region():
+	# Scan -> select -> verdict, with no hand-built lists anywhere. A chunk
+	# inside the emitted region defers to identity, because that is where an
+	# omitted nested nav would be; a chunk outside every landmark does not.
+	scan = ts._find_main_landmark(FakeTI([
+		FakeItem("navigation", FakeRange(0, 10)),
+		FakeItem("region", FakeRange(20, 60)),
+		FakeItem("contentinfo", FakeRange(90, 100)),
+	]))
+	_, _, exclude, boundary, untrusted = ts._select_scope(scan)
+	assert ts._chrome_pos_verdict(FakeRange(30, 35), boundary, exclude, untrusted) is None
+	assert ts._chrome_pos_verdict(FakeRange(70, 75), boundary, exclude, untrusted) is True
+	assert ts._chrome_pos_verdict(FakeRange(2, 5), boundary, exclude, untrusted) is False
+
+
+def test_ordering_comparison_failure_kills_chrome_pos():
+	# The fail-closed path added this round, previously untested: an ordering
+	# comparison we could not make means the order is UNKNOWN, and unknown
+	# must not read as ordered.
+	scan = ts._find_main_landmark(FakeTI([
+		FakeItem("navigation", FakeRange(0, 10)),
+		FakeItem("navigation", ExplodingRange(20, 30)),
+	]))
+	assert scan.ordered is False
+	kind, _, exclude, _b, _u = ts._select_scope(scan)
+	assert kind == "chrome"
+	assert exclude is None

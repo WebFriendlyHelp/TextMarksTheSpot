@@ -157,3 +157,36 @@ def test_empty_document_cannot_widen():
 def test_nothing_was_dropped_means_nothing_to_widen_to():
 	nodes = article_doc()
 	assert ts._scope_looks_depleted("chrome", nodes, nodes) is False
+
+
+# ---------------------------------------------------------------------------
+# chrome-pos eligibility keys on EVIDENCE, not on the scope name.
+# ---------------------------------------------------------------------------
+
+def test_chrome_pos_that_actually_scoped_positionally_is_not_widened():
+	# The false positive the second reviewer constructed: a page whose
+	# positional exclusions WORKED, correctly removing nav and a cookie
+	# banner, then widened back open on the strength of two long chrome
+	# paragraphs - re-admitting exactly the text that was correctly removed.
+	# One positional decision is enough to prove exclusion work happened.
+	assert ts._scope_looks_depleted(
+		"chrome-pos", chrome_ish(), article_doc(), positional_hits=1
+	) is False
+
+
+def test_chrome_pos_with_zero_positional_decisions_is_still_eligible():
+	# The mirror case, and why blanket exclusion was wrong: a trust boundary
+	# at offset 0 means nothing is decided positionally, so the page is
+	# chrome-scoped in all but name and needs the net.
+	assert ts._scope_looks_depleted(
+		"chrome-pos", chrome_ish(), article_doc(), positional_hits=0
+	) is True
+
+
+def test_identity_scopes_ignore_the_positional_count():
+	# chrome and main-id never decide positionally, so a stray non-zero count
+	# must not change their eligibility.
+	for kind in ("chrome", "main-id"):
+		assert ts._scope_looks_depleted(
+			kind, chrome_ish(), article_doc(), positional_hits=7
+		) is True
