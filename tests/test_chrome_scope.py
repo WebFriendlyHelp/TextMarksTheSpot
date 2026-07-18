@@ -582,3 +582,47 @@ def test_main_id_page_does_not_fall_into_the_no_main_branch():
 
 def test_a_field_with_no_object_and_no_range_is_never_focused():
 	assert _eligible(FieldItem(None, None), "chrome") is False
+
+
+# ---------------------------------------------------------------------------
+# The landmark-free fast path.
+#
+# Fixing the id(obj) cache removed a bug that had been doing real work by
+# accident: its false hits short-circuited the parent walk, so chunks got
+# instant (frequently wrong) verdicts. stevequayle.com walked 113 chunks at
+# ~10.7 ms each with the broken cache; with the correct one it paid a real
+# ~14-dereference chain per chunk, ~129 ms, managed 16 chunks before the 2 s
+# clock, and produced NO LANDING AT ALL. Correctness cost that page its
+# content. This restores the speed honestly - but only where the walk
+# provably cannot tell us anything, and only with corroboration that
+# enumeration is working.
+# ---------------------------------------------------------------------------
+
+def test_landmark_free_document_with_working_enumeration_takes_the_fast_path():
+	scan = ts._find_main_landmark(FakeTI([]))
+	assert scan.seen == 0
+	assert ts._document_has_no_landmarks(scan, interactive_count=5) is True
+
+
+def test_zero_landmarks_AND_zero_controls_is_not_trusted():
+	# Indistinguishable from an enumeration that silently died: NVDA discards
+	# the native exception and just ends the generator, which is the fact that
+	# killed the first design. Zero landmarks alone is never enough.
+	scan = ts._find_main_landmark(FakeTI([]))
+	assert ts._document_has_no_landmarks(scan, interactive_count=0) is False
+
+
+def test_a_page_with_landmarks_never_takes_the_fast_path():
+	scan = ts._find_main_landmark(FakeTI([FakeItem("navigation", FakeRange(0, 10))]))
+	assert scan.seen == 1
+	assert ts._document_has_no_landmarks(scan, interactive_count=5) is False
+
+
+def test_unresolvable_landmarks_still_count_as_seen():
+	# An item we could not place is still evidence that landmarks EXIST, so
+	# the fast path must not engage just because nothing was placeable.
+	item = FakeItem("navigation", None)
+	item.obj = None
+	scan = ts._find_main_landmark(FakeTI([item]))
+	assert scan.seen == 1
+	assert ts._document_has_no_landmarks(scan, interactive_count=5) is False

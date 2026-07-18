@@ -415,6 +415,14 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	notice_match_all = [False]
 	walk_truncated = [False]
 	walk_positional = [0]
+	# Decided HERE, not in _select_scope, because it needs the interactive
+	# count as corroboration and the counts phase has only just finished.
+	# See _document_has_no_landmarks for why zero landmarks alone is not
+	# enough evidence.
+	if scope_kind == "chrome" and _document_has_no_landmarks(
+		landmarks, summary.interactive_control_count
+	):
+		scope_kind = "chrome-none"
 	summary.main_nodes = _walk_main_nodes(
 		treeInterceptor, main_obj, scope_cache, positions, notice_match, raw_count, scope_range,
 		all_nodes_out=all_nodes,
@@ -425,6 +433,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		trust_boundary=trust_boundary,
 		untrusted_ranges=untrusted_ranges,
 		positional_out=walk_positional,
+		no_landmarks=(scope_kind == "chrome-none"),
 	)
 	t3 = time.monotonic()
 	fallback_ran = False
@@ -812,15 +821,18 @@ class LandmarkScan:
 	the bounded-trust premise for this page (see trust_boundary).
 	"""
 
-	__slots__ = ("main_obj", "main_range", "chrome_ranges", "other_ranges", "trust_boundary", "ordered")
+	__slots__ = ("main_obj", "main_range", "chrome_ranges", "other_ranges", "trust_boundary", "ordered", "seen")
 
-	def __init__(self, main_obj=None, main_range=None, chrome_ranges=None, trust_boundary=None, ordered=True, other_ranges=None):
+	def __init__(self, main_obj=None, main_range=None, chrome_ranges=None, trust_boundary=None, ordered=True, other_ranges=None, seen=0):
 		self.main_obj = main_obj
 		self.main_range = main_range
 		self.chrome_ranges = chrome_ranges if chrome_ranges is not None else []
 		self.other_ranges = other_ranges if other_ranges is not None else []
 		self.trust_boundary = trust_boundary
 		self.ordered = ordered
+		# How many landmark items the enumeration yielded, of any kind.
+		# ZERO is the interesting value -- see _document_has_no_landmarks.
+		self.seen = seen
 
 
 def _usable_range(item):
@@ -1089,6 +1101,45 @@ def _log_landmark_probe(types: list, ordered: bool, no_range: int, stopped: str)
 	_append_perf_line(line)
 
 
+def _document_has_no_landmarks(landmarks: "LandmarkScan", interactive_count: int) -> bool:
+	"""True when this document genuinely contains NO landmarks, so the
+	identity parent-walk can be skipped outright.
+
+	This is not a heuristic. On a document with no landmarks, `_in_scope`
+	climbs up to _PARENT_WALK_MAX_DEPTH ancestors, finds neither <main> nor a
+	chrome landmark, and returns `main_obj is None` -- i.e. True -- for EVERY
+	chunk. Skipping it yields the identical answer for fourteen fewer COM
+	calls per chunk. It is an algebraic simplification, not an approximation.
+
+	WHY IT MATTERS, measured: fixing the id(obj) cache removed a bug that had
+	been doing real work by accident. Its false hits were short-circuiting the
+	parent walk, so chunks got instant (frequently wrong) verdicts.
+	stevequayle.com walked 113 chunks at ~10.7 ms each with the broken cache;
+	with the correct one it paid a genuine 14-deref chain per chunk, ~129 ms,
+	managed 16 chunks before the 2 s clock, and produced NO LANDING AT ALL.
+	Correctness cost that page its content. This restores the speed honestly,
+	on the pages where the walk provably cannot tell us anything.
+
+	THE PREMISE IS THE RISK, so it is corroborated rather than assumed. A
+	silently failed enumeration returns zero items exactly like a
+	landmark-free page does (NVDA discards the native exception and ends the
+	generator -- the fact that killed the first design). So zero landmarks
+	alone is not enough. We also require evidence that quick-nav enumeration
+	is WORKING on this document right now: a non-zero interactive-control
+	count, produced by the counts phase from separate _iterNodesByType calls.
+	A page with real controls but genuinely no landmarks is ordinary
+	(stevequayle.com); a document where enumeration is broken would have to
+	fail for landmarks while succeeding for links and buttons in the same
+	pass, which is a much narrower failure than "it failed".
+
+	If we are wrong anyway, the cost is bounded: chunks that would have been
+	excluded as chrome are kept, which is the same tree the unscoped fallback
+	produces on any page whose scope filter fails -- and the landing finders'
+	chrome heuristics still run over it.
+	"""
+	return landmarks.seen == 0 and interactive_count > 0
+
+
 def _select_scope(landmarks: "LandmarkScan"):
 	"""Pick the scoping strategy. Returns
 	(scope_kind, scope_range, chrome_exclude, trust_boundary, untrusted_ranges).
@@ -1313,13 +1364,13 @@ def _find_main_landmark(treeInterceptor) -> "LandmarkScan":
 			# set_focus_on_first_form_input DOES consult this partial list.
 			# Safe because that filter only ever REJECTS candidates, so a
 			# missing range leaves a field eligible exactly as before.
-			return LandmarkScan(obj, rng, chrome_ranges, trust_boundary, probe_ordered, other_ranges)
+			return LandmarkScan(obj, rng, chrome_ranges, trust_boundary, probe_ordered, other_ranges, scanned)
 	except Exception:
 		probe_stopped = "exception"
 		_log_landmark_probe(probe_types, probe_ordered, probe_no_range, probe_stopped)
-		return LandmarkScan(None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges)
+		return LandmarkScan(None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges, scanned)
 	_log_landmark_probe(probe_types, probe_ordered, probe_no_range, probe_stopped)
-	return LandmarkScan(None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges)
+	return LandmarkScan(None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges, scanned)
 
 
 def _single_article_scope_range(treeInterceptor, deadline: Optional[float] = None):
@@ -1725,7 +1776,7 @@ def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict
 	return total
 
 
-def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None, all_nodes_out: Optional[list] = None, all_positions_out: Optional[list] = None, notice_match_all_out: Optional[list] = None, truncated_out: Optional[list] = None, exclude_ranges=None, trust_boundary=None, untrusted_ranges=None, positional_out: Optional[list] = None) -> list[MainNode]:
+def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None, all_nodes_out: Optional[list] = None, all_positions_out: Optional[list] = None, notice_match_all_out: Optional[list] = None, truncated_out: Optional[list] = None, exclude_ranges=None, trust_boundary=None, untrusted_ranges=None, positional_out: Optional[list] = None, no_landmarks: bool = False) -> list[MainNode]:
 	# Walk the whole document by UNIT_PARAGRAPH; emit only nodes that
 	# pass _in_scope (inside <main> if present, or outside chrome
 	# landmarks if not). Bail out once we've had _OUT_OF_SCOPE_TOLERANCE
@@ -1857,6 +1908,12 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 					_t = time.monotonic()
 					in_scope = obj is None or _in_scope(obj, main_obj, cache, scope_stats)
 					t_scope += time.monotonic() - _t
+			elif no_landmarks:
+				# Document has no landmarks at all, corroborated. The identity
+				# walk would climb 30 ancestors and conclude "in scope" for
+				# every chunk; this is that same answer without the COM calls.
+				# See _document_has_no_landmarks.
+				in_scope = True
 			elif exclude_ranges is not None:
 				# Bounded-trust positional scoping. Before the trust boundary
 				# the chrome inventory is provably complete (see
