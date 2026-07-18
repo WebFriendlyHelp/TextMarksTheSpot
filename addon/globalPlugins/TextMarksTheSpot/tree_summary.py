@@ -76,6 +76,11 @@ except ImportError:
 		def debug(self, *a, **k): pass
 		def info(self, *a, **k): pass
 		def warning(self, *a, **k): pass
+		def exception(self, *a, **k): pass
+		# Mirrors logging.Logger so code guarded by a level check (the perf
+		# log writer) runs unchanged under the unit tests. Answering False
+		# also keeps tests from touching the real perf log on disk.
+		def isEnabledFor(self, level): return False
 	log = _StubLog()
 
 try:
@@ -103,10 +108,18 @@ except ImportError:
 
 
 # Internal: per-summary list of captured textInfo positions, one per entry
-# in summary.main_nodes. Keyed by id(summary) so the data lives only as
-# long as the summary does. Not on TreeSummary itself because TreeSummary
-# is pure data (used by fixture-based unit tests with no real textInfos).
-# get_landing_textinfo() reads from here.
+# in summary.main_nodes. Keyed by id(summary). Not on TreeSummary itself
+# because TreeSummary is pure data (used by fixture-based unit tests with no
+# real textInfos). get_landing_textinfo() reads from here.
+#
+# This is id()-keyed like the old _in_scope cache was, but it is NOT exposed
+# to the address-recycling bug that one had (see _in_scope), and the reason
+# is worth stating so nobody "fixes" it by analogy: every entry is WRITTEN
+# during its own summary's build, before any read of it can happen, so a
+# recycled address is always overwritten with the current summary's own
+# positions first. Reads only ever happen for a LIVE summary, whose address
+# cannot collide with another live object. The residual risk is a leak (held
+# TextInfos) if a caller forgets release_summary, never a wrong answer.
 _captured_positions: dict = {}
 
 
@@ -167,6 +180,13 @@ WALK_NODE_LIMIT = 1000
 # third of the old 6.1s on that same page, and half a second is a cheap
 # price for not losing landings on GitHub-shaped trees.
 WALK_TIME_BUDGET_SEC = 2.0
+
+# A walk at or above this gets its per-call-site breakdown written to the
+# PERSISTENT perf log ([TMTS walk-phase]); faster walks log to the session log
+# only. Half the budget: high enough that ordinary pages (the log's median
+# total is ~400 ms for the WHOLE detection) never write a second line, low
+# enough to catch a page heading for truncation, not just one that got there.
+_WALK_PHASE_LOG_THRESHOLD_SEC = 1.0
 
 # Text-content roles we treat as paragraph candidates when walking by
 # UNIT_PARAGRAPH. Non-content roles get silently skipped so they don't
@@ -264,10 +284,11 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		return TreeSummary()
 
 	t0 = time.monotonic()
-	main_obj, main_range = _find_main_landmark(treeInterceptor)
+	landmarks = _find_main_landmark(treeInterceptor)
+	main_obj, main_range = landmarks.main_obj, landmarks.main_range
 	t1 = time.monotonic()
 	# Cache _in_scope decisions across all helpers within this single
-	# build_tree_summary call. id(obj) → bool. Discarded on return.
+	# build_tree_summary call. id(obj) → (obj, bool). Discarded on return.
 	# Only the identity-based fallback paths use it now.
 	scope_cache: dict = {}
 
@@ -290,9 +311,15 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	#   main-pos:  <main> present and its positional range built (fast path)
 	#   main-id:   <main> present, no usable range → identity checks (old path)
 	#   article:   no <main>, exactly one <article> → positional article range
-	#   chrome:    no <main>, no single article → identity chrome filter
-	scope_range = main_range
-	scope_kind = "main-pos" if main_range is not None else ("main-id" if main_obj is not None else "chrome")
+	#   chrome:    no <main>, no single article → identity chrome filter.
+	#              The last path still paying a parent chain per chunk, and
+	#              measurably the expensive one (1808 ms of a 2035 ms walk on
+	#              store.payproglobal.com's checkout). Replacing it with
+	#              positional exclusion of the chrome landmark ranges was
+	#              built and then SHELVED — the safety interlock it needs
+	#              cannot be implemented. See CLAUDE.md "Known limitations"
+	#              and the `chrome-pos-attempt` branch before trying again.
+	scope_kind, scope_range, chrome_exclude, trust_boundary, untrusted_ranges = _select_scope(landmarks)
 
 	# ONE wall-clock deadline for the whole counts phase (article + form
 	# inputs + interactive), checked per item inside every enumeration —
@@ -384,6 +411,9 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		all_positions_out=all_positions,
 		notice_match_all_out=notice_match_all,
 		truncated_out=walk_truncated,
+		exclude_ranges=chrome_exclude,
+		trust_boundary=trust_boundary,
+		untrusted_ranges=untrusted_ranges,
 	)
 	t3 = time.monotonic()
 	fallback_ran = False
@@ -402,11 +432,12 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	# go and the fallback is now a list assignment.
 	#
 	# The out-of-scope tolerance bail can truncate all_nodes early, but that
-	# bail only fires AFTER at least one in-scope node exists, in which case
-	# main_nodes is non-empty and this fallback doesn't run. So all_nodes is
-	# always complete when we actually use it.
+	# bail only fires AFTER at least one in-scope node exists — so it can only
+	# affect the DEPLETED branch below, never the empty one. See the note in
+	# _scope_looks_depleted about why that is acceptable.
 	counts_rescoped = False
-	if not summary.main_nodes and all_nodes:
+	depleted = _scope_looks_depleted(scope_kind, summary.main_nodes, all_nodes)
+	if all_nodes and (not summary.main_nodes or depleted):
 		fallback_ran = True
 		summary.main_nodes = all_nodes
 		positions[:] = all_positions
@@ -452,7 +483,15 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 					break
 				running += _count_in_range(treeInterceptor, t, None, limit=remaining, deadline=recount_deadline, truncated_out=counts_truncated)
 			summary.interactive_control_count = running
-		scope_kind = "unscoped-recount" if counts_rescoped else "unscoped"
+		# Name the DEPLETED case distinctly in the perf line. It is a different
+		# event from an empty scope (the filter produced something, it was just
+		# all chrome), and telling them apart is what will show whether this
+		# widening is firing where it should — or, if a landing regresses on a
+		# page that used to be fine, whether this is why.
+		if depleted:
+			scope_kind = "unscoped-depleted"
+		else:
+			scope_kind = "unscoped-recount" if counts_rescoped else "unscoped"
 	t4 = time.monotonic()
 	# The tree is trustworthy (chrome-free) for the LANDING FINDERS only in
 	# the single-<article> positional case — deliberately NOT for main-pos:
@@ -475,6 +514,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		f"truncated={walk_truncated[0]} counts_trunc={counts_truncated[0]} "
 		f"raw_seen={raw_count[0]} all_nodes={len(all_nodes)} "
 		f"main_nodes={len(summary.main_nodes)} has_main={summary.has_main_landmark} scope={scope_kind} "
+		f"chrome_ranges={len(landmarks.chrome_ranges)} lm_ordered={landmarks.ordered} "
 		f"article={summary.article_count} forms={summary.form_input_count} "
 		f"interactive={summary.interactive_control_count} url={summary.url!r}"
 	)
@@ -593,7 +633,7 @@ def set_focus_on_first_form_input(treeInterceptor) -> bool:
 	# the form the user came for. Also prefer real EDIT boxes over the
 	# broader formField quick-nav class (which includes buttons and
 	# pickers): "the first named box" means a text field when one exists.
-	_, main_range = _find_main_landmark(treeInterceptor)
+	main_range = _find_main_landmark(treeInterceptor).main_range
 
 	def _in_main(item) -> bool:
 		if main_range is None:
@@ -681,9 +721,374 @@ _FIND_MAIN_TIME_BUDGET_SEC = 0.5
 _FIND_MAIN_SCAN_LIMIT = 50
 
 
-def _find_main_landmark(treeInterceptor):
-	"""Return (main_obj, main_range) for the first <main> landmark, or
-	(None, None). One enumeration finds both.
+class LandmarkScan:
+	"""Result of the one landmark enumeration build_tree_summary makes.
+
+	main_obj / main_range: the first <main> landmark and its positional
+	range, or None.
+
+	chrome_ranges: positional ranges of the CHROME landmarks seen
+	(navigation, banner, contentinfo, complementary, search).
+
+	other_ranges: positional ranges of the NON-chrome landmarks seen
+	(main, region, form, article...). These are not exclusions — they mark
+	where a nested landmark could have been SILENTLY OMITTED. See
+	_select_scope.
+
+	trust_boundary: the range of the LAST landmark this scan vouched for.
+	Chunks starting STRICTLY BEFORE its start are decidable from
+	chrome_ranges alone; anything at or after it must use the identity
+	filter. See _select_scope for why this is the whole design.
+
+	ordered: every landmark's start was >= the previous one's. False kills
+	the bounded-trust premise for this page (see trust_boundary).
+	"""
+
+	__slots__ = ("main_obj", "main_range", "chrome_ranges", "other_ranges", "trust_boundary", "ordered")
+
+	def __init__(self, main_obj=None, main_range=None, chrome_ranges=None, trust_boundary=None, ordered=True, other_ranges=None):
+		self.main_obj = main_obj
+		self.main_range = main_range
+		self.chrome_ranges = chrome_ranges if chrome_ranges is not None else []
+		self.other_ranges = other_ranges if other_ranges is not None else []
+		self.trust_boundary = trust_boundary
+		self.ordered = ordered
+
+
+def _usable_range(item):
+	"""A landmark quick-nav item's own textInfo as a private copy, or None if
+	it has none, the copy fails, or the range is degenerate/inverted.
+
+	MUST come from item.textInfo. Do NOT substitute
+	obj.makeTextInfo(POSITION_ALL): that builds a range in a different
+	coordinate space, compares as degenerate against the walk's positions,
+	and would silently match nothing — the documented trap in
+	_single_article_scope_range. Here a doubtful range must read as None,
+	because for a CHROME landmark it would mean failing to exclude a
+	navigation block.
+	"""
+	rng = getattr(item, "textInfo", None)
+	if rng is None:
+		return None
+	try:
+		rng = rng.copy()
+	except Exception:
+		return None
+	try:
+		# Collapsed excludes nothing; inverted (start past end) matches
+		# nothing. Anything not strictly start-before-end is unusable.
+		if rng.compareEndPoints(rng, "startToEnd") >= 0:
+			return None
+	except Exception:
+		return None
+	return rng
+
+
+def _starts_before(info, boundary):
+	"""Tri-state: True / False / None when the comparison itself fails.
+
+	None matters. Every other positional check in this module treats a failed
+	comparison as "include the chunk", which is right for counts but wrong
+	for scope — there it would serve navigation as article text, which the
+	guardrails call worse than doing nothing. Callers turn None into "use the
+	identity filter for this chunk".
+	"""
+	if boundary is None:
+		return False
+	try:
+		return info.compareEndPoints(boundary, "startToStart") < 0
+	except Exception:
+		return None
+
+
+def _starts_in_any(info, ranges):
+	"""Tri-state: does info's START fall inside any of `ranges`?
+
+	START, not full containment, deliberately. The identity filter this
+	replaces asks about `info.NVDAObjectAtStart` — the object at the chunk's
+	start — so a paragraph whose expansion runs past the end of a navigation
+	block is out of scope under BOTH rules. Requiring full containment would
+	quietly disagree at every landmark boundary.
+
+	Nested and overlapping chrome landmarks need no special handling: both
+	exclude the same text and a duplicate answer is the same answer. A linear
+	scan is right — the landmark scan is capped at 50 items and each
+	comparison is offset arithmetic inside NVDA's buffer, not a browser call.
+
+	Returns None if ANY comparison raised, so the caller can fall back to the
+	identity filter rather than guess. Guessing "not excluded" here is how a
+	nav block becomes article text.
+	"""
+	failed = False
+	for rng in ranges:
+		try:
+			if (
+				info.compareEndPoints(rng, "startToStart") >= 0
+				and info.compareEndPoints(rng, "startToEnd") < 0
+			):
+				return True
+		except Exception:
+			failed = True
+	return None if failed else False
+
+
+def _chrome_pos_verdict(info, trust_boundary, chrome_ranges, untrusted_ranges):
+	"""Positional in-scope verdict for one chunk, or None for "ask the
+	identity filter".
+
+	Extracted from _walk_main_nodes so it can be tested at all: the walk needs
+	a live NVDA buffer, and this is precisely the wiring where a fail-open
+	mistake would reintroduce the release-blocker class (a chunk of navigation
+	served as article text). Returning None is always safe — it costs a parent
+	chain, nothing else.
+
+	Three questions, in order:
+
+	  1. Is the chunk before the trust boundary? If not (or if the comparison
+	     failed), we cannot vouch for the landmark inventory here.
+	  2. Does it start inside an emitted CHROME landmark? Then it is chrome.
+	     Sound even if a nested landmark was silently omitted, because nested
+	     chrome inside chrome excludes the same text.
+	  3. Does it start inside an emitted NON-CHROME landmark? Then it is
+	     UNTRUSTED, because that is the one place an omitted nested nav could
+	     hide (see _select_scope). Only a chunk inside no emitted landmark at
+	     all can be positively called content.
+
+	Every tri-state None from the range helpers propagates to None here. There
+	is deliberately no "assume not excluded" branch.
+	"""
+	if _starts_before(info, trust_boundary) is not True:
+		return None
+	excluded = _starts_in_any(info, chrome_ranges)
+	if excluded is True:
+		return False
+	if excluded is not False:
+		return None
+	if _starts_in_any(info, untrusted_ranges or ()) is not False:
+		return None
+	return True
+
+
+# Bars for _scope_looks_depleted. Deliberately asymmetric: the scoped tree
+# must have nothing even MODERATELY substantial (100), while the document must
+# have something UNARGUABLY substantial (200) before we overrule the filter.
+# The gap is the safety margin — a page that is genuinely just short text
+# everywhere never trips it.
+_DEPLETED_SCOPED_SUBSTANTIAL = 100
+_DEPLETED_DOC_SUBSTANTIAL = 200
+
+
+def _scope_looks_depleted(scope_kind: str, main_nodes: list, all_nodes: list) -> bool:
+	"""True when the scope filter kept nodes but threw away the article.
+
+	The existing fallback only fires when the scoped walk produces NOTHING.
+	That catches total scope failure and misses the worse case — near-total
+	failure, which yields a confident wrong answer instead of an obvious
+	blank. deadsimpletech.com/blog/midwinter, 2026-07-18: the identity chrome
+	filter kept 3 of 16 walked nodes, all of them chrome ("Get new articles
+	delivered to your inbox"), and discarded the entire article INCLUDING a
+	1439-character paragraph. main_nodes was non-empty, so the net stayed
+	closed, the classifier correctly saw no article in what it was handed,
+	declined to land, and the user got silence. Pressing Z landed fine,
+	because Z scans the buffer directly and never consults this filter — that
+	is what proved the content was there all along.
+
+	Guards, each earning its place:
+
+	  - IDENTITY SCOPES ONLY (`chrome`, `main-id`). The positional scopes are
+	    trustworthy and their exclusions are deliberate: a single-<article>
+	    page legitimately drops comments and sidebars, and second-guessing
+	    that would undo the work those scopes exist to do. This widening
+	    exists specifically because the parent-chain check is unreliable.
+	  - The scoped tree must have kept FEWER nodes than the document has, or
+	    there is nothing to widen to.
+	  - The scoped tree must contain NO substantial non-chrome paragraph. If
+	    it has real content, the filter did its job and we leave it alone.
+	  - The document must contain a clearly substantial non-chrome paragraph.
+	    Captions and legal boilerplate are excluded via the walk-time flags,
+	    so a footer copyright or a photo credit cannot trigger this — that
+	    matters, because the most likely false positive is a small form page
+	    whose only long text is a footer legal notice.
+
+	Note on all_nodes completeness: the walk's out-of-scope tolerance bail can
+	cut all_nodes short, but only after at least one in-scope node exists — so
+	on this branch all_nodes may be a PREFIX of the document. That is
+	acceptable here: a prefix containing a 200+ char paragraph is still better
+	evidence than a scoped tree containing none, and the landing finders'
+	chrome heuristics still run over whatever we hand them.
+	"""
+	# chrome-pos IS eligible. Excluding it re-opened the exact bug this net
+	# exists to fix: on a page whose only landmark is a nav at the top, the
+	# trust boundary sits at offset 0, NOTHING starts before it, so every
+	# chunk takes the identity path anyway — yet the page reports chrome-pos
+	# and would have had its safety net switched off. That is the commonest
+	# no-<main> shape there is. The asymmetric bars below already protect the
+	# genuinely positional case: a positionally-kept article blocks widening.
+	if scope_kind not in ("chrome", "main-id", "chrome-pos"):
+		return False
+	if not main_nodes or not all_nodes:
+		return False
+	if len(main_nodes) >= len(all_nodes):
+		return False
+
+	def _real_paragraph(n, bar):
+		return (
+			n.kind == "paragraph"
+			and n.text_length >= bar
+			and not getattr(n, "is_boilerplate", False)
+			and not getattr(n, "is_caption", False)
+		)
+
+	if any(_real_paragraph(n, _DEPLETED_SCOPED_SUBSTANTIAL) for n in main_nodes):
+		return False
+	# TWO substantial paragraphs, not one. A single long paragraph proves only
+	# that long text exists somewhere, not that an article was discarded — and
+	# the likeliest single long paragraph on a small page is chrome the filter
+	# correctly excluded: a cookie-consent notice, a subscription pitch, a
+	# help panel, a terms blurb. The caption and boilerplate flags are lexical
+	# and do not catch those (same open-vocabulary problem that keeps
+	# _looks_like_editorial_disclosure out of promo text). A real article that
+	# the filter swallowed has a RUN of them — deadsimpletech's discarded body
+	# was 618, 563, 699, 1002, 460 and 1439 characters. Requiring two keeps
+	# that case and drops the lone-notice false positive, which matters
+	# because those are the checkout and login pages v1.0.13 just fixed.
+	substantial = 0
+	for n in all_nodes:
+		if _real_paragraph(n, _DEPLETED_DOC_SUBSTANTIAL):
+			substantial += 1
+			if substantial >= 2:
+				return True
+	return False
+
+
+def _log_landmark_probe(types: list, ordered: bool, no_range: int, stopped: str) -> None:
+	"""Emit `[TMTS landmark-probe]`.
+
+	READ THIS BEFORE DELETING ANYTHING HERE. This started as a passive probe
+	whose docstring said it "changes no behaviour and feeds no decision" and
+	"retire once there is a verdict". Both statements are now FALSE for the
+	ordering computation: `probe_ordered` flows into `LandmarkScan.ordered`
+	and gates chrome-pos in `_select_scope`. Deleting the computation would
+	silently remove a safety input. Only the LOG LINE below is disposable.
+
+	What the line is still good for: `stopped=` shows how often the landmark
+	scan is cut short in real browsing, and `n=` / `types=` show landmark
+	shapes across real sites, which is what future scoping work will need.
+
+	What it is NOT evidence of, despite appearances: `ordered=`. Each search
+	is seeded with the previous match's start offset and runs forward, so the
+	emitted starts are nondecreasing BY CONSTRUCTION. The 15-of-15
+	`ordered=True` reading that this design was originally justified with was
+	guaranteed a priori and proved nothing. The property that actually
+	mattered — whether the emission is COMPLETE at equal-start nesting — is
+	invisible here, and is handled structurally instead (see
+	`_chrome_pos_verdict` and `untrusted_ranges`). Do not cite this field as
+	safety evidence again.
+
+	Only fires on pages with NO <main>: the scan returns early once <main> is
+	found, so such a page has only been asked about the landmarks before it.
+	"""
+	if not types:
+		return
+	line = (
+		f"[TMTS landmark-probe] n={len(types)} ordered={ordered} "
+		f"no_range={no_range} stopped={stopped} types={','.join(types[:12])}"
+	)
+	log.debug(line)
+	_append_perf_line(line)
+
+
+def _select_scope(landmarks: "LandmarkScan"):
+	"""Pick the scoping strategy. Returns
+	(scope_kind, scope_range, chrome_exclude, trust_boundary, untrusted_ranges).
+
+	scope_range and chrome_exclude are never both set — an INCLUSION range or
+	an EXCLUSION list, never both. Callers depend on that.
+
+	Pure and NVDA-free on purpose: build_tree_summary cannot run outside NVDA,
+	so this would otherwise be the one load-bearing decision with no coverage.
+
+	  main-pos:   <main> present with a usable range → scope INTO it
+	  main-id:    <main> present, no usable range → identity checks
+	  chrome-pos: no <main> → exclude the chrome landmark ranges by START
+	              position, but only before trust_boundary and only outside
+	              untrusted_ranges (both below)
+	  chrome:     nothing to bound trust with → identity filter
+
+	WHY BOUNDED TRUST
+	-----------------
+	The first attempt (shelved on `chrome-pos-attempt`) gated on "did the
+	landmark enumeration finish cleanly?". That is UNIMPLEMENTABLE: NVDA's
+	VirtualBuffer._iterNodesByAttribs discards the exception from
+	VBuf_findNodeByAttributes and returns, so a native failure is
+	indistinguishable from natural exhaustion (verified by disassembling
+	virtualBuffers/__init__.pyc from the installed library.zip).
+
+	So we never ask whether the scan finished, only how far it got.
+	trust_boundary is the START of the last landmark we successfully placed;
+	`_starts_before` uses a STRICT comparison, so a chunk starting exactly at
+	the boundary is untrusted. `trust_frozen` in the scan is monotone, so if
+	the boundary landmark was placed then every earlier emitted landmark was
+	placed too. Truncation therefore costs speed, never correctness.
+
+	WHY untrusted_ranges — THE HOLE THAT ORDERING DOES NOT CLOSE
+	------------------------------------------------------------
+	Bounded trust needs more than "starts arrive in order". It needs the
+	emitted prefix to be COMPLETE. Two independent reviews found the gap
+	(2026-07-18), and it is not theoretical:
+
+	NVDA resumes each search from the PREVIOUS MATCH'S START OFFSET and
+	searches forward. Whether a landmark starting at the SAME offset as the
+	one just returned is emitted or skipped is not observable from Python. If
+	it is skipped, that is OMISSION MID-STREAM, which ordering cannot detect
+	and truncation logic cannot catch. Concretely: `<section aria-label=...>`
+	wrapping a `<nav>` with no text between them puts both at the same offset.
+	The section is emitted; the nav may not be. The nav is then absent from
+	chrome_ranges, a later footer advances the boundary past it, and every
+	chunk of that navigation reads as trusted CONTENT — a blind user lands in
+	a menu, which is the exact failure this design exists to prevent. Today's
+	identity filter catches it, because the parent chain hits the nav.
+
+	The fix needs no C++ verification. A skipped equal-start landmark is
+	necessarily nested inside the emitted one, so any chunk it could contain
+	also lies inside an emitted landmark's range. Therefore:
+
+	  - inside an emitted CHROME range  → excluded (a nested chrome landmark
+	    inside chrome excludes the same text, so omission is harmless)
+	  - inside an emitted NON-CHROME range → UNTRUSTED, use the identity
+	    filter (this is where an omitted nested nav could hide)
+	  - inside no emitted range at all  → cannot contain an omitted landmark,
+	    so the positional answer is sound
+
+	untrusted_ranges is that middle set. It costs one extra list and one more
+	linear scan of a set capped at 50.
+
+	A NOTE ON THE `ordered` FLAG, so nobody mistakes it for the safety story:
+	because each search is seeded with the previous match's start, emitted
+	starts are nondecreasing BY CONSTRUCTION. The probe's 15-of-15
+	`ordered=True` was therefore guaranteed a priori and is NOT evidence of
+	anything. The flag is kept as a cheap tripwire (one comparison, fails
+	closed) but the safety rests on trust_boundary and untrusted_ranges.
+	"""
+	if landmarks.main_range is not None:
+		return "main-pos", landmarks.main_range, None, None, None
+	if landmarks.main_obj is not None:
+		return "main-id", None, None, None, None
+	if landmarks.ordered and landmarks.trust_boundary is not None:
+		return (
+			"chrome-pos",
+			None,
+			landmarks.chrome_ranges,
+			landmarks.trust_boundary,
+			landmarks.other_ranges,
+		)
+	return "chrome", None, None, None, None
+
+
+def _find_main_landmark(treeInterceptor) -> "LandmarkScan":
+	"""Enumerate landmarks ONCE. Returns a LandmarkScan carrying the <main>
+	landmark and, for pages without one, the chrome inventory and trust
+	boundary that let the walk scope positionally instead of by parent chain.
 
 	main_range is the landmark quick-nav item's own textInfo — the same
 	positional-scoping trick proven for the single-<article> case: ranges
@@ -694,15 +1099,77 @@ def _find_main_landmark(treeInterceptor):
 	identity-based parent-chain check silently fails (Calendar, Zoom), and
 	FAST: a buffer-offset comparison per item instead of a COM parent
 	chain per item. The parent chains were the dominant detection cost
-	(~1 s on Zoom's 44-node page, 12.4 s on judysdogblog).
+	(~1 s on Zoom's 44-node page, 12.4 s on judysdogblog), and on the
+	no-<main> pages that still pay them, 1808 ms of a 2035 ms walk
+	(measured 2026-07-18 — see the shelved `chrome-pos-attempt` branch and
+	CLAUDE.md's Known-limitations bullet for why the obvious fix is
+	blocked).
 	"""
 	deadline = time.monotonic() + _FIND_MAIN_TIME_BUDGET_SEC
 	scanned = 0
+	# --- Landmark-ordering probe (diagnostic only; see _log_landmark_probe) ---
+	probe_types: list = []
+	probe_ordered = True
+	probe_no_range = 0
+	probe_prev = None
+	probe_stopped = "exhausted"
+	# --- Bounded-trust inventory (see LandmarkScan / _select_scope) ---
+	chrome_ranges: list = []
+	other_ranges: list = []
+	trust_boundary = None
+	# Once we hit a landmark we cannot place, everything from THERE on is
+	# unknown, so the boundary stops advancing and we stop collecting.
+	trust_frozen = False
 	try:
 		for item in treeInterceptor._iterNodesByType("landmark"):
 			scanned += 1
 			obj = getattr(item, "obj", None)
-			if obj is None or _landmark_type(obj) != "main":
+			lm = _landmark_type(obj) if obj is not None else "?"
+			probe_types.append(lm or "-")
+			# Ordering check. Compare each landmark's start against the
+			# previous one; a single backwards step disproves document order.
+			# Costs one offset comparison per landmark and holds ONE range
+			# alive at a time — no copies, no parent chains.
+			probe_rng = getattr(item, "textInfo", None)
+			if probe_rng is None:
+				probe_no_range += 1
+			else:
+				if probe_prev is not None:
+					try:
+						if probe_rng.compareEndPoints(probe_prev, "startToStart") < 0:
+							probe_ordered = False
+					except Exception:
+						# Fails CLOSED. A comparison we could not make means
+						# the order is UNKNOWN, and unknown must not read as
+						# ordered — this value gates the whole bounded-trust
+						# path in _select_scope.
+						probe_ordered = False
+				probe_prev = probe_rng
+
+			if not trust_frozen:
+				# An item we cannot RESOLVE is one we cannot CLASSIFY, and it
+				# may be the navigation. An item we cannot PLACE is one we
+				# cannot exclude. Either freezes the boundary here: everything
+				# before this landmark is still fully known and stays usable.
+				usable = _usable_range(item) if obj is not None else None
+				if usable is None:
+					trust_frozen = True
+				else:
+					if lm in _CHROME_LANDMARK_TYPES:
+						chrome_ranges.append(usable)
+					else:
+						# NOT an exclusion. This marks territory where a
+						# nested landmark may have been silently omitted, so
+						# chunks inside it cannot be trusted to positional
+						# scoping. See _select_scope.
+						other_ranges.append(usable)
+					# The boundary advances to this landmark's START. Any
+					# landmark containing a chunk before this point must itself
+					# have started earlier, so ordering guarantees we already
+					# enumerated it.
+					trust_boundary = usable
+
+			if obj is None or lm != "main":
 				# Budget checks AFTER examining the item in hand: the COM
 				# cost was fetching it, and throwing away an already-fetched
 				# <main> would degrade the page to chrome scope for zero
@@ -712,23 +1179,37 @@ def _find_main_landmark(treeInterceptor):
 						f"[TMTS count-budget] landmark scan stopped after "
 						f"{scanned} item(s) — treating page as having no <main>"
 					)
+					probe_stopped = "cap" if scanned >= _FIND_MAIN_SCAN_LIMIT else "deadline"
+					# Do NOT log here — the fall-through below logs once. This
+					# used to log at both points, emitting every capped page
+					# TWICE and double-counting it in the very dataset the
+					# probe exists to build.
 					break
 				continue
-			rng = getattr(item, "textInfo", None)
+			# The <main> range gets the SAME usability check as the chrome
+			# ranges: a degenerate or inverted range selected main-pos and
+			# then matched nothing, silently scoping the page to an empty
+			# region. Falling back to makeTextInfo is retained only as a
+			# last resort, and is checked the same way.
+			rng = _usable_range(item)
 			if rng is None:
 				try:
 					rng = treeInterceptor.makeTextInfo(obj)
+					if rng is not None and rng.compareEndPoints(rng, "startToEnd") >= 0:
+						rng = None
 				except Exception:
 					rng = None
-			if rng is not None:
-				try:
-					rng = rng.copy()
-				except Exception:
-					pass
-			return obj, rng
+			# Found <main>: we stop enumerating, so this page tells us nothing
+			# about ordering past this point and is NOT probe evidence. The
+			# chrome inventory is partial by construction here, which costs
+			# nothing — a <main> page scopes by main_range and never reads it.
+			return LandmarkScan(obj, rng, chrome_ranges, trust_boundary, probe_ordered, other_ranges)
 	except Exception:
-		pass
-	return None, None
+		probe_stopped = "exception"
+		_log_landmark_probe(probe_types, probe_ordered, probe_no_range, probe_stopped)
+		return LandmarkScan(None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges)
+	_log_landmark_probe(probe_types, probe_ordered, probe_no_range, probe_stopped)
+	return LandmarkScan(None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges)
 
 
 def _single_article_scope_range(treeInterceptor, deadline: Optional[float] = None):
@@ -805,14 +1286,51 @@ def _single_article_scope_range(treeInterceptor, deadline: Optional[float] = Non
 		return None
 
 
-def _in_scope(obj, main_obj, cache: dict) -> bool:
+def _in_scope(obj, main_obj, cache: dict, stats: Optional[dict] = None) -> bool:
 	# Decide whether obj is "page content" for classification purposes.
 	# If main_obj is set: obj must be inside the main landmark.
 	# If no main landmark: obj must NOT be inside a chrome landmark.
 	# Walks obj.parent up to _PARENT_WALK_MAX_DEPTH ancestors.
-	# `cache` is a {id(obj): bool} dict scoped to one build_tree_summary
-	# call; all ancestors visited during the walk are cached with the
-	# final decision, so subsequent siblings short-circuit immediately.
+	# `cache` is a {id(obj): (obj, bool)} dict scoped to one
+	# build_tree_summary call; all ancestors visited during the walk are
+	# cached with the final decision, so subsequent siblings short-circuit
+	# immediately.
+	#
+	# THE VALUE MUST KEEP A STRONG REFERENCE TO THE OBJECT. This used to be
+	# {id(obj): bool}, storing the address alone, and that was a
+	# WRONG-ANSWER bug, not a tidiness issue (2026-07-18):
+	#
+	#   The ancestors walked here are transient. NVDA caches each fetched
+	#   parent on its child, so the chain stays alive only while the child
+	#   does -- NVDA's global instance registry is weak and holds nothing.
+	#   _walk_main_nodes rebinds `obj` on the next chunk, the whole previous
+	#   chain becomes garbage, and CPython hands freed blocks back LIFO. The
+	#   next chunk then allocates NVDAObjects of the same classes and sizes
+	#   into exactly those addresses. Measured: 2000 transient objects of one
+	#   class occupied 2 distinct addresses.
+	#
+	#   So a cache keyed on a dead address matched LIVE, UNRELATED objects
+	#   and handed them the dead object's verdict. Adjacent chunks usually
+	#   share a verdict, which masked it -- except at the nav-to-content
+	#   boundary, which is the one decision that matters. This is a strong
+	#   candidate for the flakiness CLAUDE.md attributes purely to NVDA
+	#   returning fresh instances (Calendar, bestmidi).
+	#
+	# Keeping the object in the value pins the address for the life of the
+	# cache, so an id can never be recycled underneath an entry. Cost is one
+	# extra reference per visited ancestor for the duration of a single
+	# build_tree_summary call.
+	#
+	# Keying on the OBJECT instead does NOT work and must not be attempted:
+	# NVDAObject.__eq__ is logical (it delegates to _isEqual) but
+	# NVDAObject.__hash__ is plain super().__hash__(), i.e. address-based
+	# (verified in NVDA's own bytecode, NVDAObjects/__init__.pyc). Logically
+	# equal objects therefore hash differently and a dict keyed on them
+	# misses just as badly, while also violating the hash/eq invariant.
+	#
+	# `stats` (optional dict) collects hit/miss/parent-dereference counts so
+	# the walk can report how much this cache actually does. It is
+	# diagnostic only; nothing branches on it.
 	#
 	# There used to be an "unscoped sentinel" value for main_obj that made
 	# this accept everything, for the last-resort re-walk of the whole
@@ -822,9 +1340,22 @@ def _in_scope(obj, main_obj, cache: dict) -> bool:
 	if obj is None:
 		return False
 	key = id(obj)
-	if key in cache:
-		return cache[key]
+	entry = cache.get(key)
+	# The `is` check makes a stale hit impossible BY CONSTRUCTION rather than
+	# by argument. Pinning the object already prevents the address being
+	# recycled, so this can only fire if a future edit drops the strong
+	# reference — at which point it degrades to a miss (a slower but correct
+	# answer) instead of silently resurrecting the old behaviour.
+	if entry is not None and entry[0] is obj:
+		if stats is not None:
+			stats["cache_hits"] = stats.get("cache_hits", 0) + 1
+		return entry[1]
+	if stats is not None:
+		stats["cache_misses"] = stats.get("cache_misses", 0) + 1
 
+	# Objects visited on this chain, kept as (id, obj) pairs so the write
+	# below can pin every one of them. Holding the objects here also keeps
+	# their addresses stable for the duration of THIS walk.
 	visited = []
 	cur = obj
 	result = None
@@ -832,10 +1363,13 @@ def _in_scope(obj, main_obj, cache: dict) -> bool:
 		if cur is None:
 			break
 		ckey = id(cur)
-		if ckey in cache:
-			result = cache[ckey]
+		entry = cache.get(ckey)
+		if entry is not None and entry[0] is cur:
+			if stats is not None:
+				stats["cache_hits"] = stats.get("cache_hits", 0) + 1
+			result = entry[1]
 			break
-		visited.append(ckey)
+		visited.append((ckey, cur))
 		if main_obj is not None:
 			if cur is main_obj or cur == main_obj:
 				result = True
@@ -849,6 +1383,8 @@ def _in_scope(obj, main_obj, cache: dict) -> bool:
 				result = False
 				break
 		try:
+			if stats is not None:
+				stats["parent_derefs"] = stats.get("parent_derefs", 0) + 1
 			cur = cur.parent
 		except Exception:
 			break
@@ -858,8 +1394,8 @@ def _in_scope(obj, main_obj, cache: dict) -> bool:
 		# No main_obj and never hit a chrome landmark → in scope.
 		result = main_obj is None
 
-	for vkey in visited:
-		cache[vkey] = result
+	for vkey, vobj in visited:
+		cache[vkey] = (vobj, result)
 	return result
 
 
@@ -1079,7 +1615,7 @@ def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict
 	return total
 
 
-def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None, all_nodes_out: Optional[list] = None, all_positions_out: Optional[list] = None, notice_match_all_out: Optional[list] = None, truncated_out: Optional[list] = None) -> list[MainNode]:
+def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None, all_nodes_out: Optional[list] = None, all_positions_out: Optional[list] = None, notice_match_all_out: Optional[list] = None, truncated_out: Optional[list] = None, exclude_ranges=None, trust_boundary=None, untrusted_ranges=None) -> list[MainNode]:
 	# Walk the whole document by UNIT_PARAGRAPH; emit only nodes that
 	# pass _in_scope (inside <main> if present, or outside chrome
 	# landmarks if not). Bail out once we've had _OUT_OF_SCOPE_TOLERANCE
@@ -1105,7 +1641,8 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	# stopped on the node cap or the time budget rather than reaching the
 	# end of the document.
 	result: list[MainNode] = []
-	deadline = time.monotonic() + WALK_TIME_BUDGET_SEC
+	walk_start = time.monotonic()
+	deadline = walk_start + WALK_TIME_BUDGET_SEC
 	try:
 		info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
 	except Exception:
@@ -1123,6 +1660,25 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	# the user expected goes missing, this line says whether the scope
 	# filter ate it or NVDA's walk never yielded it at all.
 	dropped_after_start: list = []
+	# Per-call-site timing, emitted as [TMTS walk-phase] at the end of the
+	# walk. The aggregate walk= number in the perf line cannot say WHICH
+	# cross-process call owns the time, and on store.payproglobal.com's
+	# checkout (2026-07-17) that ambiguity blocked a fix: every phase slowed
+	# together on the bad loads, so "the parent chains are the cost" was a
+	# guess. These accumulators settle it in one page load. A
+	# time.monotonic() pair is nanoseconds against calls that run in
+	# milliseconds, so measuring is free relative to what it measures.
+	t_expand = 0.0
+	t_text = 0.0
+	t_obj = 0.0
+	t_scope = 0.0
+	scope_stats: dict = {}
+	# How the scope decision was actually reached, per chunk. The whole point
+	# of bounded trust is that positional should dominate and identity should
+	# only mop up the tail past the last landmark; if these come back the
+	# other way round on real pages, the boundary is landing too early.
+	positional_hits = 0
+	identity_hits = 0
 	# Start position of the previously processed chunk, for the forward-
 	# progress check below.
 	prev_start = None
@@ -1135,7 +1691,9 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 			truncated = True
 			break
 		try:
+			_t = time.monotonic()
 			info.expand(textInfos.UNIT_PARAGRAPH)
+			t_expand += time.monotonic() - _t
 			# Forward-progress guard. The old loop unconditionally did
 			# collapse(end=True) + move(UNIT_PARAGRAPH, 1) after every
 			# chunk. When a chunk's end offset lands EXACTLY on the next
@@ -1162,8 +1720,12 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 				prev_start = bookmark
 			except Exception:
 				prev_start = None
+			_t = time.monotonic()
 			text = info.text or ""
+			t_text += time.monotonic() - _t
+			_t = time.monotonic()
 			obj = info.NVDAObjectAtStart
+			t_obj += time.monotonic() - _t
 			raw_seen += 1
 			if obj is not None:
 				raw_with_obj += 1
@@ -1181,9 +1743,34 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 						and info.compareEndPoints(scope_range, "endToEnd") <= 0
 					)
 				except Exception:
-					in_scope = obj is None or _in_scope(obj, main_obj, cache)
+					_t = time.monotonic()
+					in_scope = obj is None or _in_scope(obj, main_obj, cache, scope_stats)
+					t_scope += time.monotonic() - _t
+			elif exclude_ranges is not None:
+				# Bounded-trust positional scoping. Before the trust boundary
+				# the chrome inventory is provably complete (see
+				# _select_scope), so the chunk is content unless it STARTS
+				# inside a chrome landmark — offset arithmetic, no browser
+				# calls. At or after the boundary, and on ANY comparison
+				# failure, fall back to the identity walk: guessing
+				# "not excluded" there is how a nav block becomes article
+				# text.
+				_t = time.monotonic()
+				verdict = _chrome_pos_verdict(
+					info, trust_boundary, exclude_ranges, untrusted_ranges,
+				)
+				if verdict is not None:
+					positional_hits += 1
+				if verdict is None:
+					verdict = obj is None or _in_scope(obj, main_obj, cache, scope_stats)
+					identity_hits += 1
+				in_scope = verdict
+				t_scope += time.monotonic() - _t
 			else:
-				in_scope = obj is None or _in_scope(obj, main_obj, cache)
+				_t = time.monotonic()
+				in_scope = obj is None or _in_scope(obj, main_obj, cache, scope_stats)
+				identity_hits += 1
+				t_scope += time.monotonic() - _t
 			# Build the node once, regardless of scope. An out-of-scope node
 			# still goes into all_nodes_out so the caller can use it if the
 			# scope filter turns out to have rejected the entire document.
@@ -1253,6 +1840,31 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 		# consumed every one of WALK_NODE_LIMIT iterations rather than
 		# reaching the end of the document.
 		truncated = True
+
+	# Where the walk's wall clock actually went, per call site. The aggregate
+	# walk= number in the perf line cannot name the expensive call, and on the
+	# store.payproglobal.com checkout that ambiguity was what blocked a fix.
+	#
+	# Session log: always. Persistent log: only for a SLOW or TRUNCATED walk.
+	# The persistent log self-rotates at 1 MB, so writing a second line for
+	# every routine page load would halve the history we keep — and a healthy
+	# 40 ms walk has nothing to explain. The slow ones are exactly the ones
+	# the user hits days apart, where the session log is long gone.
+	walk_total = time.monotonic() - walk_start
+	phase_line = (
+		f"[TMTS walk-phase] walk_total={walk_total*1000:.0f}ms "
+		f"expand={t_expand*1000:.0f}ms text={t_text*1000:.0f}ms "
+		f"obj={t_obj*1000:.0f}ms scope={t_scope*1000:.0f}ms "
+		f"chunks={raw_seen} parent_derefs={scope_stats.get('parent_derefs', 0)} "
+		f"cache_hits={scope_stats.get('cache_hits', 0)} "
+		f"cache_misses={scope_stats.get('cache_misses', 0)} "
+		f"positional={positional_hits} identity={identity_hits}"
+	)
+	log.debug(phase_line)
+	if truncated or walk_total >= _WALK_PHASE_LOG_THRESHOLD_SEC:
+		# Lands immediately BEFORE the [TMTS perf] line for the same
+		# detection, which is what ties it to a URL.
+		_append_perf_line(phase_line)
 
 	if truncated:
 		log.debug(

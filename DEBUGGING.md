@@ -101,6 +101,34 @@ landing choice on pages that fire. It CANNOT validate the trigger gates.
    same-TI/URL-swap paths — where the 1.0.10 bug class lived — only run on
    same-SITE navigation and SPA route changes. For those, only Casey's real
    browsing counts (see the rule above this section).
+5. **PROGRAMMATIC focus is NOT focus. An unattended sweep cannot work at all.**
+   This is stronger than rule 1 and was learned the hard way on 2026-07-18: two
+   more sweeps (38 URLs, then 32) were run while Casey was away, the second one
+   explicitly forcing the window forward with `AppActivate` +
+   `SetForegroundWindow` + `SW_RESTORE`, asserting the foreground window title
+   really was "Mozilla Firefox" before dwelling, and re-asserting it mid-dwell.
+   Every check passed (`focus=True` on all 32) and **every single page was still
+   void — fired=0, void=32.** The session log shows why, identically on every
+   page: `[TMTS event] documentLoadComplete` arrives, then
+   `ti not ready — readiness poll attempt 1..12/12`, then `giving up`. NVDA
+   never built the browse buffer.
+   Raising a window with the Win32 foreground APIs is not the same thing as
+   NVDA's focus object moving into the document. NVDA only builds a
+   TreeInterceptor in its pre-step when the loaded object is the focus or a
+   focus ancestor (`eventHandler.py:431-432`), and that requires a real focus
+   event, not a window that merely sits in front.
+   **Do not try to fix this with more focus trickery, and do not send synthetic
+   keystrokes at an unattended machine.** The conclusion is simply that a
+   scripted sweep is only valid with Casey present and actually at the browser.
+   And usually it is not needed: any PASSIVE diagnostic (a perf field, a probe
+   line) collects itself from his ordinary browsing, which is better evidence
+   anyway — real pages, real timing, real TI reuse. Prefer "ship the diagnostic
+   and wait a day" over "script 30 loads and wait 20 minutes for nothing."
+   **Verify by counting, always.** The v2 sweep logged an `OK`/`VOID` delta of
+   perf-log lines per page and so reported its own failure on page 1. The v1
+   sweep did not, and looked fine for 21 minutes while producing nothing. Any
+   future sweep must count new perf-log lines per page and stop early when the
+   first few come back void.
 
 ## Step 1: Logs before theories
 
