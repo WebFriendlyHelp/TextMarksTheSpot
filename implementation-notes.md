@@ -2,6 +2,147 @@
 
 Newest entries at the top.
 
+## 2026-07-19 (evening) - Task 2 shipped, and review found two holes the suite could not see
+
+313 tests, 15 sabotages all caught. `main` still v1.0.13.
+
+**Read this entry, not the one below it.** The entry beneath describes the state
+BEFORE Task 2 and was committed unchanged inside c7ec17b, so it says Task 2 is
+"still open" in the very commit that ships it, and quotes 300 tests and three
+sabotages. Both reviewers flagged it as a handoff that would mislead the next
+session. It is kept for its reasoning, superseded on status.
+
+### What Task 2 is, now that it exists
+
+Landmark ancestry read from the LEADING CONTROL RUN of `getTextWithFields()`,
+replacing the COM parent chain on chrome-scoped pages. The walk already fetched
+that run for the ROLE, so the scope question costs dictionary lookups.
+
+Tri-state: definitive chrome, definitive NOT_IN_CHROME, UNKNOWN. Gated on the
+TextInfo CLASS **and its MODULE**. `main-id` deliberately keeps the identity
+filter (identity question, unprobed). Counts untouched, held behind a probe.
+
+### MEASURED ON REAL PAGES, both engines
+
+stevequayle.com, the page that motivated all of this:
+
+    walk_total=84ms  obj=0ms  fields=64ms  chunks=113
+    parent_derefs=0  identity=0  field=113  field_backend=y
+
+Zero COM parent chains, against 1808 ms of a 2035 ms walk before and 6+ seconds
+uncached. 84 ms is exactly what `chrome-none` achieved, now earned by positive
+per-chunk evidence instead of an unsound inference. Landed correctly at idx=11.
+
+**Firefox AND Chromium both report `field_backend=y`** (Gecko via
+`Dynamic_DocumentMozillaIAccessible`, Chromium via `IAccessible.chromium.Document`).
+Chromium inherits Gecko's TextInfo, so one gate covers both. Cross-engine
+question closed. Edge confirmed working across several sites.
+
+Counts are now the dominant cost (655 of 740 ms, `counts_trunc=True`). That is
+the next target and it is measured, not guessed.
+
+### A TESTING TRAP worth more than the fix: the same URL across browsers
+
+Edge appeared broken. It was not. The trace said:
+
+    already landed on url='https://www.stevequayle.com/' 22.4s ago
+      -- suppressing re-detection
+
+`_LANDED_SUPPRESS_SEC` (120 s) is keyed on **URL alone**, not URL+browser. Chrome
+had landed on that URL 22 s earlier, so Edge was suppressed by Chrome's landing.
+**Testing the same URL across browsers inside two minutes is VOID**, and only the
+decision trace says why. Same family as the focused-browser rule. Whether the
+gate should be TI-aware is a real open question, deliberately not answered while
+reviews were in flight.
+
+### The two holes review found, and what they say about the method
+
+Codex and Fable, run in parallel, INDEPENDENTLY found the same two deletions
+that left all 307 tests green:
+
+1. **The chrome-pos field consultation was wired but entirely untested.** Every
+   `exclude_ranges` test used the plain `FakeTI`, where the backend gate forces
+   the verdict to None; every supported-backend test omitted `exclude_ranges`.
+   The two were never exercised together, so the whole branch deleted green.
+   Not cosmetic: inside an untrusted range the field stack is the ONLY mechanism
+   that can see a nested nav the enumeration may have omitted.
+2. **Innermost-wins was untested in both directions.** The `lm()` helper emitted
+   one landmark per chunk, so no nested stack existed anywhere in the suite;
+   both inverting `reversed(seen)` and deleting the `main` early return passed
+   green.
+
+That is the FOURTH instance of this branch's signature failure, and the first
+time the sabotage harness was pointed at new work and still missed it -- because
+the harness only tests the sabotages someone thought to list. Two independent
+reviewers converging on the same two gaps is the actual control here.
+
+### Also fixed from review
+
+- **Malformed landmark VALUES could fail open.** `str(lm).lower()` coerced any
+  truthy object into a name: `landmark=123` became `"123"`, matched nothing, and
+  fell through to the POSITIVE verdict. Now non-strings return UNKNOWN and
+  values are stripped (`" navigation "` was slipping through too).
+  Sabotage-checking this taught something worth keeping: deleting the
+  `isinstance` guard alone changes NOTHING, because `.strip()` raises and the
+  handler returns None regardless. The load-bearing part is the absence of
+  coercion, not the guard. Recorded at the line.
+- **Backend gate now matches the MODULE as well as the class name**, so a
+  third-party backend defining `Gecko_ia2_TextInfo` cannot be falsely trusted.
+- **Two documentation claims were overstated and are corrected in place**, not
+  quietly deleted, because overstated citations are how this file has been wrong
+  before: `getTextInRange` does NOT emit its tag "unconditionally" (a
+  zero-length node returns first, storage.cpp:275-278; harmless, since such a
+  node cannot enclose a non-degenerate range), and Gecko is NOT the only
+  normalizer writing `field["landmark"]` -- MSHTML does too, and is excluded
+  deliberately for lack of probe evidence, not by accident.
+- **The parity that actually makes the True verdict safe**, found by
+  disassembly: Gecko's `_normalizeControlField` DISCARDS a landmark when the
+  mapped role is not `Role.LANDMARK` and it is not the first xml-role. So an
+  absent key does not prove no ARIA landmark. What rescues it is that
+  `ia2Web._get_landmark` applies the byte-identical rule, so the parent chain we
+  replace is blind in exactly the same cases. The question answered is "would
+  the identity filter have called this chrome", and to THAT it is sound.
+- **The scope-kinds comment was actively lying** after the commit (still named
+  the deleted FREE kind, omitted the FIELD kinds, and claimed only CHROME_* feed
+  `positional_drops` and only chrome-pos consumes them -- false twice). Rewritten,
+  including the rationale nobody had written down: identity drops are
+  deliberately NOT counted, because identity is the mechanism the net exists to
+  distrust. Counting them would switch the net off on the pages it rescues.
+- **`[TMTS walk-phase]` now reports `field=`, `field_drops=` and
+  `field_backend=`** separately from `positional=`. An aggregate that cannot name
+  the mechanism is what stalled the payproglobal investigation for a session.
+
+### Open, in the order I would take them
+
+1. **The depleted net is too coarse (Codex).** On a mixed-evidence page -- one
+   definitive field drop on a header nav, body chunks UNKNOWN and wrongly
+   discarded by the identity chain -- `positional_drops > 0` disables recovery
+   for the WHOLE page, and the result is silence. Fail-closed, but it disables
+   the net exactly where it is needed. The durable fix is a recoverable-node
+   list that keeps identity-uncertain drops while permanently excluding
+   `_SCOPE_CHROME_DROP` and `_SCOPE_FIELD_DROP`, and widening to THAT rather
+   than to raw `all_nodes`. Do not revert plain `chrome` to unconditional
+   widening; that knowingly re-admits proven chrome.
+2. THE COUNTS, now measurably dominant. Probe first: one-character expand at the
+   item start, MAX call time not average, plus backend and NVDA version.
+3. `_count_in_scope` drops an `obj is None` item without setting
+   `truncated_out` -- a TRUSTED undercount, poison for NOTICE and KEY_RESULT.
+   Its sibling `_count_in_range` biases the OPPOSITE way on the same evidence.
+4. Objectless chunks still fail open on the plain-chrome and range-error
+   identity branches. Pre-existing; both reviewers say CLAUDE.md mis-files it as
+   an accepted limitation.
+5. `classifier.py:448` bumps LIST confidence at `article_count >= 5` while
+   `_ARTICLE_LIMIT = 4` caps it. Dead branch.
+6. `main-id` via `controlIdentifier_docHandle`/`_ID`, behind its own probe.
+
+### The habit, restated because it keeps paying
+
+Two reviewers in parallel, every round. They disagreed on the chrome-none
+remedy (and the losing argument still corrected a false claim in my brief), and
+here they CONVERGED on two holes I had no way to see from inside. Neither the
+test suite nor the sabotage harness could find these, because both only check
+what someone already thought to check.
+
 ## 2026-07-19 (later) - the chrome-none blocker is CLOSED by deletion
 
 300 tests (was 301: the removal deleted more test surface than it added).

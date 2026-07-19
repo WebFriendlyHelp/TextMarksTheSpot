@@ -781,7 +781,11 @@ class GeckoLikeInfo(FakeInfo):
 
 GeckoLikeInfo.__name__ = "FakeGeckoInfo"
 # Rename a synthetic base so the MRO contains the gate's target name.
-Gecko_ia2_TextInfo = type("Gecko_ia2_TextInfo", (FakeInfo,), {})
+# The gate matches the class NAME **and** its MODULE, so a same-named class
+# from anywhere else is not trusted. The fake therefore has to impersonate both.
+Gecko_ia2_TextInfo = type(
+	"Gecko_ia2_TextInfo", (FakeInfo,), {"__module__": "virtualBuffers.gecko_ia2"},
+)
 
 
 class SupportedInfo(Gecko_ia2_TextInfo):
@@ -921,3 +925,158 @@ def test_no_leading_control_run_is_unknown_not_content():
 		"filter, which drops it as navigation -- not be admitted as content"
 	)
 	assert any("genuine article" in t for t in texts)
+
+
+# --------------------------------------------------------------------------
+# Holes found by adversarial review, 2026-07-19. All three left the suite
+# GREEN when the logic they cover was deleted or inverted -- the fourth
+# instance of this branch's signature failure, and the reason this file exists.
+# --------------------------------------------------------------------------
+
+def test_chrome_pos_consults_the_field_stack_before_paying_for_com():
+	"""SABOTAGE: delete the field_verdict return inside the exclude_ranges
+	branch of _chunk_scope.
+
+	WIRED BUT UNTESTED until now. Every exclude_ranges test used the plain
+	FakeTI, where the backend gate forces field_verdict to None, and every
+	supported-backend test omitted exclude_ranges -- so the two were never
+	exercised together and the whole branch could be deleted green.
+
+	It is not cosmetic. Inside an untrusted range the field stack is the ONLY
+	mechanism that can see a nested navigation the landmark enumeration may
+	have silently omitted; without it those chunks go back to the identity
+	filter the bounded-trust design was built to distrust.
+
+	The nav chunk here sits PAST the trust boundary, so _chrome_pos_verdict
+	declines and the field stack is the thing that must answer. Its OBJECT
+	carries no landmark, so the identity filter would have admitted it -- that
+	asymmetry is what proves which mechanism decided.
+	"""
+	doc = build_doc([
+		para("Article body text that runs on for a good long while here."),
+		lm("Home About Contact Careers Press Investors", "navigation"),
+	])
+	nodes, all_nodes, drops = walk_supported(
+		doc,
+		exclude_ranges=[],
+		trust_boundary=rng(0, 0),   # nothing is strictly before this
+		untrusted_ranges=[],
+	)
+	texts = [n.text_preview for n in nodes]
+	assert not any("Home About" in t for t in texts), (
+		"chrome-pos ignored the field stack and fell through to identity, "
+		"which admits this chunk because its object has no landmark"
+	)
+	assert drops >= 1, "a field exclusion here must count as a positional drop"
+	assert FakeInfo.fetches == [], (
+		f"paid for a COM parent chain anyway: {FakeInfo.fetches}"
+	)
+
+
+def test_innermost_landmark_wins_over_an_outer_one():
+	"""SABOTAGE: change `reversed(seen)` to `seen` in
+	_landmark_scope_from_fields.
+
+	The docstring calls INNERMOST WINS the property that makes the field stack
+	agree with the parent chain, which stops at the FIRST landmark it meets
+	walking UP. Nothing tested it: the `lm()` helper emits exactly one landmark
+	per chunk, so no nested stack existed anywhere in the suite and
+	outermost-wins passed green.
+
+	Here a <main> is nested inside a <banner>. Innermost-wins says content;
+	outermost-wins says chrome and the paragraph vanishes.
+	"""
+	nested = (
+		"Real content living inside a main that sits inside a banner.",
+		FakeObj("PARAGRAPH"),
+		[
+			FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
+			FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": "banner"}),
+			FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": "main"}),
+			FakeFieldCommand("controlStart", {"role": FakeRole("PARAGRAPH")}),
+		],
+	)
+	nodes, _all, _d = walk_supported(build_doc([nested]))
+	assert any("Real content" in n.text_preview for n in nodes), (
+		"the innermost landmark is <main>, so this is content; reading the "
+		"OUTERMOST landmark instead calls it banner and drops it"
+	)
+
+
+def test_innermost_chrome_wins_over_an_outer_main():
+	"""The mirror, so the rule is pinned in BOTH directions.
+
+	SABOTAGE: delete the `lm == "main"` early return. That mutation also left
+	the suite green, because with only the chrome check remaining a
+	main-inside-banner still answers chrome by falling through -- the previous
+	test alone does not catch it, and this one does the same job from the other
+	side: a nav nested inside main must read as CHROME, not inherit main.
+	"""
+	nested = (
+		"Home About Contact Careers Press Investors Legal",
+		FakeObj("PARAGRAPH"),
+		[
+			FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
+			FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": "main"}),
+			FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": "navigation"}),
+			FakeFieldCommand("controlStart", {"role": FakeRole("PARAGRAPH")}),
+		],
+	)
+	body = para("A genuine article paragraph with enough text to be a node.")
+	nodes, _all, drops = walk_supported(build_doc([nested, body]))
+	texts = [n.text_preview for n in nodes]
+	assert not any("Home About" in t for t in texts), (
+		"a navigation nested inside <main> is still navigation; the innermost "
+		"landmark decides"
+	)
+	assert any("genuine article" in t for t in texts)
+	assert drops >= 1
+
+
+def test_backend_gate_requires_the_module_not_just_the_name():
+	"""SABOTAGE: drop the __module__ check from _fields_carry_landmarks.
+
+	A name-only match would trust ANY third-party backend that happened to
+	define a class called Gecko_ia2_TextInfo, and being wrongly trusted here
+	means admitting chrome as content. No such collision exists in the
+	installed NVDA; this closes the hole rather than fixing a live bug.
+	"""
+	impostor = type("Gecko_ia2_TextInfo", (FakeInfo,), {"__module__": "evil.addon"})
+	assert ts._fields_carry_landmarks(impostor([], 0, 0)) is False
+	genuine = Gecko_ia2_TextInfo([], 0, 0)
+	assert ts._fields_carry_landmarks(genuine) is True
+
+
+def test_malformed_landmark_value_is_unknown_not_content():
+	"""SABOTAGE: restore `str(lm).lower()` in _landmark_scope_from_fields.
+
+	A non-string landmark used to be COERCED into a name -- landmark=123
+	became "123", matched no chrome type, fell through the loop and returned
+	the positive "no chrome ancestor here" verdict. A value we cannot
+	interpret is no evidence, and this function's contract is that malformed
+	means UNKNOWN. Asserted on the pure function because the walk would mask
+	it: the object fallback happens to give the same answer here.
+	"""
+	def stack(landmark_value):
+		return [
+			FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
+			FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": landmark_value}),
+		]
+
+	for bad in (123, [], {}, object()):
+		assert ts._landmark_scope_from_fields(stack(bad)) is None, (
+			f"landmark={bad!r} must read as UNKNOWN, not as a content verdict"
+		)
+
+
+def test_landmark_value_is_stripped_before_matching():
+	"""SABOTAGE: remove the .strip() on the landmark value.
+
+	" navigation " is a navigation landmark. Without the strip it matched
+	nothing and fell through to the positive content verdict, which is the
+	fail-open direction."""
+	stack = [
+		FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
+		FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": "  NAVIGATION  "}),
+	]
+	assert ts._landmark_scope_from_fields(stack) is False

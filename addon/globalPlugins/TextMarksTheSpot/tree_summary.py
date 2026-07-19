@@ -2039,6 +2039,9 @@ def _role_level_from_fields(fields):
 # The gate has to answer "does this backend WRITE field['landmark']?", and that
 # is a property of the normalizer class.
 _FIELD_LANDMARK_TEXTINFO_BASES = ("Gecko_ia2_TextInfo",)
+# Matched ALONGSIDE the name, so a same-named class from anywhere else is not
+# trusted. See _fields_carry_landmarks.
+_FIELD_LANDMARK_TEXTINFO_MODULE = "virtualBuffers.gecko_ia2"
 
 
 def _fields_carry_landmarks(textinfo) -> bool:
@@ -2053,6 +2056,20 @@ def _fields_carry_landmarks(textinfo) -> bool:
 	footer chunk would be admitted as content -- the exact failure the
 	chrome-none removal just closed, reintroduced through a different door.
 
+	MSHTML IS EXCLUDED DELIBERATELY, and this is not an oversight to be
+	"fixed" (noted in review, 2026-07-19). MSHTML._normalizeControlField DOES
+	write field["landmark"], so it would be a technically eligible backend.
+	It is left out because the probe evidence covers Gecko and Chromium only,
+	and legacy IE-engine documents are not where this add-on's users are.
+	Adding it means running the probe against it first, exactly as the two
+	proven backends got.
+
+	FAILURE DIRECTION if NV Access ever renames the Gecko class: the gate
+	silently returns False everywhere, the field path never engages, and the
+	add-on quietly reverts to parent chains -- correct but slow, with nothing
+	announcing it. The [TMTS walk-phase] line carries field_backend=y/n
+	precisely so that regression is visible in one page load.
+
 	So absence of a landmark key is only meaningful where the backend would
 	have written one. Unsupported backends get UNKNOWN for every chunk and pay
 	the identity parent walk, which is precisely the pre-branch behaviour: it
@@ -2064,7 +2081,17 @@ def _fields_carry_landmarks(textinfo) -> bool:
 	"""
 	try:
 		for klass in type(textinfo).__mro__:
-			if klass.__name__ in _FIELD_LANDMARK_TEXTINFO_BASES:
+			if klass.__name__ not in _FIELD_LANDMARK_TEXTINFO_BASES:
+				continue
+			# MODULE CHECKED TOO, not just the name. A name-only match would
+			# trust any third-party backend that happened to define a class
+			# called Gecko_ia2_TextInfo, and being wrongly trusted here means
+			# admitting chrome as content. No such collision exists in the
+			# installed NVDA (a byte search of every library.zip member finds
+			# the name only in gecko_ia2 and its chromium subclass), so this
+			# closes a hole rather than fixing an observed bug (review,
+			# 2026-07-19).
+			if getattr(klass, "__module__", "") == _FIELD_LANDMARK_TEXTINFO_MODULE:
 				return True
 	except Exception:
 		return False
@@ -2080,13 +2107,26 @@ def _landmark_scope_from_fields(fields):
 	WHY THE LEADING RUN IS A COMPLETE ANCESTOR CHAIN, which is the claim the
 	True verdict rests on. Verified in nvdaHelper/vbufBase/storage.cpp, read
 	directly rather than summarized: VBufStorage_fieldNode_t::getTextInRange
-	emits its own opening tag UNCONDITIONALLY and recurses into every child
-	whose span overlaps the range, starting at rootNode with the filter
-	argument defaulted to NULL. Every positive-length field ancestor of the
-	range start is therefore emitted, and presentation filtering happens LATER
-	in getEnclosingContainerRange. So an empty landmark set on a VALID leading
-	run is positive evidence of "no chrome landmark ancestor at this offset",
-	not merely absence of evidence.
+	emits its own opening tag and recurses into every child whose span overlaps
+	the range, starting at rootNode with the filter argument defaulted to NULL.
+	Every positive-length field ancestor of the range start is therefore
+	emitted, and presentation filtering happens LATER in
+	getEnclosingContainerRange. So an empty landmark set on a VALID leading run
+	is positive evidence of "no chrome landmark ancestor at this offset", not
+	merely absence of evidence.
+
+	(An earlier draft of this docstring said "emits its opening tag
+	UNCONDITIONALLY". That is FALSE about the cited code -- a ZERO-LENGTH node
+	returns before emitting anything, storage.cpp:275-278. The conclusion is
+	unaffected, since a zero-length node cannot be an ancestor of a
+	non-degenerate range, and the buffer rejects start >= end outright at
+	storage.cpp:964-966 so a degenerate range yields no fields and reads as
+	UNKNOWN. Corrected rather than quietly deleted: an overstated citation is
+	the specific way this file has been wrong before.)
+
+	Also verified: isHidden is never consulted in getTextInRange -- it gates
+	only findNodeByAttributes -- so a HIDDEN landmark ancestor still appears in
+	the stack. The chain is not silently pruned of chrome.
 
 	"NOT IN CHROME" IS NOT "THIS IS CONTENT" -- keep the names honest. It
 	proves only that no MARKED chrome landmark encloses this offset in the
@@ -2106,6 +2146,22 @@ def _landmark_scope_from_fields(fields):
 	Ia2Web._get_landmark compute the same next() over the same
 	aria.landmarkRoles set, so a browser that misreports xml-roles blinds BOTH.
 	Do not describe this as a second independent source of truth.
+
+	THE PARITY THAT ACTUALLY MAKES THE True VERDICT SAFE, verified by
+	disassembling the installed bytecode (review, 2026-07-19). An absent
+	landmark key does NOT absolutely prove there is no ARIA chrome ancestor:
+	Gecko_ia2_TextInfo._normalizeControlField takes the first xml-role present
+	in aria.landmarkRoles and then DISCARDS it when the mapped role is not
+	Role.LANDMARK and the landmark is not the first xml-role. So some ARIA
+	landmarks are dropped before we ever see them.
+
+	What rescues it is that ia2Web._get_landmark applies the BYTE-IDENTICAL
+	discard rule, so the parent chain we are replacing is blind in exactly the
+	same cases. The question this function answers is not "is there an ARIA
+	landmark here" but "would the identity filter have called this chrome",
+	and to THAT question the answer is sound. Keep the two rules in step: if
+	NVDA ever changes one normalizer and not the other, this equivalence
+	breaks silently and nothing here would notice.
 	"""
 	if not fields:
 		return None
@@ -2124,8 +2180,31 @@ def _landmark_scope_from_fields(fields):
 				break
 			saw_control = True
 			lm = cmd.field.get("landmark")
-			if lm:
-				seen.append(str(lm).lower())
+			if lm is None or lm == "":
+				# No landmark on this ancestor. Ordinary and expected.
+				continue
+			if not isinstance(lm, str):
+				# MALFORMED VALUE -> UNKNOWN, explicitly.
+				#
+				# The bug this replaces was `str(lm).lower()`, which coerced ANY
+				# truthy object into a landmark name: landmark=123 became "123",
+				# matched no chrome type, fell through the loop below and
+				# returned the POSITIVE "no chrome ancestor here" verdict. That
+				# broke the contract this function advertises (found in review,
+				# 2026-07-19). Installed Gecko only ever writes exact strings
+				# from aria.landmarkRoles, so it is defensive, not observed.
+				#
+				# HONEST NOTE, established by sabotage-checking this very line:
+				# deleting THIS branch does not change behaviour, because
+				# .strip() below raises on a non-string and the handler returns
+				# None anyway. It is kept for explicitness -- returning UNKNOWN
+				# on purpose beats returning it via an incidental AttributeError
+				# -- but do not mistake it for the load-bearing part. The
+				# load-bearing part is that the value is NOT coerced.
+				return None
+			# Strip before comparing: " navigation " is a navigation landmark,
+			# and without the strip it fell through to the content verdict.
+			seen.append(lm.strip().lower())
 	except Exception:
 		# A malformed stack is NO EVIDENCE. It must never read as
 		# "no landmark found", which would be a content verdict.
@@ -2159,11 +2238,28 @@ def _landmark_scope_from_fields(fields):
 #
 # Kinds, one per way the decision can be reached:
 #   RANGE / RANGE_DROP   positional containment in a <main>/<article> range
-#   FREE                 landmark-free document, nothing to filter against
 #   CHROME_KEEP / _DROP  bounded-trust positional chrome exclusion
+#   FIELD_KEEP / _DROP   landmark ancestry read from the control field stack
 #   IDENTITY             the parent-chain filter was consulted
-# Only the CHROME_* kinds feed positional_drops, because _scope_looks_depleted
-# only consults it for scope_kind == "chrome-pos".
+#
+# CHROME_DROP and FIELD_DROP both feed positional_drops, which
+# _scope_looks_depleted consults for scope_kind "chrome-pos" AND plain
+# "chrome" (the latter since the field path landed -- a chrome page can now
+# make real exclusions).
+#
+# IDENTITY DROPS ARE DELIBERATELY NOT COUNTED, and that asymmetry is the
+# point, not an oversight. The depleted-scope net exists because the identity
+# filter is the mechanism under suspicion -- it is the one that silently fails
+# and strips a page bare. Counting its drops would tell the net "exclusions
+# worked here, do not widen" on exactly the pages the net was built to rescue,
+# switching it off for main-id too. Only exclusions we TRUST are allowed to
+# suppress widening. Do not "fix" this by adding identity drops to the tally.
+#
+# Consequence worth knowing: on a supported backend the field stack makes
+# trusted drops where an unsupported one would make untrusted identity drops,
+# so the same page can be net-eligible on WebKit and not on Gecko/Chromium.
+# That is coherent (better evidence, stricter gate) but it does mean backend
+# affects widening.
 _SCOPE_RANGE = "range"
 _SCOPE_RANGE_DROP = "range-drop"
 _SCOPE_CHROME_KEEP = "chrome-keep"
@@ -2362,6 +2458,14 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	positional_hits = 0
 	positional_drops = 0
 	identity_hits = 0
+	# Field-stack decisions, reported SEPARATELY from positional_hits even
+	# though they are folded into it for the depleted-net tally. Without the
+	# split, a chrome page's walk-phase line cannot say whether the field stack
+	# or bounded-trust positional exclusion answered — and an aggregate that
+	# cannot name the mechanism is exactly what stalled the payproglobal
+	# investigation for a session (see the [TMTS walk-phase] rationale above).
+	field_hits = 0
+	field_drops = 0
 	# Start position of the previously processed chunk, for the forward-
 	# progress check below.
 	prev_start = None
@@ -2493,6 +2597,10 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 				_SCOPE_FIELD_KEEP, _SCOPE_FIELD_DROP,
 			):
 				positional_hits += 1
+				if scope_decision in (_SCOPE_FIELD_KEEP, _SCOPE_FIELD_DROP):
+					field_hits += 1
+					if scope_decision == _SCOPE_FIELD_DROP:
+						field_drops += 1
 				if scope_decision in (_SCOPE_CHROME_DROP, _SCOPE_FIELD_DROP):
 					# A FIELD drop is a real exclusion, so it belongs in the same
 					# tally the depleted-scope net reads. Leaving it out would
@@ -2608,7 +2716,9 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 		f"chunks={raw_seen} parent_derefs={scope_stats.get('parent_derefs', 0)} "
 		f"cache_hits={scope_stats.get('cache_hits', 0)} "
 		f"cache_misses={scope_stats.get('cache_misses', 0)} "
-		f"positional={positional_hits} pos_drops={positional_drops} identity={identity_hits}"
+		f"positional={positional_hits} pos_drops={positional_drops} identity={identity_hits} "
+		f"field={field_hits} field_drops={field_drops} "
+		f"field_backend={'y' if fields_carry_landmarks else 'n'}"
 	)
 	log.debug(phase_line)
 	if truncated or walk_total >= _WALK_PHASE_LOG_THRESHOLD_SEC:

@@ -87,6 +87,47 @@ SABOTAGES = [
 		"			if scope_decision in (_SCOPE_CHROME_DROP, _SCOPE_FIELD_DROP):",
 		"			if scope_decision == _SCOPE_CHROME_DROP:",
 	),
+	# --- Found by review 2026-07-19: BOTH of these left the suite green. ---
+	(
+		"chrome-pos never consults the field stack",
+		"		if field_verdict is not None:\n"
+		"			return field_verdict, (\n"
+		"				_SCOPE_FIELD_KEEP if field_verdict else _SCOPE_FIELD_DROP\n"
+		"			)\n"
+		"		obj = get_obj()",
+		"		obj = get_obj()",
+	),
+	(
+		"innermost-wins inverted to outermost-wins",
+		"	for lm in reversed(seen):",
+		"	for lm in seen:",
+	),
+	(
+		"a <main> nested inside chrome no longer wins",
+		'		if lm == "main":\n			return True\n',
+		"",
+	),
+	(
+		"backend gate matches on name alone (third-party impostor trusted)",
+		'			if getattr(klass, "__module__", "") == _FIELD_LANDMARK_TEXTINFO_MODULE:\n'
+		"				return True",
+		"			return True",
+	),
+	(
+		# The FAITHFUL form of the original bug. Deleting the isinstance guard
+		# alone is NOT equivalent: .strip() then raises on a non-string and the
+		# exception handler returns None anyway, so the outcome is unchanged and
+		# no test can tell. str() coercion is what actually produced a content
+		# verdict from a malformed value.
+		"malformed landmark value coerced into a name instead of UNKNOWN",
+		"			seen.append(lm.strip().lower())",
+		"			seen.append(str(lm).lower())",
+	),
+	(
+		"landmark value not stripped before matching",
+		"			seen.append(lm.strip().lower())",
+		"			seen.append(lm.lower())",
+	),
 	(
 		"depleted net stops respecting chrome-scope exclusions",
 		'	elif scope_kind in ("chrome", "chrome-pos") and positional_drops == 0:',
