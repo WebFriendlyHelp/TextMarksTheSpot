@@ -2,6 +2,94 @@
 
 Newest entries at the top.
 
+## 2026-07-18 (late) — the object fetch is lazy, and the probe that licensed it was wrong
+
+291 tests. Uncommitted on `scope-hardening`. `main` still v1.0.13.
+
+### What shipped
+
+`info.NVDAObjectAtStart` was fetched unconditionally for every walked chunk:
+3+ cross-process COM round trips, 11-29 ms measured, 60-98% of the walk on
+chrome-scoped pages, and on a fully positional page not one of them was needed.
+Role and heading level now come from the control field stack
+(`_role_level_from_fields`), and the object is fetched LAZILY via a `_get_obj`
+closure only where the positional scope verdict returns None. It is NOT removed:
+`_in_scope` is the identity fallback the chrome-pos design leans on as its safety
+mechanism, and on identity-scoped pages the object is still the only evidence
+there is. Pinned in both directions by test.
+
+Also: `_chunk_scope` extracted from the walk, returning the DECISION KIND so the
+walk DERIVES `positional_drops` instead of incrementing it beside the branch.
+That counter is a safety input (the depleted-scope net keys on it), and as a bare
+`+= 1` it was deletable with a green suite.
+
+### The lesson, and it is the same one as last time
+
+**I applied the hollow-probe test to one number and not to the number I was
+relying on.** The probe reported `disagree_heading_first=0`, and I correctly said
+that proved nothing because the shape never occurred. In the same breath I cited
+`disagree_innermost=0` over 219 chunks as proof of equivalence. It was not.
+
+`_role_level_from_fields` scanned the WHOLE field stream and kept the last
+`controlStart`. `getTextWithFields` interleaves text with control commands, so a
+paragraph containing an inline `<img>` reads as GRAPHIC — a SKIP role — and the
+whole paragraph vanishes from `main_nodes` AND `all_nodes`, unrecoverable by the
+depleted net. The probe implemented the SAME whole-stream rule, and its
+comparison reduced roles to heading/skip/paragraph, so LINK against PARAGRAPH
+scored as agreement. Two blind spots stacked, and the sample (20 top-of-document
+chunks per page) contained none of the shape either way.
+
+Both reviewers found it independently. Verified in the installed
+`virtualBuffers/__init__.pyc`: NVDA's own `getEnclosingContainerRange` iterates
+`getTextWithFields()` and BREAKS at the first item that is not a `controlStart`.
+The leading run is the ancestor stack at the range start. Matching NVDA's own
+container resolution is a better reason to prefer this rule than any count.
+
+The probe is corrected: leading run, exact role comparison, plus a
+`trailing_control_chunks` counter that reports whether the run sampled the shape
+at all. **A rerun is what would establish equivalence; the 219-chunk result does
+not.**
+
+### Two more fail-opens caught in review, both mine
+
+- `_get_obj` caught exceptions and memoised `None`. Two identity branches read
+  `obj is None` as IN scope, so a transient COM failure would have admitted an
+  unverified navigation chunk as content. The old eager fetch let the exception
+  reach the walk's outer handler. Exceptions propagate again; timing via
+  `finally`.
+- A field whose INNERMOST role failed to resolve inherited its ancestor's role,
+  so an unresolvable BUTTON arrived as DOCUMENT and was admitted as a paragraph.
+  Now reports no evidence and pays for the object. Same reasoning for an
+  unreadable heading level: level feeds heading-cluster comparisons, so a wrong 0
+  can merge distinct levels — defer to the object rather than guess.
+
+### THE BYTECODE CACHE CAN MAKE A SABOTAGE CHECK LIE
+
+This branch has now been burned four times by tests that pass while the wiring
+they cover is deleted, so sabotage checks are the control. **A sabotage harness
+that rewrites a source file and immediately re-runs pytest can silently execute
+the PREVIOUS version**: `.pyc` validation keys on source mtime and size, and rapid
+successive rewrites defeat it non-deterministically. One check reported NOT CAUGHT
+that was in fact caught. **Always run sabotage checks with `python -B`.**
+
+Second trap from the same episode: a harness that crashes between writing the
+sabotage and restoring leaves the file DAMAGED, and the next script reads that as
+its baseline and faithfully "restores" the damage. Caught only because the suite
+dropped to 285. Restore in a `finally`, and re-run the full suite afterwards —
+never trust the restore.
+
+### Open
+
+1. **Rerun the corrected probe** to establish equivalence honestly, and check
+   `trailing_control_chunks > 0` before believing any unanimous result.
+2. **Counts are still identity-scoped on `chrome-pos`** (~630 ms), so counts and
+   walk can describe different trees. FORM is the intent that moves keyboard
+   focus, which is why it matters. Untouched.
+3. The lazy fetch is unmeasured on real pages. `[TMTS walk-phase]` now carries a
+   `fields=` phase and `obj=`/`scope=` are disjoint; the claim to check is that
+   `obj=` collapses on `main-pos` and `chrome-pos` pages while landings are
+   unchanged.
+
 ## 2026-07-18 (evening) — the vovsoft diagnosis in the entry below is WRONG
 
 Four commits on `scope-hardening`, all verified on live pages. 267 tests.
