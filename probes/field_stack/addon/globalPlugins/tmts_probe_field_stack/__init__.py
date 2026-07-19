@@ -47,18 +47,25 @@ def _decision(role_name, level, text):
 
 
 def _stack_from_fields(fields):
-	# Every controlStart command, outermost to innermost. Returns the role
-	# name list, plus the innermost HEADING field if there is one, plus the
-	# innermost field of any kind (which is what "is there a per-paragraph
-	# control node" hinges on).
+	# The LEADING RUN of controlStart commands, outermost to innermost —
+	# stopping at the first item that is not one.
+	#
+	# The first version of this probe scanned the WHOLE stream and continued
+	# past text and controlEnd, so on a paragraph containing an inline image
+	# the last controlStart (the GRAPHIC) won. That is not the ancestor stack
+	# at the range start, and it reported agreement anyway because the
+	# comparison below reduced roles to heading/skip/paragraph. Corrected
+	# 2026-07-18 after adversarial review; NVDA's own
+	# getEnclosingContainerRange breaks at the first non-controlStart item
+	# (verified in the installed virtualBuffers/__init__.pyc).
 	roles = []
 	heading_field = None
 	innermost = None
 	for cmd in fields:
 		if not isinstance(cmd, textInfos.FieldCommand):
-			continue
+			break
 		if cmd.command != "controlStart":
-			continue
+			break
 		field = cmd.field
 		role = field.get("role")
 		roles.append(getattr(role, "name", None) or str(role))
@@ -90,7 +97,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		description="TMTS probe: dump control field stack vs NVDAObjectAtStart",
-		gesture="kb:NVDA+shift+f",
+		# NVDA+shift+f was taken: the `translate` add-on binds it, wins the
+		# gesture, and the probe silently never fires. Casey's machine runs 25
+		# add-ons, so pick something deliberately obscure rather than something
+		# merely plausible.
+		gesture="kb:NVDA+control+alt+f",
 	)
 	def script_field_stack_dump(self, gesture):
 		focus = api.getFocusObject()
@@ -112,6 +123,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		counts = {
 			"chunks": 0, "disagree": 0, "empty": 0, "no_obj": 0, "no_control": 0,
 			"disagree_innermost": 0, "disagree_heading_first": 0,
+			"disagree_role_exact": 0, "trailing_control_chunks": 0,
 		}
 
 		for i in range(_MAX_CHUNKS):
@@ -142,6 +154,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					)
 
 				roles, heading_field, innermost = _stack_from_fields(fields)
+				# How many chunks even CONTAIN a control command after the
+				# leading run. If this is 0 the run sampled none of the shape
+				# that broke the first implementation, and disagree_role_exact
+				# proves nothing about it. Ask this of every unanimous result.
+				if isinstance(fields, list):
+					_lead = True
+					for _c in fields:
+						if _lead and isinstance(_c, textInfos.FieldCommand) and _c.command == "controlStart":
+							continue
+						_lead = False
+						if isinstance(_c, textInfos.FieldCommand) and _c.command == "controlStart":
+							counts["trailing_control_chunks"] += 1
+							break
 				# An empty range yields no control fields BY DEFINITION, and
 				# chunks_with_no_control_field is a hard-kill criterion. Counting
 				# empty ranges here would manufacture a false kill signal for a
@@ -204,6 +229,19 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				dec_heading_first = _decision(
 					"HEADING" if fs_is_heading else innermost_role, fs_level_int, text,
 				)
+				# EXACT role equality, not just the reduced decision. The
+				# reduced form scores LINK against PARAGRAPH as agreement,
+				# because both mean "paragraph" to _node_for — which is why
+				# the first run reported disagree_innermost=0 while the
+				# implementation was reading the wrong control field. A probe
+				# that cannot distinguish those cannot validate the
+				# substitution it exists to validate.
+				if obj is not None and innermost_role != obj_role:
+					counts["disagree_role_exact"] += 1
+					log.info(
+						f"[TMTS probe-fields] ROLE-MISMATCH [{i}] "
+						f"fs={innermost_role!r} obj={obj_role!r} text={text[:60]!r}"
+					)
 				if dec_innermost != obj_decision:
 					counts["disagree_innermost"] += 1
 				if dec_heading_first != obj_decision:
@@ -250,6 +288,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			f"disagree={counts['disagree']} "
 			f"disagree_innermost={counts['disagree_innermost']} "
 			f"disagree_heading_first={counts['disagree_heading_first']} "
+			f"disagree_role_exact={counts['disagree_role_exact']} "
+			f"trailing_control_chunks={counts['trailing_control_chunks']} "
 			f"empty_ranges={counts['empty']} "
 			f"chunks_with_no_control_field={counts['no_control']} "
 			f"chunks_with_no_object={counts['no_obj']} "
