@@ -417,14 +417,11 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	notice_match_all = [False]
 	walk_truncated = [False]
 	walk_positional = [0]
-	# Decided HERE, not in _select_scope, because it needs the interactive
-	# count as corroboration and the counts phase has only just finished.
-	# See _document_has_no_landmarks for why zero landmarks alone is not
-	# enough evidence.
-	if scope_kind == "chrome" and _document_has_no_landmarks(
-		landmarks, summary.interactive_control_count
-	):
-		scope_kind = "chrome-none"
+	# NOTE: a `chrome-none` scope used to be decided here, promoting a page whose
+	# landmark scan yielded nothing into a walk that skipped chrome checking
+	# entirely. Removed 2026-07-19 as a merge blocker -- see the module comment
+	# above _select_scope. A zero-item landmark enumeration is NOT evidence that
+	# the document has no landmarks, because NVDA swallows the native failure.
 	summary.main_nodes = _walk_main_nodes(
 		treeInterceptor, main_obj, scope_cache, positions, notice_match, raw_count, scope_range,
 		all_nodes_out=all_nodes,
@@ -435,7 +432,6 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		trust_boundary=trust_boundary,
 		untrusted_ranges=untrusted_ranges,
 		positional_out=walk_positional,
-		no_landmarks=(scope_kind == "chrome-none"),
 	)
 	t3 = time.monotonic()
 	fallback_ran = False
@@ -845,17 +841,29 @@ class LandmarkScan:
 		self.trust_boundary = trust_boundary
 		self.ordered = ordered
 		# How many landmark items the enumeration yielded, of any kind.
-		# ZERO is the interesting value -- see _document_has_no_landmarks.
 		self.seen = seen
-		# True ONLY when the enumeration ran to natural completion. False when
-		# it was cut short by the scan cap, the deadline, or an exception, and
-		# False by DEFAULT so an unproven scan never claims completeness.
+		# True when the enumeration ran to natural completion. False when it was
+		# cut short by the scan cap, the deadline, or a Python exception that
+		# ESCAPED the iterator, and False by DEFAULT so an unproven scan never
+		# claims completeness.
 		#
-		# Load-bearing for _document_has_no_landmarks: `seen == 0` from an
-		# exhausted scan means "this document has no landmarks", but `seen == 0`
-		# from a scan that DIED means "we know nothing". Those must never be
-		# conflated -- the second one skips the chrome parent-walk entirely and
-		# admits navigation text as content.
+		# DIAGNOSTIC ONLY. Do NOT infer "this document has no landmarks" from
+		# `seen == 0 and exhausted` -- that inference was a merge blocker
+		# (2026-07-19) and the function that made it has been deleted.
+		#
+		# NVDA's VirtualBuffer._iterNodesByAttribs CATCHES the native exception
+		# from VBuf_findNodeByAttributes and RETURNS (verified by disassembling
+		# virtualBuffers/__init__.pyc in the installed library.zip: the handler
+		# is PUSH_EXC_INFO / POP_TOP / POP_EXCEPT / RETURN_CONST None, with no
+		# CHECK_EXC_MATCH, so it discards everything and ends the generator).
+		# To our loop that is indistinguishable from clean exhaustion. So a
+		# natively FAILED landmark search arrives here as seen=0, exhausted=True
+		# -- byte-for-byte the shape of a genuinely landmark-free page.
+		#
+		# What this flag actually rules out is a Python exception escaping the
+		# iterator, and nothing else. There is no signal at this layer that can
+		# separate the two zero-seen cases; the per-chunk field stack is the
+		# only positive witness available. See implementation-notes.md.
 		self.exhausted = exhausted
 
 
@@ -1047,9 +1055,19 @@ def _scope_looks_depleted(scope_kind: str, main_nodes: list, all_nodes: list, po
 	# positional exclusion, and widening would re-admit it. This narrows the
 	# failure window; it does not close it. The 100/200-twice bars and the
 	# `unscoped-depleted` perf tag are the other two layers.
-	if scope_kind in ("chrome", "main-id"):
+	# `main-id` can make no positional exclusion at all (condition 4 keeps it on
+	# the identity filter), so it stays unconditionally eligible.
+	#
+	# `chrome` USED TO be unconditional for the same reason, and no longer can
+	# be: since the field-stack path landed, a chrome-scoped page CAN exclude
+	# real chrome without a parent chain, and those exclusions deserve the same
+	# protection chrome-pos gets. Leaving it unconditional would let a page
+	# whose field exclusions worked be widened back open by two long chrome
+	# paragraphs -- the same failure recorded above, arriving through the new
+	# door. The drop count, not the scope name, is what separates them.
+	if scope_kind == "main-id":
 		pass
-	elif scope_kind == "chrome-pos" and positional_drops == 0:
+	elif scope_kind in ("chrome", "chrome-pos") and positional_drops == 0:
 		pass
 	else:
 		return False
@@ -1125,58 +1143,42 @@ def _log_landmark_probe(types: list, ordered: bool, no_range: int, stopped: str)
 	_append_perf_line(line)
 
 
-def _document_has_no_landmarks(landmarks: "LandmarkScan", interactive_count: int) -> bool:
-	"""True when this document genuinely contains NO landmarks, so the
-	identity parent-walk can be skipped outright.
+"""REMOVED 2026-07-19: _document_has_no_landmarks and the `chrome-none` scope.
 
-	This is not a heuristic. On a document with no landmarks, `_in_scope`
-	climbs up to _PARENT_WALK_MAX_DEPTH ancestors, finds neither <main> nor a
-	chrome landmark, and returns `main_obj is None` -- i.e. True -- for EVERY
-	chunk. Skipping it yields the identical answer for fourteen fewer COM
-	calls per chunk. It is an algebraic simplification, not an approximation.
+It returned `seen == 0 and exhausted and interactive_count > 0` and, on True,
+made the walk admit EVERY chunk with no chrome check at all. The premise was
+unsound and the failure was the release-blocker class: navigation and footer
+admitted as article content, a blind user's cursor landing in a menu.
 
-	WHY IT MATTERS, measured: fixing the id(obj) cache removed a bug that had
-	been doing real work by accident. Its false hits were short-circuiting the
-	parent walk, so chunks got instant (frequently wrong) verdicts.
-	stevequayle.com walked 113 chunks at ~10.7 ms each with the broken cache;
-	with the correct one it paid a genuine 14-deref chain per chunk, ~129 ms,
-	managed 16 chunks before the 2 s clock, and produced NO LANDING AT ALL.
-	Correctness cost that page its content. This restores the speed honestly,
-	on the pages where the walk provably cannot tell us anything.
+WHY IT COULD NOT BE SAVED. `exhausted` was doing the safety work, on the theory
+that a scan which died is separable from a document with no landmarks. It is
+not. NVDA swallows the native landmark-search failure inside
+_iterNodesByAttribs and ends the generator normally, so a failed search reaches
+us as seen=0, exhausted=True -- identical to a landmark-free page. See the
+LandmarkScan.exhausted comment for the disassembly. `exhausted` ruled out only
+a Python exception ESCAPING the iterator, which is the one shape NVDA does not
+produce here.
 
-	THE PREMISE IS THE RISK, so it is corroborated rather than assumed. A
-	silently failed enumeration returns zero items exactly like a
-	landmark-free page does (NVDA discards the native exception and ends the
-	generator -- the fact that killed the first design). So zero landmarks
-	alone is not enough. We also require evidence that quick-nav enumeration
-	is WORKING on this document right now: a non-zero interactive-control
-	count, produced by the counts phase from separate _iterNodesByType calls.
-	A page with real controls but genuinely no landmarks is ordinary
-	(stevequayle.com); a document where enumeration is broken would have to
-	fail for landmarks while succeeding for links and buttons in the same
-	pass, which is a much narrower failure than "it failed".
+The interactive-count corroboration did not close it either, and was weaker
+than it read: every quick-nav type goes through the SAME swallowing iterator,
+so a non-zero link count can itself be a silent partial result; and the counts
+run AFTER the landmark scan, so a transient mid-load buffer failure at scan
+time can clear before the corroborating sample is taken -- and mid-load is
+exactly when documentLoadComplete fires.
 
-	If we are wrong anyway, the cost is bounded: chunks that would have been
-	excluded as chrome are kept, which is the same tree the unscoped fallback
-	produces on any page whose scope filter fails -- and the landing finders'
-	chrome heuristics still run over it.
+WHAT IT COST TO REMOVE, honestly: on a landmark-free page with many chunks
+(stevequayle.com) the walk goes back to paying a real ~14-dereference COM
+parent chain per chunk and may produce NO LANDING inside the 2 s walk budget.
+That is a silence, not a wrong landing, which is the direction guardrail 3
+specifies ("when in doubt, do nothing"). The speed is restored properly by the
+field-stack walk path, which reads landmark ancestry from the leading control
+run that _walk_main_nodes ALREADY fetches per chunk -- a positive per-chunk
+witness that never consults the enumeration at all.
 
-	THIRD REQUIREMENT, added after review: the scan must have RUN TO COMPLETION.
-	`seen == 0` is produced by two entirely different events -- a document with
-	no landmarks, and an enumeration that raised before yielding its first item.
-	The second returns scanned=0 and is otherwise byte-for-byte identical to the
-	first. The interactive-control corroboration above narrows that, but does
-	not close it, and this branch skips the chrome parent-walk ENTIRELY, so
-	being wrong here admits navigation and footer text as content -- a blind
-	user lands in a menu. The scan already knows which event happened (it caught
-	the exception itself); it simply used to throw that away to a log line. Now
-	it is carried on the scan and required here.
-
-	Note the cap and deadline paths examine an item BEFORE breaking, so they
-	report seen >= 1 and were already excluded by the first condition. Requiring
-	exhausted is belt-and-braces for those and load-bearing for the exception.
-	"""
-	return landmarks.seen == 0 and landmarks.exhausted and interactive_count > 0
+Do not reintroduce a landmark-free shortcut gated on the enumeration returning
+nothing. tests/test_chrome_scope.py pins the native-swallow shape against
+exactly that.
+"""
 
 
 def _select_scope(landmarks: "LandmarkScan"):
@@ -2027,6 +2029,123 @@ def _role_level_from_fields(fields):
 	return name, level, True
 
 
+# Gecko's virtual-buffer TextInfo class name. Chromium's ChromeVBufTextInfo
+# INHERITS it, so an isinstance check against the Gecko class covers both
+# engines -- which is the whole reason this is a CLASS gate.
+#
+# DO NOT GATE ON `backendName`. Chromium does not declare its own; it inherits
+# Gecko's "gecko_ia2", so the string cannot distinguish the engines and a gate
+# written against it is gating on the wrong thing (found in review 2026-07-19).
+# The gate has to answer "does this backend WRITE field['landmark']?", and that
+# is a property of the normalizer class.
+_FIELD_LANDMARK_TEXTINFO_BASES = ("Gecko_ia2_TextInfo",)
+
+
+def _fields_carry_landmarks(textinfo) -> bool:
+	"""True when this TextInfo's backend populates field['landmark'].
+
+	WHY A GATE AT ALL -- this is the fail-open the design turns on.
+	`field["landmark"]` is written by the BACKEND's _normalizeControlField, not
+	by any TextInfo contract. Gecko writes it and Chromium inherits Gecko's
+	virtual-buffer TextInfo, so both are covered. WebKit's normalizer does not
+	contain the string "landmark" AT ALL, so on WebKit every chunk would report
+	"no landmark on the stack" and, without this gate, every navigation and
+	footer chunk would be admitted as content -- the exact failure the
+	chrome-none removal just closed, reintroduced through a different door.
+
+	So absence of a landmark key is only meaningful where the backend would
+	have written one. Unsupported backends get UNKNOWN for every chunk and pay
+	the identity parent walk, which is precisely the pre-branch behaviour: it
+	costs speed, never correctness.
+
+	Checked by walking the class's OWN MRO by name rather than importing the
+	NVDA class, because this module must stay importable outside NVDA for the
+	test suite. Any failure to introspect reads as unsupported.
+	"""
+	try:
+		for klass in type(textinfo).__mro__:
+			if klass.__name__ in _FIELD_LANDMARK_TEXTINFO_BASES:
+				return True
+	except Exception:
+		return False
+	return False
+
+
+def _landmark_scope_from_fields(fields):
+	"""Tri-state scope verdict from the LEADING control run. Pure.
+
+	Returns True (definitively NOT inside chrome), False (definitively inside
+	chrome), or None (UNKNOWN -- no usable evidence, ask the object).
+
+	WHY THE LEADING RUN IS A COMPLETE ANCESTOR CHAIN, which is the claim the
+	True verdict rests on. Verified in nvdaHelper/vbufBase/storage.cpp, read
+	directly rather than summarized: VBufStorage_fieldNode_t::getTextInRange
+	emits its own opening tag UNCONDITIONALLY and recurses into every child
+	whose span overlaps the range, starting at rootNode with the filter
+	argument defaulted to NULL. Every positive-length field ancestor of the
+	range start is therefore emitted, and presentation filtering happens LATER
+	in getEnclosingContainerRange. So an empty landmark set on a VALID leading
+	run is positive evidence of "no chrome landmark ancestor at this offset",
+	not merely absence of evidence.
+
+	"NOT IN CHROME" IS NOT "THIS IS CONTENT" -- keep the names honest. It
+	proves only that no MARKED chrome landmark encloses this offset in the
+	virtual buffer. It does not prove the document has landmarks at all, and it
+	does not prove the site marked its chrome correctly. An unmarked <div> nav
+	is invisible here exactly as it is invisible to the parent chain.
+
+	INNERMOST WINS, matching the parent chain, which stops at the FIRST
+	landmark it meets walking UP. The stack arrives outermost-first, so it is
+	consumed in reverse. A <main> nested inside a <nav> therefore answers
+	"content" on both mechanisms; they agree because they implement the same
+	rule, not because either was validated against the other.
+
+	INDEPENDENT OF THE ENUMERATION, NOT OF THE BROWSER. This does not consult
+	_iterNodesByType at all, which is what makes it usable where the landmark
+	scan's silence is untrustworthy. But _normalizeControlField and
+	Ia2Web._get_landmark compute the same next() over the same
+	aria.landmarkRoles set, so a browser that misreports xml-roles blinds BOTH.
+	Do not describe this as a second independent source of truth.
+	"""
+	if not fields:
+		return None
+	saw_control = False
+	seen = []
+	try:
+		for cmd in fields:
+			# Leading run only, and for the same reason _role_level_from_fields
+			# stops here: getTextWithFields interleaves control commands with
+			# TEXT, so anything past the first non-controlStart describes
+			# elements INSIDE the chunk, not ancestors of its start. NVDA's own
+			# getEnclosingContainerRange breaks at exactly this point.
+			if not isinstance(cmd, textInfos.FieldCommand):
+				break
+			if cmd.command != "controlStart":
+				break
+			saw_control = True
+			lm = cmd.field.get("landmark")
+			if lm:
+				seen.append(str(lm).lower())
+	except Exception:
+		# A malformed stack is NO EVIDENCE. It must never read as
+		# "no landmark found", which would be a content verdict.
+		return None
+
+	if not saw_control:
+		# No leading controlStart at all. We cannot tell "this offset has no
+		# ancestors" from "the buffer told us nothing", so this is UNKNOWN --
+		# NOT an empty-set NOT_IN_CHROME.
+		return None
+
+	for lm in reversed(seen):
+		if lm == "main":
+			return True
+		if lm in _CHROME_LANDMARK_TYPES:
+			return False
+	# A valid, complete ancestor chain carrying no chrome landmark.
+	return True
+
+
 # How one walked chunk's scope decision was reached.
 #
 # WHY THIS IS A RETURN VALUE AND NOT A COUNTER NEXT TO THE DECISION. The
@@ -2047,23 +2166,25 @@ def _role_level_from_fields(fields):
 # only consults it for scope_kind == "chrome-pos".
 _SCOPE_RANGE = "range"
 _SCOPE_RANGE_DROP = "range-drop"
-_SCOPE_FREE = "free"
 _SCOPE_CHROME_KEEP = "chrome-keep"
 _SCOPE_CHROME_DROP = "chrome-drop"
 _SCOPE_IDENTITY = "identity"
+# The field-stack landmark verdict answered without touching COM.
+_SCOPE_FIELD_KEEP = "field-keep"
+_SCOPE_FIELD_DROP = "field-drop"
 
 
 def _chunk_scope(
 	info,
 	get_obj,
 	scope_range,
-	no_landmarks: bool,
 	exclude_ranges,
 	trust_boundary,
 	untrusted_ranges,
 	main_obj,
 	cache: dict,
 	scope_stats: Optional[dict] = None,
+	field_verdict=None,
 ):
 	"""Decide whether one walked chunk is in scope, and say HOW it decided.
 
@@ -2098,13 +2219,6 @@ def _chunk_scope(
 			_SCOPE_IDENTITY,
 		)
 
-	if no_landmarks:
-		# Document has no landmarks at all, corroborated. The identity walk
-		# would climb 30 ancestors and conclude "in scope" for every chunk;
-		# this is that same answer without the COM calls. See
-		# _document_has_no_landmarks.
-		return True, _SCOPE_FREE
-
 	if exclude_ranges is not None:
 		# Bounded-trust positional scoping. Before the trust boundary the
 		# chrome inventory is provably complete (see _select_scope), so the
@@ -2117,6 +2231,14 @@ def _chunk_scope(
 		)
 		if verdict is not None:
 			return verdict, (_SCOPE_CHROME_KEEP if verdict else _SCOPE_CHROME_DROP)
+		# Positional could not decide. Before paying for a COM parent chain, ask
+		# the field stack -- it is already parsed and it does not consult the
+		# landmark ENUMERATION, which is exactly the evidence bounded trust is
+		# missing here. See _landmark_scope_from_fields.
+		if field_verdict is not None:
+			return field_verdict, (
+				_SCOPE_FIELD_KEEP if field_verdict else _SCOPE_FIELD_DROP
+			)
 		obj = get_obj()
 		if obj is None:
 			# NO EVIDENCE AT ALL. Positional could not decide and there is no
@@ -2139,6 +2261,21 @@ def _chunk_scope(
 			return False, _SCOPE_IDENTITY
 		return _in_scope(obj, main_obj, cache, scope_stats), _SCOPE_IDENTITY
 
+	# Plain `chrome` scope (no <main>, no usable landmark inventory), and
+	# `main-id` (a <main> we found but could not place positionally).
+	#
+	# CONDITION 4, LOAD-BEARING: the field stack answers "is this inside ANY
+	# marked chrome landmark", which is NOT the question main-id asks. main-id
+	# asks "is this inside THE <main> object we found" -- an IDENTITY question
+	# (`cur is main_obj`), and `landmark == "main"` matches any main, including
+	# a second one the scan never returned. That equivalence is unprobed, so
+	# main-id keeps the parent chain. `main_obj is None` is exactly the
+	# chrome-scope test.
+	if main_obj is None and field_verdict is not None:
+		return field_verdict, (
+			_SCOPE_FIELD_KEEP if field_verdict else _SCOPE_FIELD_DROP
+		)
+
 	obj = get_obj()
 	return (
 		obj is None or _in_scope(obj, main_obj, cache, scope_stats),
@@ -2146,7 +2283,7 @@ def _chunk_scope(
 	)
 
 
-def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None, all_nodes_out: Optional[list] = None, all_positions_out: Optional[list] = None, notice_match_all_out: Optional[list] = None, truncated_out: Optional[list] = None, exclude_ranges=None, trust_boundary=None, untrusted_ranges=None, positional_out: Optional[list] = None, no_landmarks: bool = False) -> list[MainNode]:
+def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None, all_nodes_out: Optional[list] = None, all_positions_out: Optional[list] = None, notice_match_all_out: Optional[list] = None, truncated_out: Optional[list] = None, exclude_ranges=None, trust_boundary=None, untrusted_ranges=None, positional_out: Optional[list] = None) -> list[MainNode]:
 	# Walk the whole document by UNIT_PARAGRAPH; emit only nodes that
 	# pass _in_scope (inside <main> if present, or outside chrome
 	# landmarks if not). Bail out once we've had _OUT_OF_SCOPE_TOLERANCE
@@ -2178,6 +2315,14 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 		info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
 	except Exception:
 		return result
+
+	# BACKEND GATE, decided ONCE per walk rather than per chunk: the backend
+	# cannot change mid-document, and this is a class introspection, not a
+	# browser call. When False, every chunk's field verdict is forced to
+	# UNKNOWN and the walk pays parent chains exactly as it did before -- the
+	# pre-branch behaviour. See _fields_carry_landmarks for why absence of a
+	# landmark key is meaningless on a backend that never writes one.
+	fields_carry_landmarks = _fields_carry_landmarks(info)
 
 	consecutive_out = 0
 	have_seen_in_scope = False
@@ -2271,6 +2416,13 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 			except Exception:
 				fields = None
 			role_name, role_level, had_field = _role_level_from_fields(fields)
+			# Same already-parsed leading run, second question. Costs dictionary
+			# lookups over a list we have in hand; the getTextWithFields call
+			# above was already being paid for the role.
+			field_verdict = (
+				_landmark_scope_from_fields(fields)
+				if fields_carry_landmarks else None
+			)
 			t_fields += time.monotonic() - _t
 
 			# The object is now fetched LAZILY, and only where something actually
@@ -2326,8 +2478,9 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 			_t = time.monotonic()
 			_obj_before = t_obj
 			in_scope, scope_decision = _chunk_scope(
-				info, _get_obj, scope_range, no_landmarks, exclude_ranges,
+				info, _get_obj, scope_range, exclude_ranges,
 				trust_boundary, untrusted_ranges, main_obj, cache, scope_stats,
+				field_verdict,
 			)
 			# Subtract any object resolution that happened INSIDE the scope
 			# decision, so obj= and scope= stay disjoint in the walk-phase
@@ -2335,9 +2488,18 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 			# time in both phases, and the whole point of that line is to name
 			# which call site owns the clock.
 			t_scope += (time.monotonic() - _t) - (t_obj - _obj_before)
-			if scope_decision in (_SCOPE_CHROME_KEEP, _SCOPE_CHROME_DROP):
+			if scope_decision in (
+				_SCOPE_CHROME_KEEP, _SCOPE_CHROME_DROP,
+				_SCOPE_FIELD_KEEP, _SCOPE_FIELD_DROP,
+			):
 				positional_hits += 1
-				if scope_decision == _SCOPE_CHROME_DROP:
+				if scope_decision in (_SCOPE_CHROME_DROP, _SCOPE_FIELD_DROP):
+					# A FIELD drop is a real exclusion, so it belongs in the same
+					# tally the depleted-scope net reads. Leaving it out would
+					# reproduce, on the field path, the exact bug that tally was
+					# introduced to fix: a page whose exclusions WORKED reports
+					# zero drops, the net widens it back open, and the navigation
+					# and cookie text that was correctly removed is re-admitted.
 					positional_drops += 1
 			elif scope_decision == _SCOPE_IDENTITY:
 				identity_hits += 1

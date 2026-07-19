@@ -585,75 +585,97 @@ def test_a_field_with_no_object_and_no_range_is_never_focused():
 
 
 # ---------------------------------------------------------------------------
-# The landmark-free fast path.
+# THE LANDMARK-FREE FAST PATH IS GONE. These tests keep it gone.
 #
-# Fixing the id(obj) cache removed a bug that had been doing real work by
-# accident: its false hits short-circuited the parent walk, so chunks got
-# instant (frequently wrong) verdicts. stevequayle.com walked 113 chunks at
-# ~10.7 ms each with the broken cache; with the correct one it paid a real
-# ~14-dereference chain per chunk, ~129 ms, managed 16 chunks before the 2 s
-# clock, and produced NO LANDING AT ALL. Correctness cost that page its
-# content. This restores the speed honestly - but only where the walk
-# provably cannot tell us anything, and only with corroboration that
-# enumeration is working.
+# `chrome-none` promoted a page whose landmark enumeration yielded nothing into
+# a walk that skipped chrome checking ENTIRELY, on the theory that a scan which
+# ran to completion and saw nothing proves the document has no landmarks.
+#
+# It proves no such thing. NVDA's VirtualBuffer._iterNodesByAttribs CATCHES the
+# native exception from VBuf_findNodeByAttributes and RETURNS (the handler is
+# PUSH_EXC_INFO / POP_TOP / POP_EXCEPT / RETURN_CONST None, with no
+# CHECK_EXC_MATCH -- verified by disassembling virtualBuffers/__init__.pyc from
+# the installed library.zip). A natively FAILED landmark search is therefore an
+# ordinary, empty, normally-completed generator: seen=0, exhausted=True, which
+# is byte-for-byte the shape of a genuinely landmark-free page.
+#
+# The `exhausted` flag ruled out only a Python exception ESCAPING the iterator
+# -- the one shape NVDA does not produce here. The old suite pinned the BUG as
+# correct: its "landmark free with working enumeration" test drove FakeTI([]),
+# which IS the native-swallow shape, and asserted the shortcut engaged; while
+# the test that claimed to close the hole used raise_after=0, the escaping
+# shape. Both are corrected below.
+#
+# There is NO signal at the LandmarkScan layer that can separate the two
+# zero-seen cases. Do not add one gated on the enumeration returning nothing.
+# The per-chunk field stack is the only positive witness available.
 # ---------------------------------------------------------------------------
 
-def test_landmark_free_document_with_working_enumeration_takes_the_fast_path():
+def test_native_swallow_shape_does_not_unlock_any_landmark_free_shortcut():
+	"""THE REGRESSION TEST. An enumeration that yields nothing and returns
+	normally must leave the chrome filter ENGAGED.
+
+	This is the shape NVDA actually produces on a failed landmark search, and
+	getting it wrong admits navigation and footer as article content -- a blind
+	user's cursor lands in a menu.
+	"""
 	scan = ts._find_main_landmark(FakeTI([]))
+	# Precondition: this really is the indistinguishable shape.
 	assert scan.seen == 0
-	assert ts._document_has_no_landmarks(scan, interactive_count=5) is True
+	assert scan.exhausted is True
+
+	scope_kind, scope_range, chrome_exclude, boundary, untrusted = ts._select_scope(scan)
+
+	# "chrome" means the identity parent walk decides every chunk. Any scope that
+	# admits chunks without a chrome check is the bug returning.
+	assert scope_kind == "chrome"
+	assert scope_range is None, "no inclusion range may be invented from an empty scan"
+	assert chrome_exclude is None, "no positional exclusion list can be trusted here"
+	assert boundary is None
+	assert untrusted is None
 
 
-def test_zero_landmarks_AND_zero_controls_is_not_trusted():
-	# Indistinguishable from an enumeration that silently died: NVDA discards
-	# the native exception and just ends the generator, which is the fact that
-	# killed the first design. Zero landmarks alone is never enough.
-	scan = ts._find_main_landmark(FakeTI([]))
-	assert ts._document_has_no_landmarks(scan, interactive_count=0) is False
+def test_no_scope_kind_admits_chunks_without_a_chrome_check():
+	"""The whole failure class, stated once. Whatever _select_scope returns for
+	an empty scan, it must not be a scope the walk treats as "keep everything".
+
+	Pinned by name so that reintroducing a shortcut under a NEW name still trips
+	this test rather than sailing past a check that only knew the old one.
+	"""
+	for scan in (
+		ts._find_main_landmark(FakeTI([])),
+		ts._find_main_landmark(FakeTI([], raise_after=0)),
+	):
+		scope_kind, scope_range, chrome_exclude, _b, _u = ts._select_scope(scan)
+		assert scope_kind == "chrome"
+		assert (scope_range, chrome_exclude) == (None, None)
 
 
-def test_a_page_with_landmarks_never_takes_the_fast_path():
+def test_the_removed_shortcut_stays_removed():
+	"""_document_has_no_landmarks was the merge blocker. It must not come back,
+	and neither must the scope name it produced."""
+	assert not hasattr(ts, "_document_has_no_landmarks")
+	assert not hasattr(ts, "_SCOPE_FREE")
+	src = ts._select_scope.__doc__ or ""
+	assert "chrome-none" not in src
+
+
+def test_a_page_with_landmarks_still_scopes_positionally():
+	"""The removal must not have broken the ordinary no-<main> path: a placed
+	landmark still yields bounded-trust positional scoping."""
 	scan = ts._find_main_landmark(FakeTI([FakeItem("navigation", FakeRange(0, 10))]))
 	assert scan.seen == 1
-	assert ts._document_has_no_landmarks(scan, interactive_count=5) is False
-
-
-def test_enumeration_that_died_before_yielding_is_not_a_landmark_free_page():
-	# THE HOLE THIS CLOSES. A landmark enumeration that raises on its FIRST item
-	# returns scanned=0, so seen==0 -- byte-for-byte identical to a document that
-	# genuinely has no landmarks. The interactive-control corroboration does not
-	# separate them: a page can have working link enumeration and dead landmark
-	# enumeration in the same pass.
-	#
-	# Getting this wrong skips the chrome parent-walk ENTIRELY, so every
-	# navigation and footer chunk is admitted as content and a blind user lands
-	# in a menu. The scan caught the exception itself, so it knows; it just used
-	# to throw that away to a log line.
-	scan = ts._find_main_landmark(FakeTI([FakeItem("navigation", NAV)], raise_after=0))
-	assert scan.seen == 0, "precondition: the scan looks landmark-free"
-	assert scan.exhausted is False, "a scan that raised must never claim completeness"
-	assert ts._document_has_no_landmarks(scan, interactive_count=5) is False
-
-
-def test_exhausted_flag_is_what_separates_the_two_zero_seen_cases():
-	# Both scans report seen == 0. Only one of them ran to completion, and that
-	# is the entire difference between the fast path being sound and being a
-	# fail-open bug. Pins the two shapes against each other so neither can drift
-	# into looking like the other.
-	real = ts._find_main_landmark(FakeTI([]))
-	died = ts._find_main_landmark(FakeTI([FakeItem("navigation", NAV)], raise_after=0))
-	assert real.seen == died.seen == 0
-	assert real.exhausted is True
-	assert died.exhausted is False
-	assert ts._document_has_no_landmarks(real, interactive_count=5) is True
-	assert ts._document_has_no_landmarks(died, interactive_count=5) is False
+	scope_kind, _r, chrome_exclude, boundary, _u = ts._select_scope(scan)
+	assert scope_kind == "chrome-pos"
+	assert boundary is not None
+	assert len(chrome_exclude) == 1
 
 
 def test_unresolvable_landmarks_still_count_as_seen():
-	# An item we could not place is still evidence that landmarks EXIST, so
-	# the fast path must not engage just because nothing was placeable.
+	# An item we could not place is still evidence that landmarks EXIST.
 	item = FakeItem("navigation", None)
 	item.obj = None
 	scan = ts._find_main_landmark(FakeTI([item]))
 	assert scan.seen == 1
-	assert ts._document_has_no_landmarks(scan, interactive_count=5) is False
+	scope_kind, _r, _c, _b, _u = ts._select_scope(scan)
+	assert scope_kind == "chrome"

@@ -2,14 +2,131 @@
 
 Newest entries at the top.
 
+## 2026-07-19 (later) - the chrome-none blocker is CLOSED by deletion
+
+300 tests (was 301: the removal deleted more test surface than it added).
+`main` still v1.0.13. Uncommitted on `scope-hardening`.
+
+### Decision: option 1, delete it. Both reviewers ran; they split on sequencing.
+
+Codex and a Fable subagent reviewed in parallel. Both independently confirmed
+the bug FROM THE INSTALLED BYTECODE (`virtualBuffers/__init__.pyc` in NVDA's
+`library.zip`: the handler around the `VBuf_findNodeByAttributes` call is
+PUSH_EXC_INFO / POP_TOP / POP_EXCEPT / RETURN_CONST None with NO
+CHECK_EXC_MATCH, so it discards everything and ends the generator normally).
+Both agreed on the test requirement, on the WebKit fallback being acceptable,
+and on the three adjacent bugs below.
+
+They DISAGREED on the remedy, and the disagreement was the useful part:
+
+- **Codex: delete now**, then Task 2 separately. "A partial Task 2 used only to
+  rescue chrome-none is not a useful third design."
+- **Fable: land a field-stack tripwire inside chrome-none FIRST**, then Task 2,
+  then delete. Its argument had a genuinely attractive asymmetry: used purely
+  as a REFUSAL check the tripwire needs no backend gate to be safe, because on
+  an unsupported backend it finds nothing and you are exactly where you are
+  today, never worse.
+
+**Resolved for delete-now on this ground: the tripwire NARROWS the blocker but
+does not CLOSE it.** On WebKit (the module contains no "landmark" string at
+all) and on malformed field stacks it stays silent, so the fail-open path
+survives. A merge blocker has to be closed, not narrowed.
+
+The interim cost is a SILENCE on landmark-free many-chunk pages, which is the
+direction guardrail 3 specifies ("when in doubt, do nothing"). Task 2 restores
+the speed properly.
+
+### Fable was RIGHT and I was WRONG about the blast radius
+
+The brief claimed the regression was not user-facing because the branch is
+unmerged. False, and checkable: the installed add-on under the NVDA addons
+directory contains `chrome-none` (installed 2026-07-18 20:06). The branch build
+is Casey's daily driver, so the fail-open was LIVE, and the soak - the
+project's main evidence instrument - was running on it. That strengthens
+delete-now rather than weakening it.
+
+### Both reviewers corrected the "unbuilt, unprobed" framing of Task 2
+
+`_walk_main_nodes` ALREADY calls `getTextWithFields()` for every chunk
+(`tree_summary.py:2264-2274`) to feed `_role_level_from_fields`. Reading
+`field.get("landmark")` off that already-parsed leading run is dictionary
+lookups. The fetch and the parser are shipped; Task 2 is smaller than the
+previous entry implies, and its walk cost should be slightly BETTER than
+chrome-none rather than merely comparable.
+
+### A trap for the backend gate, found by Codex and worth not re-deriving
+
+**Do not gate on `backendName`.** Chromium does not declare its own - it
+inherits Gecko's "gecko_ia2" - so the string cannot distinguish the engines and
+a gate written against it is gating on the wrong thing. Gate on the TextInfo
+CLASS (isinstance against the Gecko TextInfo, which Chromium passes by
+inheritance). The probe now logs `backend`, `ti_class`, `ti_type` and the NVDA
+version on its START line; the previous run logged none of these, which is why
+its results could not be attributed to an engine after the fact.
+
+### What shipped
+
+- `_document_has_no_landmarks` and the `chrome-none` scope deleted, along with
+  the `no_landmarks` parameter threaded through `_walk_main_nodes` and
+  `_chunk_scope`, and the `_SCOPE_FREE` verdict.
+- `LandmarkScan.exhausted` KEPT but demoted to diagnostic, with the
+  disassembly recorded at the field itself - that is where the next person
+  reaches for it.
+- A block comment where the function used to be, stating why it cannot be
+  rebuilt.
+- `tests/test_chrome_scope.py`: the fast-path block replaced. The old test
+  `..._with_working_enumeration_takes_the_fast_path` drove `FakeTI([])`, which
+  IS the native-swallow shape, and asserted the shortcut engaged - it PINNED
+  THE BUG. The old `exhausted`-separates-the-two-cases test asserted something
+  false and is gone. The new tests assert at the SCOPE-SELECTION level, so a
+  shortcut reintroduced under any name still trips them.
+- `tests/sabotage_check.py` (NEW, reusable). Confirms tests fail when the fix
+  is reverted, in three disguises: verbatim, renamed, and smuggled in as an
+  empty exclusion list. All three caught. It captures the original bytes ONCE,
+  restores in a `finally`, asserts the restore is byte-identical, and re-runs
+  the full suite rather than trusting it - and runs every subprocess with `-B`
+  plus `PYTHONDONTWRITEBYTECODE`, because .pyc validation keys on source mtime
+  and SIZE and has previously made a sabotage run report on code never loaded.
+
+### Still open, in the order I would take them
+
+1. Task 2, the guarded walk path, with the tri-state and the CLASS-based
+   backend gate. Restores the speed this removal cost.
+2. `_count_in_scope` silently DROPS an item whose `obj is None` without setting
+   `truncated_out` (`tree_summary.py:1712`), producing a TRUSTED undercount -
+   poison for NOTICE and KEY_RESULT, which fire on SMALL counts. Note its
+   sibling `_count_in_range` biases the OPPOSITE way on the same class of
+   missing evidence (`:1743`), so the two counting paths disagree about what
+   "no evidence" means.
+3. Objectless chunks still fail open on the ordinary identity branch and the
+   range-error branch of `_chunk_scope`, while `chrome-pos` correctly refuses
+   that shape. Both reviewers said CLAUDE.md mis-files this as an accepted
+   limitation; it is the same fail-open family with a ready-made fix pattern.
+   Pre-existing, so not a blocker.
+4. `classifier.py:448` bumps LIST confidence at `article_count >= 5` while
+   `_ARTICLE_LIMIT = 4` caps the count at 4. Dead branch, confirmed.
+5. Codex adds: the depleted/empty fallback (`tree_summary.py:461-465`) can
+   reopen a correctly filtered document and re-admit cookie/nav/subscription
+   text. Records as a latent correctness bug, not an accepted limitation.
+   Task 2 should make the rescue unnecessary on supported backends.
+
+### The habit that paid here
+
+Running BOTH reviewers in parallel produced a disagreement neither would have
+surfaced alone, and the losing argument still corrected a false claim in my own
+brief. Keep doing this before believing any design on this branch.
+
 ## 2026-07-19 - MERGE BLOCKER in chrome-none, and the field-stack design survives review with conditions
 
 301 tests. `main` still v1.0.13, so NOTHING here is exposed to users.
 
 ### MERGE BLOCKER: `_document_has_no_landmarks` trusts a flag that cannot mean what it claims
 
-**Do not merge `scope-hardening` until this is resolved.** Found by Codex,
-confirmed empirically against the real code:
+**RESOLVED 2026-07-19 by deletion — see the entry above.** The analysis below
+stands and is kept because it is the reasoning that must not be re-derived; only
+the "not decided" disposition at the end is superseded.
+
+Found by Codex, confirmed empirically against the real code:
 
     scan = _find_main_landmark(FakeTI([]))   # yields nothing, returns normally
     scan.seen        == 0

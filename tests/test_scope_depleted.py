@@ -183,10 +183,31 @@ def test_chrome_pos_with_zero_positional_decisions_is_still_eligible():
 	) is True
 
 
-def test_identity_scopes_ignore_the_positional_count():
-	# chrome and main-id never decide positionally, so a stray non-zero count
-	# must not change their eligibility.
-	for kind in ("chrome", "main-id"):
-		assert ts._scope_looks_depleted(
-			kind, chrome_ish(), article_doc(), positional_drops=7
-		) is True
+def test_main_id_ignores_the_positional_count():
+	# main-id is the ONLY scope that still cannot decide positionally: the field
+	# stack answers "inside ANY marked chrome landmark", while main-id asks the
+	# IDENTITY question "inside THE <main> we found", so it is deliberately kept
+	# on the parent chain. A stray non-zero count must not change eligibility.
+	assert ts._scope_looks_depleted(
+		"main-id", chrome_ish(), article_doc(), positional_drops=7
+	) is True
+
+
+def test_chrome_scope_now_respects_its_own_exclusions():
+	"""WAS "identity scopes ignore the positional count", and that premise died
+	when the field-stack path landed.
+
+	A chrome-scoped page can now exclude real chrome WITHOUT a parent chain, via
+	the field stack. Those exclusions need the same protection chrome-pos gets:
+	if the page's exclusions WORKED, widening would re-admit the navigation and
+	cookie text that was correctly removed. The scope NAME cannot separate "made
+	no exclusions" from "made exclusions that worked"; the drop count can.
+	"""
+	# Exclusions worked -> do NOT widen.
+	assert ts._scope_looks_depleted(
+		"chrome", chrome_ish(), article_doc(), positional_drops=7
+	) is False
+	# Nothing was excluded -> the net is still available, as before.
+	assert ts._scope_looks_depleted(
+		"chrome", chrome_ish(), article_doc(), positional_drops=0
+	) is True

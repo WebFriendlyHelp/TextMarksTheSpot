@@ -225,7 +225,37 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.info("[TMTS probe-fields] no ready treeInterceptor on current focus")
 			return
 		url = getattr(ti, "documentConstantIdentifier", "") or ""
-		log.info(f"[TMTS probe-fields] START url={url!r} max_chunks={_MAX_CHUNKS}")
+
+		# BACKEND ATTRIBUTION. Without this, a result set cannot be attributed
+		# to an engine AFTER THE FACT, and the whole mechanism this probe
+		# measures is backend-dependent: field["landmark"] is written by the
+		# BACKEND's _normalizeControlField, not by any TextInfo contract. Gecko
+		# writes it; Chromium inherits Gecko's virtual-buffer TextInfo and so
+		# writes it too; WebKit's normalizer does not contain the string
+		# "landmark" at all, so on WebKit every chunk would read "no landmark"
+		# and all chrome would be admitted as content.
+		#
+		# LOG THE TEXTINFO CLASS, NOT JUST backendName. Chromium does NOT
+		# declare a distinct backend name -- it inherits Gecko's "gecko_ia2" --
+		# so backendName cannot distinguish them and a capability gate written
+		# against the STRING would be gating on the wrong thing. The class name
+		# is what a real gate should key on (isinstance against the Gecko
+		# TextInfo, which Chromium passes by inheritance).
+		backend = getattr(ti, "backendName", None)
+		try:
+			ti_cls = type(ti.makeTextInfo(textInfos.POSITION_FIRST)).__name__
+		except Exception:
+			ti_cls = "?"
+		try:
+			import buildVersion
+			nvda_ver = buildVersion.version
+		except Exception:
+			nvda_ver = "?"
+		log.info(
+			f"[TMTS probe-fields] START url={url!r} max_chunks={_MAX_CHUNKS} "
+			f"backend={backend!r} ti_class={ti_cls} nvda={nvda_ver} "
+			f"ti_type={type(ti).__name__}"
+		)
 
 		try:
 			info = ti.makeTextInfo(textInfos.POSITION_FIRST)

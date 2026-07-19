@@ -752,3 +752,172 @@ def test_focus_move_refuses_an_unplaceable_field_under_a_positional_scope(monkey
 	item = UnplaceableNoRangeItem("unplaceable-no-range")
 	assert ts.set_focus_on_first_form_input(FocusTI([item])) is False
 	assert item.obj.focused == []
+
+
+# ==========================================================================
+# Landmark ancestry from the control field stack (Task 2, 2026-07-19).
+#
+# Replaces the COM parent chain on chrome-scoped pages with the landmark keys
+# already present in the leading control run the walk fetches for the ROLE.
+# Probe evidence, 4 pages / 153 chunks: the field stack never missed a
+# landmark the parent chain found across 48 landmark-bearing chunks, caught
+# three the chain missed and was right about all three, and cost 138.8 ms
+# against the chain's 16,564 ms.
+#
+# EVERY TEST HERE WAS CONFIRMED TO FAIL when its wiring is removed. The whole
+# point of this file is that the RULE being unit-tested is not evidence the
+# rule is CONNECTED.
+# ==========================================================================
+
+
+class GeckoLikeInfo(FakeInfo):
+	"""A TextInfo whose MRO carries the Gecko class NAME, which is what the
+	backend gate keys on.
+
+	Named rather than imported because tree_summary must stay importable
+	outside NVDA. Chromium passes the real gate the same way: by inheritance
+	from Gecko's virtual-buffer TextInfo."""
+
+
+GeckoLikeInfo.__name__ = "FakeGeckoInfo"
+# Rename a synthetic base so the MRO contains the gate's target name.
+Gecko_ia2_TextInfo = type("Gecko_ia2_TextInfo", (FakeInfo,), {})
+
+
+class SupportedInfo(Gecko_ia2_TextInfo):
+	pass
+
+
+class SupportedTI(FakeTI):
+	def makeTextInfo(self, position):
+		return SupportedInfo(self.doc, 0, 0)
+
+
+def lm(text, landmark_key, obj_landmark=None):
+	"""A chunk whose FIELD STACK carries a landmark, independent of what the
+	object's parent chain would say. obj_landmark is deliberately separate so a
+	test can prove WHICH mechanism answered."""
+	field = {"role": FakeRole("PARAGRAPH"), "landmark": landmark_key}
+	return (
+		text,
+		FakeObj("PARAGRAPH", landmark=obj_landmark),
+		[FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
+		 FakeFieldCommand("controlStart", field)],
+	)
+
+
+def walk_supported(doc, **kw):
+	all_nodes, positions, all_positions, positional = [], [], [], [0]
+	nodes = ts._walk_main_nodes(
+		SupportedTI(doc), kw.pop("main_obj", None), {}, positions,
+		all_nodes_out=all_nodes, all_positions_out=all_positions,
+		positional_out=positional, **kw,
+	)
+	return nodes, all_nodes, positional[0]
+
+
+def test_field_stack_drops_a_nav_chunk_without_touching_com():
+	"""SABOTAGE: delete the field_verdict branch in _chunk_scope's chrome path.
+
+	The nav chunk is dropped by its FIELD landmark alone -- its object carries
+	no landmark, so the parent chain would have ADMITTED it. That asymmetry is
+	what proves the field stack answered."""
+	doc = build_doc([
+		lm("Home Products Support About Contact", "navigation"),
+		para("A genuine article paragraph with enough text to be a real node."),
+	])
+	nodes, _all, drops = walk_supported(doc)
+	texts = [n.text_preview for n in nodes]
+	assert not any("Home Products" in t for t in texts), "nav must be excluded"
+	assert any("genuine article" in t for t in texts)
+	assert drops >= 1, "a field exclusion must count as a positional drop"
+
+
+def test_field_stack_accepts_content_without_resolving_an_object():
+	"""SABOTAGE: delete the definitive-NOT_IN_CHROME accept.
+
+	A valid leading run with no landmark is POSITIVE evidence of "no chrome
+	ancestor at this offset" (getTextInRange emits the complete ancestor
+	chain), so it must be accepted with NO object fetch. If the accept is
+	removed the walk falls through to the parent chain and fetches."""
+	doc = build_doc([
+		para("A perfectly ordinary paragraph sitting outside every landmark."),
+	])
+	nodes, _all, _d = walk_supported(doc)
+	assert len(nodes) == 1
+	assert FakeInfo.fetches == [], f"paid for COM anyway: {FakeInfo.fetches}"
+
+
+def test_unsupported_backend_never_uses_the_field_verdict():
+	"""SABOTAGE: delete the _fields_carry_landmarks gate in the walk.
+
+	THE FAIL-OPEN THIS CLOSES. field['landmark'] is written by the BACKEND's
+	normalizer; WebKit's does not write it at all. On such a backend every
+	chunk would report "no landmark" and all chrome would be admitted. The
+	plain FakeTI is not Gecko-derived, so the nav chunk must be decided by the
+	parent chain -- which here means an object fetch actually happens."""
+	doc = build_doc([
+		lm("Home Products Support About Contact", "navigation"),
+		para("A genuine article paragraph with enough text to be a real node."),
+	])
+	nodes, _all, _d = walk(doc)
+	assert FakeInfo.fetches, "unsupported backend must fall back to the object"
+
+
+def test_main_id_keeps_the_identity_filter():
+	"""CONDITION 4. The field stack answers "inside ANY marked chrome
+	landmark"; main-id asks "inside THE <main> we found", which is an IDENTITY
+	question. That equivalence is unprobed, so a page WITH a main_obj must
+	still consult the parent chain even on a supported backend."""
+	main = FakeObj("SECTION", landmark="main")
+	doc = build_doc([
+		("Body text living under the main landmark object here.",
+		 FakeObj("PARAGRAPH", parent=main),
+		 [control("DOCUMENT"), control("PARAGRAPH")]),
+	])
+	walk_supported(doc, main_obj=main)
+	assert FakeInfo.fetches, "main-id must not be answered by the field stack"
+
+
+def test_malformed_field_stack_falls_back_rather_than_admitting():
+	"""A stack we cannot parse is NO EVIDENCE, never a content verdict."""
+	broken = ("Some text of reasonable length for a real node here.",
+	          FakeObj("PARAGRAPH"),
+	          [FakeFieldCommand("controlStart", "not-a-dict")])
+	doc = build_doc([broken])
+	walk_supported(doc)
+	assert FakeInfo.fetches, "malformed stack must fall back to the object"
+
+
+def test_no_leading_control_run_is_unknown_not_content():
+	"""SABOTAGE: delete the `saw_control` guard in _landmark_scope_from_fields.
+
+	FOUND BY THE SABOTAGE CHECK, 2026-07-19 -- the first version of the
+	malformed-stack test above did NOT cover this. It passed a controlStart
+	whose field was not dict-like, which raises and returns via the exception
+	handler; the `saw_control` branch is a different path entirely and was
+	uncovered.
+
+	THE DISTINCTION THAT MATTERS. An empty landmark set means "no chrome
+	ancestor" ONLY when we actually saw the ancestor chain. A stream with no
+	leading controlStart means we saw NOTHING, so it is UNKNOWN -- and UNKNOWN
+	must reach the object, not return the empty-set content verdict.
+
+	Asserting on the fetch count cannot catch this: a chunk with no control run
+	has no field ROLE either, so the walk fetches an object regardless. The
+	assertion has to be on the SCOPE outcome, so the object here carries a nav
+	landmark that only the identity filter can see.
+	"""
+	doc = build_doc([
+		("Home Products Support About Contact Careers Press",
+		 FakeObj("PARAGRAPH", landmark="navigation"),
+		 []),  # non-empty stream, but no leading controlStart
+		para("A genuine article paragraph with enough text to be a real node."),
+	])
+	nodes, _all, _d = walk_supported(doc)
+	texts = [n.text_preview for n in nodes]
+	assert not any("Home Products" in t for t in texts), (
+		"a chunk with no leading control run must fall through to the identity "
+		"filter, which drops it as navigation -- not be admitted as content"
+	)
+	assert any("genuine article" in t for t in texts)
