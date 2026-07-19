@@ -618,6 +618,37 @@ def test_a_page_with_landmarks_never_takes_the_fast_path():
 	assert ts._document_has_no_landmarks(scan, interactive_count=5) is False
 
 
+def test_enumeration_that_died_before_yielding_is_not_a_landmark_free_page():
+	# THE HOLE THIS CLOSES. A landmark enumeration that raises on its FIRST item
+	# returns scanned=0, so seen==0 -- byte-for-byte identical to a document that
+	# genuinely has no landmarks. The interactive-control corroboration does not
+	# separate them: a page can have working link enumeration and dead landmark
+	# enumeration in the same pass.
+	#
+	# Getting this wrong skips the chrome parent-walk ENTIRELY, so every
+	# navigation and footer chunk is admitted as content and a blind user lands
+	# in a menu. The scan caught the exception itself, so it knows; it just used
+	# to throw that away to a log line.
+	scan = ts._find_main_landmark(FakeTI([FakeItem("navigation", NAV)], raise_after=0))
+	assert scan.seen == 0, "precondition: the scan looks landmark-free"
+	assert scan.exhausted is False, "a scan that raised must never claim completeness"
+	assert ts._document_has_no_landmarks(scan, interactive_count=5) is False
+
+
+def test_exhausted_flag_is_what_separates_the_two_zero_seen_cases():
+	# Both scans report seen == 0. Only one of them ran to completion, and that
+	# is the entire difference between the fast path being sound and being a
+	# fail-open bug. Pins the two shapes against each other so neither can drift
+	# into looking like the other.
+	real = ts._find_main_landmark(FakeTI([]))
+	died = ts._find_main_landmark(FakeTI([FakeItem("navigation", NAV)], raise_after=0))
+	assert real.seen == died.seen == 0
+	assert real.exhausted is True
+	assert died.exhausted is False
+	assert ts._document_has_no_landmarks(real, interactive_count=5) is True
+	assert ts._document_has_no_landmarks(died, interactive_count=5) is False
+
+
 def test_unresolvable_landmarks_still_count_as_seen():
 	# An item we could not place is still evidence that landmarks EXIST, so
 	# the fast path must not engage just because nothing was placeable.

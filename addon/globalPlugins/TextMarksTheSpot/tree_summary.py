@@ -821,9 +821,9 @@ class LandmarkScan:
 	the bounded-trust premise for this page (see trust_boundary).
 	"""
 
-	__slots__ = ("main_obj", "main_range", "chrome_ranges", "other_ranges", "trust_boundary", "ordered", "seen")
+	__slots__ = ("main_obj", "main_range", "chrome_ranges", "other_ranges", "trust_boundary", "ordered", "seen", "exhausted")
 
-	def __init__(self, main_obj=None, main_range=None, chrome_ranges=None, trust_boundary=None, ordered=True, other_ranges=None, seen=0):
+	def __init__(self, main_obj=None, main_range=None, chrome_ranges=None, trust_boundary=None, ordered=True, other_ranges=None, seen=0, exhausted=False):
 		self.main_obj = main_obj
 		self.main_range = main_range
 		self.chrome_ranges = chrome_ranges if chrome_ranges is not None else []
@@ -833,6 +833,16 @@ class LandmarkScan:
 		# How many landmark items the enumeration yielded, of any kind.
 		# ZERO is the interesting value -- see _document_has_no_landmarks.
 		self.seen = seen
+		# True ONLY when the enumeration ran to natural completion. False when
+		# it was cut short by the scan cap, the deadline, or an exception, and
+		# False by DEFAULT so an unproven scan never claims completeness.
+		#
+		# Load-bearing for _document_has_no_landmarks: `seen == 0` from an
+		# exhausted scan means "this document has no landmarks", but `seen == 0`
+		# from a scan that DIED means "we know nothing". Those must never be
+		# conflated -- the second one skips the chrome parent-walk entirely and
+		# admits navigation text as content.
+		self.exhausted = exhausted
 
 
 def _usable_range(item):
@@ -1136,8 +1146,23 @@ def _document_has_no_landmarks(landmarks: "LandmarkScan", interactive_count: int
 	excluded as chrome are kept, which is the same tree the unscoped fallback
 	produces on any page whose scope filter fails -- and the landing finders'
 	chrome heuristics still run over it.
+
+	THIRD REQUIREMENT, added after review: the scan must have RUN TO COMPLETION.
+	`seen == 0` is produced by two entirely different events -- a document with
+	no landmarks, and an enumeration that raised before yielding its first item.
+	The second returns scanned=0 and is otherwise byte-for-byte identical to the
+	first. The interactive-control corroboration above narrows that, but does
+	not close it, and this branch skips the chrome parent-walk ENTIRELY, so
+	being wrong here admits navigation and footer text as content -- a blind
+	user lands in a menu. The scan already knows which event happened (it caught
+	the exception itself); it simply used to throw that away to a log line. Now
+	it is carried on the scan and required here.
+
+	Note the cap and deadline paths examine an item BEFORE breaking, so they
+	report seen >= 1 and were already excluded by the first condition. Requiring
+	exhausted is belt-and-braces for those and load-bearing for the exception.
 	"""
-	return landmarks.seen == 0 and interactive_count > 0
+	return landmarks.seen == 0 and landmarks.exhausted and interactive_count > 0
 
 
 def _select_scope(landmarks: "LandmarkScan"):
@@ -1366,11 +1391,18 @@ def _find_main_landmark(treeInterceptor) -> "LandmarkScan":
 			# missing range leaves a field eligible exactly as before.
 			return LandmarkScan(obj, rng, chrome_ranges, trust_boundary, probe_ordered, other_ranges, scanned)
 	except Exception:
+		# An enumeration that DIED. If it died before yielding anything,
+		# scanned is 0 and this is byte-for-byte the shape of a landmark-free
+		# document -- so exhausted=False is the only thing separating "no
+		# landmarks here" from "we never found out". Never pass True here.
 		probe_stopped = "exception"
 		_log_landmark_probe(probe_types, probe_ordered, probe_no_range, probe_stopped)
-		return LandmarkScan(None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges, scanned)
+		return LandmarkScan(None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges, scanned, False)
 	_log_landmark_probe(probe_types, probe_ordered, probe_no_range, probe_stopped)
-	return LandmarkScan(None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges, scanned)
+	return LandmarkScan(
+		None, None, chrome_ranges, trust_boundary, probe_ordered, other_ranges, scanned,
+		probe_stopped == "exhausted",
+	)
 
 
 def _single_article_scope_range(treeInterceptor, deadline: Optional[float] = None):
