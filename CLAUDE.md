@@ -140,6 +140,30 @@ Output: `TextMarksTheSpot-<version>.nvda-addon` at the project root, named from 
 
 Running `scons` by hand is for **local smoke-testing only**, not for publishing — see "Releasing" below.
 
+### Committing and pushing: standing authorization (granted 2026-07-19)
+
+Casey has delegated the *timing* of commits and pushes on this project. Use your
+judgement: commit at meaningful checkpoints, push so work is not stranded on one
+machine, and do not stop to ask each time.
+
+(No `.claude/settings.json` for this — one was written and removed the same day
+at Casey's request. A settings file only suppresses harness permission prompts,
+which he is not seeing; the policy is what matters and it lives here. Revisit
+only if prompts actually start interrupting him.)
+
+This covers `git add` / `commit` / `push` of code, tests, and docs on a branch.
+It does NOT extend to anything that reaches users, and the boundary is not
+subtle: **a tag push is a release.** `.github/workflows/release.yml` fires on
+`v*.*.*` and publishes to GitHub Releases, which is what the Add-on Store entry
+downloads. So `git tag`, pushing a `v*` ref, `gh release`, and any store
+submission still need Casey to say go — they are in the `ask` list for exactly
+that reason. Same for force-pushes and hard resets, which destroy work rather
+than publish it.
+
+The reason to keep pushing freely: this branch sat 20 commits deep and entirely
+unpushed for days. That is a single-drive failure away from losing a week of
+reasoning that lives mostly in commit messages and implementation-notes.md.
+
 ### Releasing (CI publishes — do NOT create the release by hand)
 
 Releases are published automatically by `.github/workflows/release.yml`. Pushing a tag matching `v*.*.*` triggers a windows-latest job that runs the tests, builds with SCons, and creates the GitHub release with two assets: `TextMarksTheSpot-<version>.nvda-addon` (versioned/archival) and `TextMarksTheSpot.nvda-addon` (unversioned — backs the stable "Latest" download URL).
