@@ -2,6 +2,134 @@
 
 Newest entries at the top.
 
+## 2026-07-19 - MERGE BLOCKER in chrome-none, and the field-stack design survives review with conditions
+
+301 tests. `main` still v1.0.13, so NOTHING here is exposed to users.
+
+### MERGE BLOCKER: `_document_has_no_landmarks` trusts a flag that cannot mean what it claims
+
+**Do not merge `scope-hardening` until this is resolved.** Found by Codex,
+confirmed empirically against the real code:
+
+    scan = _find_main_landmark(FakeTI([]))   # yields nothing, returns normally
+    scan.seen        == 0
+    scan.exhausted   == True
+    _document_has_no_landmarks(scan, 5) == True   # -> chrome-none
+
+`exhausted` is set when OUR loop completes. NVDA's `_iterNodesByAttribs`
+CATCHES the native exception from `VBuf_findNodeByAttributes` and RETURNS, so a
+natively failed landmark search is an ordinary, empty, completed generator.
+`exhausted=True` therefore rules out a Python exception escaping the iterator
+and NOTHING ELSE - while the docstring claims "the scan already knows which
+event happened (it caught the exception itself)". It knows about one of the two
+events.
+
+Consequence: on a page whose landmark search failed natively but whose link
+enumeration worked, `chrome-none` activates, the walk skips chrome checking
+ENTIRELY, and navigation and footer text are admitted as content. A blind user
+lands in a menu. That is the release-blocker failure class.
+
+`tests/test_chrome_scope.py:621` gives false confidence: it drives the iterator
+with `raise_after=0`, which makes the exception ESCAPE. That is the shape
+`exhausted` genuinely catches. The shape NVDA actually produces - swallowed,
+empty, normal return - is untested, and passes.
+
+This is the SAME indistinguishability that killed `chrome-pos-attempt`,
+reintroduced in a different function. And it was looked at directly earlier the
+same day, in the Change A analysis, and written down as "a pre-existing accepted
+risk in the walk" instead of as a bug. Noticing a hazard and mis-filing it is
+its own failure mode; the Change A reasoning depended on that same fact and
+correctly rejected the change, so the observation was RIGHT and the disposition
+was wrong.
+
+Two candidate fixes, NOT decided:
+1. Delete `chrome-none`, falling back to the identity chrome filter (the
+   pre-2026-07-18 behaviour). Sound, simple, costs the measured speed on
+   landmark-free pages (stevequayle's walk was 84 ms with it).
+2. Gate it on field-stack landmark evidence, which does not consult the
+   enumeration at all - but that is the unbuilt design below, so this couples a
+   blocker fix to new work.
+
+### The field-stack design: question 1 is answered, in its favour
+
+Both reviewers verified from `nvdaHelper/vbufBase/storage.cpp` READ DIRECTLY
+(downloaded, not summarized) that `VBufStorage_fieldNode_t::getTextInRange`
+emits its own opening tag unconditionally and recurses into every child whose
+span overlaps the range, starting at `rootNode`, with the filter argument
+defaulted to NULL. Every positive-length field ancestor of the range start is
+therefore emitted, and presentation filtering happens LATER, in
+`getEnclosingContainerRange`. The installed bytecode confirms
+`_getFieldsInRange` drops no commands.
+
+**So the leading control run is the complete virtual-buffer ancestor chain.**
+The fail-open the brief feared does not exist on the proven backend.
+
+### Four conditions the reviews attached, all of which change the design
+
+1. **"No landmark in the stack" is NOT "content".** Name it `NOT_IN_CHROME`.
+   It proves only "no marked chrome landmark ancestor at this offset in the
+   vbuf" - not that the document has no landmarks, not that the site marked its
+   chrome correctly. Three states are required: definitive-chrome,
+   definitive-not-in-chrome, and UNKNOWN (failed call, `''`/`['']`, no leading
+   controlStart, malformed field, unsupported backend). The walk already models
+   exactly this with `had_field` in `_role_level_from_fields`.
+2. **Backend gate, or it is fail-open.** `field["landmark"]` is BACKEND
+   normalization, not a `TextInfo` contract. Gecko/Chromium populate it;
+   **WebKit's normalizer does not**. On an unsupported backend every chunk
+   would read "no landmark" and all chrome would be admitted. The probe does
+   not log `backendName`, so it establishes nothing cross-backend.
+3. **The two mechanisms are independent in TRAVERSAL ONLY.** The previous
+   entry's "second independent source" claim is too strong and is corrected
+   here. `_normalizeControlField` and `Ia2Web._get_landmark` compute the same
+   `next()` over the same `aria.landmarkRoles` set and null it under the same
+   condition, so if a browser misreports `xml-roles` BOTH go blind. The field
+   stack IS independent of the landmark ENUMERATION, which is what the Change A
+   objection was about - that part stands, narrowly.
+4. **`main-id` is not answerable this way.** "Is this inside THE `<main>` we
+   found" is identity (`cur is main_obj`); `landmark == "main"` matches ANY
+   main. Unprobed. Either keep identity there or match
+   `controlIdentifier_docHandle`/`_ID`, which needs its own probe.
+
+### Combination rule, and why "chrome if EITHER says chrome" is wrong
+
+It keeps a COM chain for every clean CONTENT item, which is the majority, so it
+forfeits nearly the whole win - and for the COUNTS it is not even conservative:
+a false chrome verdict REMOVES items without setting `counts_truncated`, and
+smaller counts manufacture NOTICE and KEY_RESULT. Agreed rule instead: field
+says chrome -> exclude; field definitively not-in-chrome -> accept, no COM;
+unknown -> `_in_scope_verdict`; parent unknown -> keep (walk/counts) or refuse
+(focus). `_in_scope` is retired as the ROUTINE authority, kept as the fallback.
+
+The focus gate gets a stricter rule than either: the field stack is a buffer
+SNAPSHOT while `setFocus()` acts on the LIVE object, and a dynamic page can
+reparent the control in between (unmeasured race). So require definitive field
+permission AND a live `_in_scope_verdict(...) is True` immediately before
+`setFocus()`. That is one COM chain per FORM page, not per chunk.
+
+### Counts: do NOT extrapolate the 0.7-1.1 ms figure
+
+That is a PARAGRAPH number. A quick-nav item's range can be a whole article, and
+`getTextWithFields` serializes and parses everything inside it. Collapse to the
+item start and expand ONE CHARACTER instead - the leading run there still
+carries full ancestry. Budget math before committing: 6 types x 300-item scan
+cap x ~1 ms is ~1.8 s against a 0.6 s counts budget, so `counts_truncated`
+stays load-bearing and "cheap against COM" is not "fits the budget".
+
+Also found, unrelated and real: `_count_in_scope` silently DROPS an item whose
+`obj is None` without setting `truncated_out`, producing a TRUSTED undercount.
+
+### Agreed plan
+
+1. Resolve the `chrome-none` blocker (decision needed).
+2. Build the guarded WALK path only, on Gecko/Chromium, with the tri-state and
+   the backend gate, pinned by deletion-confirmed end-to-end tests.
+3. Probe before the COUNTS: one-character call cost distribution (MAX, not
+   average), backend name, NVDA version.
+4. Probe before touching `main-id`.
+5. Do NOT delete `trust_boundary` / `untrusted_ranges` / `_chrome_pos_verdict`
+   in the same change that adds the field path. Two steps, each pinned.
+6. One Firefox rerun of the probe before calling the mechanism cross-engine.
+
 ## 2026-07-18 (night) - the counts fix died in review, and the safety net it would have leaned on was fail-open
 
 301 tests. Uncommitted on `scope-hardening`. `main` still v1.0.13.

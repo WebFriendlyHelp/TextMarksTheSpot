@@ -1907,9 +1907,9 @@ def _role_level_from_fields(fields):
 	vovsoft pages every one of those fetches was wasted because the scope
 	decision was fully positional.
 
-	WHAT THE PROBE ESTABLISHED, AND WHAT IT DID NOT (probes/field_stack, run
-	2026-07-18 on apnews, x.com, imdb, zoom, food.com, stevequayle, bestmidi,
-	payproglobal; 219 chunks).
+	WHAT THE PROBE ESTABLISHED, AND WHAT IT DID NOT (probes/field_stack, first
+	run 2026-07-18 on apnews, x.com, imdb, zoom, food.com, stevequayle,
+	bestmidi, payproglobal; 219 chunks — a result later DISOWNED, see below).
 
 	It DID establish that chunks_with_no_control_field was 0 on every page, so
 	the per-paragraph control node the whole approach depends on does exist;
@@ -1923,10 +1923,17 @@ def _role_level_from_fields(fields):
 	disagree_innermost=0 could not have caught the difference for two reasons:
 	the probe implemented the same whole-stream rule, and its comparison
 	reduced roles to heading/skip/paragraph, so LINK against PARAGRAPH scored
-	as agreement. Both reviewers found this independently. The probe has since
-	been corrected to read the leading run and to compare exact roles, so a
-	RERUN is what would establish equivalence — the existing 219-chunk result
-	does not.
+	as agreement. Both reviewers found this independently.
+
+	THE RERUN HAPPENED, and equivalence is now MEASURED (2026-07-19, corrected
+	probe: thurrott, deadline, stevequayle, vovsoft; 153 chunks).
+	`disagree_role_exact = 0` — EXACT role equality against NVDAObjectAtStart,
+	not the reduced decision that hid the bug last time. Crucially
+	`trailing_control_chunks = 26`, so the inline-control shape that broke the
+	first implementation WAS sampled, on 14 stevequayle chunks alone. That
+	second number is the point: the earlier unanimous result was worthless
+	precisely because the shape never occurred, and a check that could not
+	have failed proves nothing. Ask that of any unanimous number here.
 
 	WHY NOT HEADING-FIRST. The probe scored heading-first (any HEADING on the
 	stack wins) alongside innermost, and it recorded zero disagreements —
@@ -2338,7 +2345,9 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 			# still goes into all_nodes_out so the caller can use it if the
 			# scope filter turns out to have rejected the entire document.
 			# Field-stack role when the buffer gave one (the overwhelmingly
-			# common case: 219 of 219 chunks across 8 probe pages). Only when
+			# common case: no chunk in either probe run lacked one —
+			# chunks_with_no_control_field=0 across 153 chunks / 4 pages
+			# in the corrected 2026-07-19 run). Only when
 			# it gave NO control field do we pay for an object — and note the
 			# fallback is _node_for, not a bare paragraph, because a chunk
 			# with no control field could still be an image-only heading and
@@ -2483,7 +2492,8 @@ def _node_from_role(role_name: Optional[str], level: int, text: str) -> Optional
 	# The walk feeds this from the control field stack (see
 	# _role_level_from_fields); _node_for feeds it from an NVDAObject. Both
 	# callers must reach the same answer, which is what the probe's
-	# disagree_innermost=0 across 219 chunks established.
+	# disagree_role_exact=0 across 153 chunks established (2026-07-19).
+	# NOT the disowned 219-chunk run, whose comparison could not fail.
 	#
 	# role_name None means "no role evidence" — from an absent object or an
 	# absent control field. Both are treated as plain text, which is what the

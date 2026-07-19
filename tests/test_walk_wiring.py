@@ -198,7 +198,13 @@ def walk(doc, **kw):
 
 def para(text, landmark=None):
 	"""A paragraph chunk that the buffer DOES emit a control field for, which
-	is what all 219 probe chunks looked like."""
+	is what every chunk looked like in the corrected probe run (153 chunks
+	over 4 pages, 2026-07-19: chunks_with_no_control_field=0).
+
+	It used to cite "all 219 probe chunks". That run is disowned — its
+	comparison reduced roles to heading/skip/paragraph, so LINK scored as
+	agreement with PARAGRAPH, and its sample contained none of the shape it
+	was supposed to validate. Do not cite it again."""
 	return (
 		text,
 		FakeObj("PARAGRAPH", landmark=landmark),
@@ -389,8 +395,13 @@ def test_ends_sentence_flag_is_computed_past_the_preview_cutoff():
 # 6. The field stack replaces the object for ROLE, and the object stays lazy
 # --------------------------------------------------------------------------
 #
-# Probe evidence (probes/field_stack, 219 chunks over 8 pages):
-# chunks_with_no_control_field=0, disagree_innermost=0, field['level'] a str.
+# Probe evidence (probes/field_stack, corrected run 2026-07-19, 153 chunks
+# over 4 pages): chunks_with_no_control_field=0, disagree_role_exact=0 (EXACT
+# role equality, not the reduced decision), trailing_control_chunks=26 so the
+# inline-control shape was actually sampled, field['level'] a str.
+#
+# The earlier 219-chunk run is disowned and must not be cited: its comparison
+# reduced roles to heading/skip/paragraph, so it could not have failed.
 #
 # SABOTAGE THESE CATCH: reverting to an eager `obj = info.NVDAObjectAtStart`;
 # reading the OUTERMOST control field instead of the innermost; dropping the
@@ -398,10 +409,11 @@ def test_ends_sentence_flag_is_computed_past_the_preview_cutoff():
 # heading check (which deletes image-only headings).
 
 def test_role_comes_from_the_innermost_control_field():
-	# A heading wrapping a link. INNERMOST is the rule with 219 chunks behind
-	# it; outermost-wins would call this a DOCUMENT and heading-first would
-	# call it a heading. The probe never observed this shape, so innermost is
-	# what we implement — see _role_level_from_fields.
+	# A heading wrapping a link. Outermost-wins would call this a DOCUMENT and
+	# heading-first would call it a heading. NEITHER probe run observed this
+	# shape, so innermost is not chosen on counts — it is chosen because it
+	# matches NVDA's own container resolution in getEnclosingContainerRange.
+	# See _role_level_from_fields.
 	role, level, had = ts._role_level_from_fields([
 		control("DOCUMENT"), control("HEADING", 2), control("LINK"),
 	])
