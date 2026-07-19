@@ -2,6 +2,99 @@
 
 Newest entries at the top.
 
+## 2026-07-18 (evening) — the vovsoft diagnosis in the entry below is WRONG
+
+Four commits on `scope-hardening`, all verified on live pages. 267 tests.
+
+### Correcting the entry below before anything else
+
+**Open item 1 below names the wrong mechanism, and a second wrong mechanism was
+added on top of it before anyone checked.** Both were disproved by the decision
+traces already sitting in `nvda.log`.
+
+- The entry says the 200-char `VERY_SUBSTANTIAL_PARAGRAPH_CHARS` shortcut caused
+  it. It did not. Network Alarmer and Read Mode mislanded with descriptions of
+  263/207 and 220/681/587 chars — all comfortably OVER 200. They would have won
+  that rule outright.
+- I then proposed walk truncation. Also wrong, and the reasoning that kills it is
+  simple enough that I should have seen it unaided: the walk only removes the
+  TAIL, so the blurb winning PROVES the description was walked too. Network
+  Alarmer and Read Mode both mislanded with `truncated=False`.
+
+**The real mechanism: `_find_content_section_landing`.** It matched the "Key
+Features" heading and then scanned forward with NO distance limit, stopping only
+at the next heading. On a page whose matching heading is the LAST one, it ran to
+the end of the document and claimed the licensing paragraph 15 nodes past its own
+section. It runs BEFORE the size and cluster cascade, so it outranks everything.
+Fixed with a 4-node bound matching the hero gate: a heading vouches for the text
+it INTRODUCES, not for everything downstream.
+
+**The purchase-vocabulary fix proposed below was NOT implemented, deliberately.**
+Four vendors (vovsoft, JAM, Ghisler, NCH) showed no shared formula — there is no
+FTC-equivalent mandating purchase wording, which is the whole reason the
+affiliate and SMS families are tractable. Worse, it could not have fired: the
+vovsoft blurb's first 60 chars are "To receive license key and use all features
+of the software, " (61 chars), so every distinctive phrase sits past the preview
+cutoff, leaving only "license key" — far too broad, since installation notes and
+licensing FAQs are genuine content on those same pages. And `_is_chrome_paragraph`
+feeds the Z forward scan, so flagging it would make that paragraph unreachable by
+Z on a real order page, where it is the content the user came for.
+
+### Also shipped
+
+- **Definitional lede.** The cluster gate awards the landing to the FIRST of two
+  adjacent substantial paragraphs, which on a product page is routinely a
+  prerequisite note above the description. `"<Subject> is a/an/the ..."` is a
+  general prose pattern and the subject is the page's own H1. Built as a
+  REFINEMENT, not a gate: it can only move a landing FORWARD a few nodes inside
+  the block the cluster gate already chose. The cascade's documented fault is
+  awarding on rule ORDER over evidence strength, so a new early gate would risk
+  preempting good landings elsewhere.
+- **`chrome-none` fail-open closed** (was called a merge blocker in review).
+  `seen == 0` is produced BOTH by a landmark-free document and by an enumeration
+  that raised before yielding its first item. The cap and deadline paths examine
+  an item before breaking so they report `seen >= 1` and were already safe; the
+  exception path was not. It always knew it had failed and threw that away to a
+  log line. Now carried as `LandmarkScan.exhausted`, defaulting False.
+- **Empty tree no longer announces failure.** IMDb played the not_found tone
+  twice against a buffer holding one chunk and zero nodes, then landed correctly
+  four seconds later off its own fresh documentLoadComplete. Zero nodes means the
+  buffer is not built, not that the page is empty. Capped at 2.5 s to the tone
+  (Casey's call), with three looks inside that window — affordable only because
+  an empty walk costs 2-4 ms.
+
+### The lesson from this round
+
+**Two plausible mechanisms were argued at length before anyone read the decision
+trace.** The trace was already on disk, and it named the function outright. The
+perf finding that anchored my wrong theory was real and independently confirmed
+— `NVDAObjectAtStart` IS 60-98% of those walks — which is exactly what made it
+seductive: a true fact about the page, doing no work in the argument. *A correct
+observation is not a diagnosis.* DEBUGGING.md already says logs before theories;
+the failure was reading the perf log (shape) and not the decision trace (choice).
+
+### Open, unchanged and still worth doing
+
+The perf work below is untouched and still the biggest win. The field-stack probe
+is written, committed, and UNRUN at `probes/field_stack/`, with kill criteria
+fixed in advance — build with `python probes/build_probe.py field_stack`, trigger
+with NVDA+shift+f, grep `[TMTS probe-fields]`. Note gotcha (g) in that work:
+`NVDAObjectAtStart` also feeds `_in_scope`, so the object fetch may only become
+LAZY on the identity path, never removed outright.
+
+Two smaller ones surfaced in review, both real, neither started:
+
+1. **The 60-char preview makes `_EDITORIAL_DISCLOSURE_MAX_CHARS = 300` dead code
+   at runtime**, and it cuts both ways: phrases past char 60 are invisible, AND a
+   long genuine lede whose first 60 chars contain a disclosure phrase gets
+   chrome-flagged with no length protection. The tests pass full sentences
+   straight to the function, so they validate behaviour the runtime never sees —
+   the same tests-pass-while-wiring-differs class catalogued twice below. Fix by
+   promoting it to a walk-time flag like `is_caption` / `is_boilerplate`.
+2. **Counts are still identity-scoped on `chrome-pos`** (~630 ms), so counts and
+   walk can describe different trees. FORM is the intent that moves keyboard
+   focus, which is why it matters.
+
 ## 2026-07-18 — a wrong-answer cache, a regression from fixing it, and four review rounds
 
 All of today's work is on branch `scope-hardening` (4 commits). **`main` is untouched
@@ -48,7 +141,11 @@ works, and reflects the NVDA actually running on this machine rather than master
 
 ### Open, in the order I would take them
 
-1. **Purchase/licensing boilerplate beats real content.** vovsoft product pages: two of
+1. **[SUPERSEDED 2026-07-18 evening — WRONG MECHANISM AND WRONG FIX. See the entry
+   at the top of this file before acting on any of it. The cause was
+   `_find_content_section_landing` scanning without a distance bound; the
+   purchase-vocabulary fix proposed here was rejected and NOT implemented.]**
+   **Purchase/licensing boilerplate beats real content.** vovsoft product pages: two of
    four landed on a 387-char "To receive license key..." blurb instead of the product
    description (131/178 chars). Mechanism is the documented rule-order fault — any
    paragraph 200+ chars wins immediately, so shorter genuine content must clear the
