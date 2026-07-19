@@ -2,6 +2,204 @@
 
 Newest entries at the top.
 
+## 2026-07-18 (night) - the counts fix died in review, and the safety net it would have leaned on was fail-open
+
+301 tests. Uncommitted on `scope-hardening`. `main` still v1.0.13.
+
+### What was planned, and why none of it shipped
+
+The target was the counts phase, which the lazy-fetch work promoted into the
+dominant cost (646-691 ms on chrome-scoped pages; 691 of stevequayle's 777 ms,
+`counts_trunc=True` every time). Two changes were designed and sent to two
+independent reviewers. Both reviewers rejected the main one, for the same
+reason, arrived at separately.
+
+**Change A - count document-wide on `chrome-none` - is dead. Do not rebuild
+it.** The argument was that on a page whose landmark scan emitted nothing, the
+parent chains "can only ever conclude in scope", so paying for them is waste.
+That is true only when the enumeration told the truth. NVDA swallows the native
+failure inside `_iterNodesByAttribs`, so a silently failed scan is
+indistinguishable from a landmark-free page - and on that page the parent chain
+is the ONLY independent evidence the scan lied. The 691 ms is not computing a
+foregone conclusion; it is the second opinion.
+
+Worse, it is circular. `interactive_count` is itself one of the counts, and
+`_document_has_no_landmarks` consumes it as the corroboration that decides
+whether the WALK drops its filter. Counting document-wide would have produced
+the number that then proved no chrome exists - a corroborator downstream of the
+assumption it exists to check. After the change, `interactive_count > 0` could
+fail only on a page with no controls at all: hollow evidence, the exact pattern
+this file already records twice.
+
+And a second path neither of us had spotted: `tree_summary.py:366` promotes
+scope to positional `article` when the article count is exactly 1, BEFORE
+`chrome-none` is decided. A document-wide article count could therefore scope
+the entire walk to a single `<article>` sitting inside chrome.
+
+**Change B - bounded-trust positional counts on `chrome-pos` - survived, but
+shrank.** It helps vovsoft (88 of 109 chunks were decided positionally there)
+and does nothing for thurrott, whose only landmark is a top nav, putting the
+trust boundary at offset 0. Both reviewers also caught a factual error in the
+brief: it claimed the counts are "inclusive on a missing textInfo" and proposed
+preserving that. That is `_count_in_range`'s behaviour, on main-pos/article
+pages. The path Change B touches uses `_count_in_scope`, which requires an
+object (`tree_summary.py:1631`), so "preserve the bias" would have flipped
+no-evidence items from excluded to COUNTED, in the direction of FORM. Shelved
+rather than shipped, on Casey's call, because the real fix below subsumes it.
+
+### What DID ship: the identity filter could not say "I do not know"
+
+Review found a wrong-answer bug, pre-existing and independent of the perf work.
+`_in_scope` ended with `result = main_obj is None` for every way of leaving the
+parent walk without an answer - a dereference that raised, or a chain deeper
+than the 30-ancestor cap. On a page with no `<main>` that expression is True.
+So **"we could not prove this is chrome" was returned as "this is proven
+content"**, and the verdict was then cached against every ancestor visited on
+the way, handing one COM failure's unearned answer to every sibling under that
+chain.
+
+It lands hardest where the design leans on it hardest. `chrome-pos` routes its
+undecidable chunks to the identity filter AS its safety mechanism, and
+`_form_field_in_scope` - the path that calls `setFocus()` - documented itself
+as "Fails CLOSED throughout" while delegating there. It did not fail closed.
+One failed dereference could put a blind user's caret in a header search box.
+
+`_in_scope_verdict` is now tri-state; `_in_scope` is a thin wrapper keeping the
+OLD default for the walk and counts, whose documented policy really is "keep
+what you cannot classify". The focus path takes the tri-state and accepts only
+True. Both of its identity fallbacks were fixed: the second one matters because
+`article` scope is positional with NO `<main>`, so `main_obj is None` there too
+and the old default read as content.
+
+An undecided walk now caches NOTHING. That is a deliberate perf tradeoff on the
+failure path (a truly unreachable chain is re-walked per item), and it is the
+half of the bug that made a single failure contagious.
+
+### Trap I walked into, caught by an existing test
+
+Restructuring the loop, I set `decided = True` on clean root termination but
+never computed the answer, so the ordinary case returned None. Caught by
+`test_focus_move_skips_a_field_inside_chrome`. Worth recording because it is
+the failure mode of tri-state refactors generally: the "ran out of ancestors"
+exit is the ONE place the old blanket default was correct, and it is easy to
+delete along with the three places it was not.
+
+### Known divergence, deliberate, NOT resolved
+
+A form control the focus gate would refuse for lack of evidence can still
+contribute to `form_input_count`. So the counts can call a page FORM and the
+focus gate can then decline every field that made it one. Codex proposed
+tightening the counts to match. Not done: it changes classification on pages we
+have no measurement for. The probe now reports how often the undecided path is
+reached at all - decide it on that number.
+
+### The real answer to BOTH perf problems, and it needs the probe first
+
+Both reviewers independently landed on the same direction, and it is better
+than anything in the original brief because it fixes the counts AND the walk's
+parent chains on identity-bound pages (thurrott: `scope=1805ms`, 141
+dereferences, truncated at 26 chunks and 5 nodes).
+
+**Read landmark ancestry off the leading control field stack.** Verified in the
+INSTALLED `virtualBuffers/__init__.pyc`: NVDA's own `getEnclosingContainerRange`
+pops control fields and tests `field.get("landmark")`. The leading run is the
+ancestor stack at the range start (established last session against the same
+function). So the ancestry `_in_scope` buys at 13-18 ms per COM dereference may
+already be in data the walk fetches in-process for well under a millisecond -
+and unlike every positional design tried here, it does NOT depend on the
+landmark enumeration being complete, which is the constraint that killed
+attempts 1 and 2.
+
+Also verified this round, from source downloaded and read directly (not a
+summary): `storage.cpp:207-220` `locateTextFieldNodeAtOffset` accumulates
+`tempOffset += child->length` with `nhAssert(firstChild != NULL || length ==
+0)`, so children exactly partition their parent's span and any two vbuf nodes
+NEST OR ARE DISJOINT - partial overlap is impossible. That confirms a proposal
+to advance `trust_boundary` from the last landmark's START to its END is sound.
+It is also small: it makes chunks INSIDE the top nav decidable, while thurrott's
+content sits after the nav and stays on the identity path. Both reviewers said
+so independently. Sound, cheap, not the win.
+
+### PROBE RESULTS, 4 pages, 153 chunks (run 2026-07-19)
+
+thurrott.com front, deadline.com article, stevequayle.com front, vovsoft
+product page. Casey installed and triggered each himself.
+
+**1. Role equivalence is now MEASURED, not argued.** `disagree_role_exact=0`
+across all 153 chunks, with `trailing_control_chunks` totalling 26 - so the
+inline-control shape that broke the first implementation was richly sampled
+(14 on stevequayle alone) rather than absent. This is the honesty gap the
+previous entry opened; it is closed. The 219-chunk claim it replaces was
+worthless for the reason recorded there.
+
+**2. Landmark ancestry: the field stack never missed a landmark the parent
+chain found.** 48 chunks carried a landmark on the object side, across three
+pages, and in that direction there were zero disagreements. That direction is
+the dangerous one - a missed landmark serves navigation as article text.
+
+**3. It found three the parent chain MISSED, and it was right about all
+three.** On deadline: `banner` on "Got A Tip?" and "Deadline", and
+`banner`+`navigation` on "BOX OFFICE". The object chain reported
+`outcome=root` on each, i.e. it walked to the top and concluded there was no
+landmark at all. Note the dereference counts: 3, 2, 3. A header link's real
+ancestry is far deeper than three nodes, so those chains are terminating
+early. That is independent corroboration, from a new direction, of the
+"identity check silently fails" limitation CLAUDE.md has carried since the
+Calendar and bestmidi cases.
+
+Pre-registered criterion was `lm_disagree > 0` kills it UNTIL THE CAUSE IS
+UNDERSTOOD. The cause is understood and it favours the substitution. Recording
+that explicitly so nobody later reads it as a threshold quietly reinterpreted
+after the fact.
+
+**4. The fail-open fixed today is reached on 7.2% of chunks in the wild**
+(`lm_chain_error` 4 + 0 + 3 + 4 = 11 of 153). Before today every one of those
+was reported as proven content on no evidence. That is not a rare path, and it
+settles the open counts-divergence question below as a real decision.
+
+**5. Cost, summed over the four pages: 16,564 ms of parent chains against
+138.8 ms of field stack.** Roughly 119x. (The probe's chain walk is uncached
+where production caches ancestors across chunks, so the production figure is
+lower - thurrott measured 1805 ms against the probe's 2835 ms. The ratio stays
+overwhelming either way.)
+
+**6. stevequayle proved nothing about agreement, by design.**
+`lm_stack_any=0` and `lm_obj_any=0`: neither method found a landmark on any of
+40 chunks, so `lm_disagree=0` there could not have been anything else. Counted
+as no evidence, per the criterion set in advance. What it does show is that the
+enumeration told the truth on that page, and that establishing so cost 499
+dereferences and 6.5 seconds.
+
+### WHAT THIS CHANGES ABOUT CHANGE A, which was correctly killed
+
+The reviewers' objection was precise: the parent chain is the ONLY independent
+evidence that a zero-landmark enumeration lied, so removing it removes the
+check. That objection was right when it was made and is now obsolete. **The
+control field stack is a SECOND independent source of landmark ancestry.** It
+does not consult the landmark enumeration at all, and it costs about a
+millisecond per item.
+
+So the counts fix is not "trust the enumeration and count document-wide" and
+not the sampled spot-check both reviewers proposed as a mitigation. It is
+"verify the enumeration cheaply, per item, from data we already fetch". That is
+strictly better than anything in the reviewed brief.
+
+NOT YET DESIGNED OR REVIEWED. The next session should write it up properly and
+send it out before implementing - what the reviewers approved is not what this
+would be, and the last three sessions each shipped something a review would
+have caught. Open questions at minimum: whether the counts should call
+getTextWithFields per quick-nav item (the walk gets it for free, the counts do
+not); whether a landmark-free field stack is positive evidence of content or
+merely absence of evidence; and whether `_in_scope` should be retired on these
+paths or kept as the tie-breaker.
+
+The `field_stack` probe measures the landmark question alongside the role
+question, with kill criteria fixed in advance: `lm_disagree > 0` kills the
+substitution, and if `lm_stack_any` and `lm_obj_any` are BOTH 0 the run sampled
+no landmarks and proves nothing. It also counts `lm_chain_capped` and
+`lm_chain_error`, which is the first measurement of how often the fail-open
+above was actually reached on real pages.
+
 ## 2026-07-18 (late) — the object fetch is lazy, and the probe that licensed it was wrong
 
 291 tests. Uncommitted on `scope-hardening`. `main` still v1.0.13.
