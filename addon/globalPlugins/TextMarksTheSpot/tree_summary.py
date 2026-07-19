@@ -657,7 +657,12 @@ def _form_field_in_scope(item, scope_kind, scope_range, chrome_exclude, trust_bo
 	# Positional INCLUSION (main-pos / article): must be inside the range.
 	if scope_range is not None:
 		if ti is None:
-			return obj is not None and _in_scope(obj, main_obj, cache)
+			# Tri-state for the same reason as the identity branch below, and
+			# it is not only the chrome scopes that need it: `article` scope
+			# is positional with NO <main>, so main_obj is None here too and
+			# the boolean wrapper would answer "content" for a field it never
+			# managed to place.
+			return obj is not None and _in_scope_verdict(obj, main_obj, cache) is True
 		try:
 			return (
 				ti.compareEndPoints(scope_range, "startToStart") >= 0
@@ -675,7 +680,14 @@ def _form_field_in_scope(item, scope_kind, scope_range, chrome_exclude, trust_bo
 
 	# Identity (main-id, chrome, or anything the above could not decide).
 	# No object means no evidence, and no evidence means no focus move.
-	return obj is not None and _in_scope(obj, main_obj, cache)
+	#
+	# The TRI-STATE, not the boolean wrapper. This branch is why the tri-state
+	# exists: `_in_scope` turns an undecided walk into `main_obj is None`, and
+	# on a no-<main> page that is True — so a parent dereference that raised,
+	# or a chain deeper than 30, used to read here as "proven content" and
+	# could put the caret in a header search box. The docstring above claimed
+	# this function failed closed throughout; until 2026-07-18 it did not.
+	return obj is not None and _in_scope_verdict(obj, main_obj, cache) is True
 
 
 def set_focus_on_first_form_input(treeInterceptor) -> bool:
@@ -1481,7 +1493,11 @@ def _single_article_scope_range(treeInterceptor, deadline: Optional[float] = Non
 		return None
 
 
-def _in_scope(obj, main_obj, cache: dict, stats: Optional[dict] = None) -> bool:
+def _in_scope_verdict(obj, main_obj, cache: dict, stats: Optional[dict] = None):
+	# TRI-STATE: True (content) / False (chrome, or outside main) / None ("the
+	# parent walk could not answer"). See the `if not decided` block at the end
+	# for why None has to exist and what returning a bool there cost.
+	#
 	# Decide whether obj is "page content" for classification purposes.
 	# If main_obj is set: obj must be inside the main landmark.
 	# If no main landmark: obj must NOT be inside a chrome landmark.
@@ -1533,6 +1549,8 @@ def _in_scope(obj, main_obj, cache: dict, stats: Optional[dict] = None) -> bool:
 	# nodes as it goes — see build_tree_summary), so nothing passes the
 	# sentinel and the branch was dead.
 	if obj is None:
+		# No object is no evidence. Callers that treat False as "chrome" and
+		# callers that treat it as "skip this item" both do the right thing.
 		return False
 	key = id(obj)
 	entry = cache.get(key)
@@ -1554,8 +1572,18 @@ def _in_scope(obj, main_obj, cache: dict, stats: Optional[dict] = None) -> bool:
 	visited = []
 	cur = obj
 	result = None
+	# Did the walk actually REACH an answer, or did it stop without one? The
+	# two used to be indistinguishable and that was a wrong-answer bug — see
+	# the block below the loop.
+	decided = False
 	for _ in range(_PARENT_WALK_MAX_DEPTH):
 		if cur is None:
+			# Ran out of ancestors cleanly. This IS an answer, and it is the
+			# ONLY place the old blanket default was ever correct: main_obj
+			# set and never reached means not in main; no main_obj and no
+			# chrome landmark anywhere on the chain means content.
+			result = main_obj is None
+			decided = True
 			break
 		ckey = id(cur)
 		entry = cache.get(ckey)
@@ -1563,35 +1591,87 @@ def _in_scope(obj, main_obj, cache: dict, stats: Optional[dict] = None) -> bool:
 			if stats is not None:
 				stats["cache_hits"] = stats.get("cache_hits", 0) + 1
 			result = entry[1]
+			decided = True
 			break
 		visited.append((ckey, cur))
 		if main_obj is not None:
 			if cur is main_obj or cur == main_obj:
 				result = True
+				decided = True
 				break
 		else:
 			lm = _landmark_type(cur)
 			if lm == "main":
 				result = True
+				decided = True
 				break
 			if lm in _CHROME_LANDMARK_TYPES:
 				result = False
+				decided = True
 				break
 		try:
 			if stats is not None:
 				stats["parent_derefs"] = stats.get("parent_derefs", 0) + 1
 			cur = cur.parent
 		except Exception:
+			# A parent dereference raised. We know NOTHING about the rest of
+			# the chain, so the walk stops UNDECIDED — not "in scope".
 			break
 
-	if result is None:
-		# main_obj set and never reached → not in main → out of scope.
-		# No main_obj and never hit a chrome landmark → in scope.
-		result = main_obj is None
-
+	if not decided:
+		# Fell out of the loop without an answer: either a parent dereference
+		# raised, or the chain is deeper than _PARENT_WALK_MAX_DEPTH.
+		#
+		# THIS USED TO RETURN `main_obj is None`, WHICH IS A WRONG ANSWER ON
+		# THE PATH THAT MOVES KEYBOARD FOCUS (found in review, 2026-07-18).
+		# On a page with no <main>, that expression is True, so "we could not
+		# prove this is chrome" was reported as "this is proven content". The
+		# damage did not stop at one item either: the result was then cached
+		# against every ancestor visited on the way, so one COM failure handed
+		# the same unearned verdict to every sibling underneath it.
+		#
+		# It matters most where the design leans on it hardest. chrome-pos
+		# deliberately routes its undecidable chunks to this filter AS its
+		# safety mechanism, so the mechanism the positional design falls back
+		# to was the one that could not say "I do not know".
+		#
+		# So: no verdict, and NOTHING IS CACHED. Caching an undecided walk is
+		# how a single failure propagates. The cost is that a genuinely
+		# unreachable chain is re-walked per item rather than answered from
+		# cache; that is bounded by the depth cap and only occurs on the
+		# failure path, which is the right place to spend time.
+		return None
 	for vkey, vobj in visited:
 		cache[vkey] = (vobj, result)
 	return result
+
+
+def _in_scope(obj, main_obj, cache: dict, stats: Optional[dict] = None) -> bool:
+	"""Boolean form of _in_scope_verdict, preserving the ORIGINAL default for
+	callers whose documented policy is to keep what they cannot classify.
+
+	The walk keeps undecidable chunks on purpose (a stray line read aloud is
+	recoverable, and the depleted-scope net can still widen). The counts keep
+	them for a different reason: an undercount is poison for NOTICE and
+	KEY_RESULT, which fire on SMALL counts.
+
+	`_form_field_in_scope` deliberately does NOT use this wrapper — it calls
+	the tri-state directly and rejects an undecided field, because moving a
+	blind user's keyboard focus into site chrome is not recoverable.
+
+	KNOWN DIVERGENCE, deliberate and not yet resolved: a form control that the
+	focus gate would refuse for lack of evidence can still contribute to
+	form_input_count here, so the counts can call a page FORM and the focus
+	gate can then decline to focus any of the fields that made it one. Review
+	proposed tightening the counts to match (2026-07-18). Not done, because
+	it would change classification on pages we have no measurement for, and
+	the probe now reports how often the undecided path is even reached. Decide
+	it on that data, not on this comment.
+	"""
+	verdict = _in_scope_verdict(obj, main_obj, cache, stats)
+	if verdict is None:
+		return main_obj is None
+	return verdict
 
 
 def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limit: int = 0, deadline: Optional[float] = None, truncated_out: Optional[list] = None) -> int:

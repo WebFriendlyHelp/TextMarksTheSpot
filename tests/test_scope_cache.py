@@ -124,3 +124,83 @@ def test_stats_counts_a_hit_on_the_same_object():
 	ts._in_scope(leaf, None, cache, stats)
 	assert stats.get("cache_hits") == 1
 	assert stats.get("cache_misses") == 1
+
+
+# ---------------------------------------------------------------------------
+# UNDECIDED IS NOT "IN SCOPE". Added 2026-07-18 after adversarial review.
+#
+# _in_scope used to end with `result = main_obj is None` for EVERY way of
+# leaving the parent walk without an answer — a parent dereference that raised,
+# or a chain deeper than the 30-ancestor cap. On a page with no <main> that
+# expression is True, so "we could not prove this is chrome" was returned as
+# "this is proven content".
+#
+# It is worst exactly where the design leans on it hardest: chrome-pos routes
+# its undecidable chunks to this filter AS its safety mechanism, and
+# _form_field_in_scope documented itself as failing closed while delegating
+# here — so the path that calls setFocus() could drop a blind user's caret into
+# a header search box on nothing more than one COM failure.
+#
+# _in_scope_verdict is now tri-state. The bool wrapper keeps the old default
+# for callers whose policy really is "keep what you cannot classify"; the focus
+# path takes the tri-state and refuses anything that is not True.
+# ---------------------------------------------------------------------------
+
+class ExplodingParent(FakeObj):
+	"""An object whose parent dereference raises, like a COM call failing
+	mid-chain."""
+
+	@property
+	def parent(self):
+		raise RuntimeError("parent dereference failed (simulated COM error)")
+
+	@parent.setter
+	def parent(self, value):
+		pass
+
+
+def test_a_failed_parent_dereference_is_undecided_not_content():
+	obj = ExplodingParent(landmark="")
+	assert ts._in_scope_verdict(obj, None, {}) is None, (
+		"a COM failure mid-chain proves nothing about the ancestry; "
+		"returning True here serves navigation as article text"
+	)
+
+
+def test_a_chain_deeper_than_the_cap_is_undecided_not_content():
+	# 40 plain ancestors, cap is 30: the walk runs out of budget before it
+	# can reach anything conclusive.
+	obj = _chain(*([""] * 40))
+	assert ts._in_scope_verdict(obj, None, {}) is None
+
+
+def test_running_out_of_ancestors_cleanly_IS_an_answer():
+	# The one case the old blanket default got right, and the regression the
+	# tri-state could most easily break: a complete chain with no chrome on it
+	# is genuinely content, not "undecided".
+	assert ts._in_scope_verdict(_chain("", "", ""), None, {}) is True
+
+
+def test_a_chrome_ancestor_still_decides_against():
+	assert ts._in_scope_verdict(_chain("", "navigation"), None, {}) is False
+
+
+def test_an_undecided_walk_caches_nothing():
+	# The propagation half of the bug. The old code cached its unearned True
+	# against EVERY ancestor visited on the way, so one COM failure handed the
+	# same verdict to every sibling underneath that chain.
+	cache: dict = {}
+	ts._in_scope_verdict(ExplodingParent(landmark=""), None, cache)
+	assert cache == {}, (
+		"an undecided walk wrote a verdict into the cache; that is how a "
+		"single failure becomes every sibling's answer"
+	)
+
+
+def test_the_bool_wrapper_keeps_the_old_default_for_the_walk():
+	# Deliberate: the walk and the counts keep what they cannot classify (a
+	# stray line read aloud is recoverable, and an undercount is poison for
+	# the small-count intents). Only the focus path fails closed. If this ever
+	# needs to change, change it on measurement, not by accident.
+	assert ts._in_scope(ExplodingParent(landmark=""), None, {}) is True
+	assert ts._in_scope(ExplodingParent(landmark=""), object(), {}) is False

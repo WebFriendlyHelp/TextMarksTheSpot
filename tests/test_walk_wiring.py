@@ -611,3 +611,132 @@ def test_focus_move_skips_a_field_inside_chrome(monkeypatch):
 		"in the site header"
 	)
 	assert real.obj.focused == ["real-form-field"]
+
+
+# ---------------------------------------------------------------------------
+# The focus gate must refuse a field it could not PLACE, not just one it
+# placed inside chrome. Added 2026-07-18.
+#
+# set_focus_on_first_form_input calls setFocus(). Its docstring has claimed
+# "Fails CLOSED throughout" since it was written, and it did not: its identity
+# fallback went through _in_scope, which turned an undecided parent walk into
+# `main_obj is None` — True on every page without a <main>. So one failed COM
+# dereference was enough to make an unplaceable field read as proven content.
+#
+# Driven through the real entry point with a fake quick-nav iterator, because
+# this branch has been wrong twice and both times the wiring, not the
+# arithmetic, was what was wrong.
+# ---------------------------------------------------------------------------
+
+class UnplaceableObj:
+	"""An EDIT whose ancestry cannot be walked: the parent dereference raises,
+	exactly as a COM call does on a page mid-teardown."""
+
+	def __init__(self, name):
+		self.role = type("Role", (), {"name": "EDIT"})()
+		self.landmark = None
+		self.focused = []
+		self.setFocus = lambda n=name, o=self: o.focused.append(n)
+
+	@property
+	def parent(self):
+		raise RuntimeError("parent dereference failed (simulated COM error)")
+
+
+class UnplaceableItem:
+	def __init__(self, name, start, end):
+		self.textInfo = rng(start, end)
+		self.obj = UnplaceableObj(name)
+
+
+def _no_main_scan():
+	# A lone top nav: trust_boundary lands at offset 0, so NOTHING is before
+	# it and every field falls through to the identity filter. This is the
+	# commonest no-<main> page shape, which is what makes the fallback's
+	# behaviour load-bearing rather than academic.
+	return ts.LandmarkScan(
+		main_obj=None,
+		main_range=None,
+		chrome_ranges=[rng(0, 50)],
+		other_ranges=[],
+		trust_boundary=rng(0, 50),
+		seen=1,
+		exhausted=True,
+	)
+
+
+def test_focus_move_refuses_a_field_whose_ancestry_cannot_be_walked(monkeypatch):
+	unplaceable = UnplaceableItem("unplaceable", 100, 110)
+	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
+	monkeypatch.setattr(ts, "_find_main_landmark", lambda ti: _no_main_scan())
+
+	moved = ts.set_focus_on_first_form_input(FocusTI([unplaceable]))
+
+	assert moved is False, (
+		"focus was moved to a field we could not place. 'Could not prove this "
+		"is chrome' is not 'proven content', and this call moves a blind "
+		"user's caret"
+	)
+	assert unplaceable.obj.focused == []
+
+
+def test_focus_move_still_takes_a_field_it_CAN_place(monkeypatch):
+	# The other direction, so the fix cannot be "return False more often".
+	# A walkable chain with no chrome on it is a real answer and must still
+	# win the focus.
+	placeable = FocusItem("real-form-field", 100, 110)
+	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
+	monkeypatch.setattr(ts, "_find_main_landmark", lambda ti: _no_main_scan())
+
+	assert ts.set_focus_on_first_form_input(FocusTI([placeable])) is True
+	assert placeable.obj.focused == ["real-form-field"]
+
+
+def test_focus_move_skips_the_unplaceable_and_takes_the_next_real_field(monkeypatch):
+	# Document order puts the unplaceable field first. Refusing it must not
+	# abandon the form — the user still gets the field we can vouch for.
+	items = [UnplaceableItem("unplaceable", 100, 110), FocusItem("real", 200, 210)]
+	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
+	monkeypatch.setattr(ts, "_find_main_landmark", lambda ti: _no_main_scan())
+
+	assert ts.set_focus_on_first_form_input(FocusTI(items)) is True
+	assert items[0].obj.focused == []
+	assert items[1].obj.focused == ["real"]
+
+
+class UnplaceableNoRangeItem:
+	"""A field with NO textInfo, so no positional answer is possible, whose
+	ancestry also cannot be walked."""
+
+	def __init__(self, name):
+		self.textInfo = None
+		self.obj = UnplaceableObj(name)
+
+
+def test_focus_move_refuses_an_unplaceable_field_under_a_positional_scope(monkeypatch):
+	# The OTHER identity fallback in _form_field_in_scope: a positional scope
+	# is in force but the field exposes no range. It is easy to assume that
+	# branch is safe because main-pos pages have a main_obj, so the old
+	# boolean default resolved to False. But `article` scope is positional
+	# with NO <main> — main_obj is None — so the default was True there, and
+	# an unplaceable field read as content on the setFocus() path.
+	scan = ts.LandmarkScan(
+		main_obj=None,
+		main_range=None,
+		chrome_ranges=[],
+		other_ranges=[],
+		trust_boundary=None,
+		seen=0,
+		exhausted=True,
+	)
+	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
+	monkeypatch.setattr(ts, "_find_main_landmark", lambda ti: scan)
+	# Force the positional branch with an article-shaped scope: a range, and
+	# no main_obj behind it.
+	monkeypatch.setattr(
+		ts, "_select_scope", lambda lm: ("article", rng(0, 1000), None, None, None),
+	)
+
+	item = UnplaceableNoRangeItem("unplaceable-no-range")
+	assert ts.set_focus_on_first_form_input(FocusTI([item])) is False
+	assert item.obj.focused == []
