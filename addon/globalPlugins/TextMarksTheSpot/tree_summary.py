@@ -993,6 +993,15 @@ _DEPLETED_DOC_SUBSTANTIAL = 200
 def _scope_looks_depleted(scope_kind: str, main_nodes: list, all_nodes: list, positional_drops: int = 0) -> bool:
 	"""True when the scope filter kept nodes but threw away the article.
 
+	*** UNVERIFIED. THIS NET HAS NEVER FIRED. Read before improving it. ***
+
+	In 245 real page loads since it shipped (63 plain-chrome, 35 chrome-pos),
+	the `unscoped-depleted` perf tag appears ZERO times. And the motivating
+	case below turned out to be a MISDIAGNOSIS — see the correction after it.
+	Do not invest in refining this until it has been observed doing its job; a
+	safety net that has never fired is indistinguishable from one that cannot.
+	(2026-07-19)
+
 	The existing fallback only fires when the scoped walk produces NOTHING.
 	That catches total scope failure and misses the worse case — near-total
 	failure, which yields a confident wrong answer instead of an obvious
@@ -1004,6 +1013,81 @@ def _scope_looks_depleted(scope_kind: str, main_nodes: list, all_nodes: list, po
 	declined to land, and the user got silence. Pressing Z landed fine,
 	because Z scans the buffer directly and never consults this filter — that
 	is what proved the content was there all along.
+
+	WHAT RE-LOADING THAT PAGE ON 2026-07-19 SHOWED. Stated carefully, because
+	the first write-up of this called the original observation a misdiagnosis
+	and that was TOO STRONG — the paragraph lengths quoted below were really
+	observed on 2026-07-18, so they existed in all_nodes then.
+
+	  - Cold load, first attempt, reproduces the symptom exactly: main_nodes=3,
+	    all chrome, no-action unknown(0.00), first node "Get new articles
+	    delivered to your inbox".
+	  - But raw_seen went 21 -> 67 between that attempt and the +1500 ms retry,
+	    so the page was still HYDRATING. On the retry: all_nodes=59,
+	    main_nodes=46, landed correctly on the 618-char lede. A later Z on the
+	    warm page agrees (46 of 59).
+	  - The 15 drops on the hydrated page are all genuine chrome: the logo, the
+	    tagline, six nav items, the copyright line.
+
+	  - HONEST LIMIT on that reading: attempt 1 had 13 drops and the
+	    [TMTS walk-drops] line caps at 10, all 10 logged being chrome. So up to
+	    3 unlogged drops are unaccounted for — fewer than the 6 body paragraphs
+	    recorded on 2026-07-18, which is why hydration is the better
+	    explanation for THIS load, but not proof about the original one.
+
+	THE LIKELIEST ACCOUNT, and the reason this net matters less than it did:
+	the original failure was the IDENTITY filter, which is unreliable by
+	design-note. Task 2 (landmark ancestry from the control field stack) took
+	identity off the routine path on supported backends — this very page now
+	walks with identity=0 and 11 field drops. The mechanism the net was built
+	to compensate for is largely gone, which fits the net never having fired.
+
+	Either way, do not refine this without new evidence. Had it fired on the
+	cold load it would have widened to 16 nodes containing NO article and most
+	likely landed on "Get new articles delivered to your inbox" — a WRONG
+	landing, which guardrail 3 rates worse than the silence that occurred.
+
+	A recoverable-set refinement (widen to everything except TRUSTED chrome
+	drops, then delete the positional_drops gate) was designed and reviewed on
+	2026-07-19 and NOT built. On that page it does not help: the recoverable
+	set is equally empty of article text.
+
+	Note this net cannot currently fire on that page anyway — it is chrome-pos
+	with pos_drops=15, which the gate below blocks.
+
+	THE EMPTY BRANCH IS A DIFFERENT MECHANISM AND IS NOT SCOPE-GATED. Do not
+	confuse the two when reasoning about either (found in review, 2026-07-19).
+	This predicate governs the DEPLETED case only. The caller's other branch,
+	`not summary.main_nodes`, has NO scope-kind guard at all, so it rescues
+	main-pos and article pages too — and that matters, because a page whose
+	scope_range is degenerate or in the wrong coordinate space drops EVERY
+	chunk as `_SCOPE_RANGE_DROP` and the empty branch is its only rescue (the
+	makeTextInfo coordinate-space trap in CLAUDE.md). Measured: the empty
+	branch fired 3 times in 245 loads; this predicate fired 0.
+
+	Consequence for anyone tempted to build a "trusted exclusions" set:
+	whether `_SCOPE_RANGE_DROP` belongs in it is DISPUTED, and the two 2026-07-19
+	reviews split on it. Recorded rather than settled, because it is a trap
+	either way and the design that raised it was shelved unbuilt.
+
+	  - Codex: EXCLUDE it from recoverable. A range drop is returned only after
+	    both comparisons SUCCEED, so it is a definitive "outside the range"
+	    answer, at least as trusted as bounded chrome containment. A comparison
+	    that raises already becomes `_SCOPE_IDENTITY` and stays recoverable, so
+	    "definitively outside" and "could not evaluate" are cleanly separated.
+	  - Fable: KEEP it recoverable. The trust belongs to the COMPARISON, not to
+	    the range's correctness. A scope_range built in the wrong coordinate
+	    space is degenerate and matches nothing — every comparison then
+	    "succeeds" and definitively excludes the whole document. That is the
+	    documented makeTextInfo trap in CLAUDE.md, and the empty branch is its
+	    only rescue. Trusting RANGE_DROP empties the recoverable set on exactly
+	    those pages and makes them permanently silent.
+
+	I find Fable's the stronger argument: the historical failure is real and
+	recorded, and its cost (a permanently silent page, unrecoverable by retry)
+	is worse than the cost of Codex's (re-admitting some out-of-range content on
+	a page that was already being rescued). But it is one judgement call on an
+	unbuilt design — re-argue it from the evidence, do not inherit it.
 
 	Guards, each earning its place:
 

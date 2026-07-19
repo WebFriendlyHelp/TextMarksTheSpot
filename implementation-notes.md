@@ -2,6 +2,127 @@
 
 Newest entries at the top.
 
+## 2026-07-19 (night) - the depleted-scope net has never fired, and its premise no longer holds
+
+313 tests. `main` still v1.0.13. NO CODE CHANGE in this entry - it records why a
+planned change was NOT made, which is the useful part.
+
+### The plan that was abandoned, and what stopped it
+
+Codex's last review proposed refining the depleted-scope net: stop widening to
+`all_nodes`, widen instead to a RECOVERABLE set (everything except nodes dropped
+by a TRUSTED mechanism, `_SCOPE_CHROME_DROP` / `_SCOPE_FIELD_DROP`), and then
+delete the `positional_drops == 0` gate, since its only purpose was preventing
+re-admission of correctly-removed chrome. The argument was clean and I believed
+it. Both reviewers were briefed and were reasoning inside the same premise.
+
+Then a cheap question: **how often has this net actually fired?**
+
+    perf lines since the net shipped (2026-07-18):  245
+      of those scope=chrome:                         63
+      of those scope=chrome-pos:                     35
+      times the net fired (`unscoped-depleted`):      0
+
+Zero. And nothing in `tests/` references `unscoped-depleted` - the PREDICATE has
+19 tests, the WIRING that consumes it has none, which is this branch's signature
+gap for the fifth time.
+
+### What the motivating page actually shows
+
+The net was built for deadsimpletech.com/blog/midwinter, recorded as "the
+identity chrome filter kept 3 of 16 walked nodes, all chrome, and discarded the
+entire article INCLUDING a 1439-character paragraph". Loaded it. Three
+observations, all from the decision trace:
+
+**1. The net does not fire there, and has not been able to since before this
+session.** The page is `chrome-pos` with `pos_drops=15`, so the
+`positional_drops == 0` gate blocks it. That gate predates today for chrome-pos;
+today only extended it to plain `chrome`.
+
+**2. The first attempt reproduces the recorded symptom exactly** -
+`main_nodes=3`, all chrome, `no-action: unknown(0.00)`, first node "Get new
+articles delivered to your inbox". But `all_nodes=16` and `raw_seen=21`: the
+1439-char paragraph is not in `all_nodes` EITHER. The scope filter never saw it.
+**It had not hydrated yet.**
+
+**3. On the hydrated page the filter is CORRECT.** Retry at +1500 ms:
+`raw_seen=67 all_nodes=59 main_nodes=46`, landed on the 618-char article lede at
+idx=6, `intent=article(0.85)`. A later Z press on the warm page: identical, 46 of
+59 kept. The 15 drops are the logo, "WELLINGTON · AOTEAROA · EST. 2024", Home,
+About Us, Pricing, Coaching, Contact, Blog, Quizzes, and the copyright line -
+every one of them genuine chrome, 11 of them field-stack drops.
+
+### The conclusion, and why the refinement is dead
+
+**Stated carefully, because the first draft of this entry overclaimed.** It
+called the original observation a misdiagnosis. That is TOO STRONG: the
+docstring quotes six real paragraph lengths (618, 563, 699, 1002, 460, 1439),
+so those paragraphs were genuinely observed in `all_nodes` on 2026-07-18.
+
+What today's load supports:
+
+  - Attempt 1 reproduces the symptom, and `raw_seen` went 21 -> 67 before the
+    retry, so the page was HYDRATING. The retry landed correctly.
+  - LIMIT: attempt 1 had 13 drops and the `[TMTS walk-drops]` line caps at 10.
+    The 10 logged are all chrome; up to 3 are unaccounted for - FEWER than the
+    6 body paragraphs recorded originally. So hydration explains THIS load
+    well, and says nothing definitive about the original one.
+
+The likeliest account, which is better than "misdiagnosis": the original
+failure was the IDENTITY filter, the mechanism this net exists to distrust.
+**Task 2 took identity off the routine path** - this page now walks with
+`identity=0` and 11 field drops, keeping 46 of 59. The thing the net
+compensated for is largely gone on supported backends, which fits it never
+having fired.
+
+Worse for the design: **had the net fired on the cold load it would have caused
+harm.** Widening to `all_nodes` there means widening to 16 nodes containing no
+article, and the most likely landing is "Get new articles delivered to your
+inbox" - a WRONG landing, which guardrail 3 rates worse than the silence that
+actually occurred. Refining WHICH nodes it widens to does not help; on that page
+the recoverable set is just as empty of article text.
+
+So: do not build the recoverable-set refinement. Codex's reasoning was sound
+GIVEN the premise; the premise did not survive one page load.
+
+### Not ripped out either, and why
+
+One page load is not grounds for deleting a safety net, in the same way it was
+not grounds for building on one. The net is now recorded as UNVERIFIED with its
+motivating case explained away. The next step is EVIDENCE, not code: if
+`unscoped-depleted` is still absent after another few hundred loads, it is dead
+weight and should go, along with the `positional_drops` gate and possibly
+`positional_drops` itself. Watch the persistent perf log for the tag.
+
+### The lesson, which is the same one in new clothes
+
+I was one review cycle from carefully refining a mechanism that has never
+worked, because the refinement was argued well. Neither reviewer caught it -
+both were reasoning inside the premise I handed them, which is what reviewers
+do. What caught it was asking how many times the thing had fired.
+
+The file already says "when a check comes back unanimous, ask whether it could
+ever have come back the other way." This is the same question aimed at a
+mechanism instead of a probe: **before improving something, confirm it has ever
+done its job.** A safety net that has never fired is indistinguishable from one
+that cannot.
+
+### Open, unchanged
+
+1. THE COUNTS, now clearly dominant (646-666 ms of ~730 ms on these loads,
+   `counts_trunc=True` every time). Probe first: one-character expand at the
+   item start, MAX call time not average, plus backend and NVDA version.
+2. `_count_in_scope` drops an `obj is None` item without setting
+   `truncated_out` - a TRUSTED undercount.
+3. Objectless chunks still fail open on the plain-chrome and range-error
+   identity branches.
+4. `classifier.py:448` LIST branch is dead (`>= 5` against `_ARTICLE_LIMIT = 4`).
+5. `main-id` via `controlIdentifier_docHandle`/`_ID`, behind its own probe.
+6. The field_stack probe add-on is still installed; uninstall before a clean
+   soak.
+7. Whether `_LANDED_SUPPRESS_SEC` should be TI-aware rather than URL-only (see
+   the cross-browser testing trap in the entry below).
+
 ## 2026-07-19 (evening) - Task 2 shipped, and review found two holes the suite could not see
 
 313 tests, 15 sabotages all caught. `main` still v1.0.13.
