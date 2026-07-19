@@ -319,6 +319,135 @@ def test_content_section_landing_skips_a11y_instructions_under_section():
 	assert web.find_article_landing(_summary_with(nodes)) == 2
 
 
+def _vovsoft_ai_requester_nodes():
+	"""The real node trail from vovsoft.com/software/ai-requester/, taken from
+	the decision trace of a live mislanding (2026-07-18, nvda.log).
+
+	Indices are FAITHFUL to the trace, because the distance between the
+	"Key Features" heading at 34 and the licensing blurb at 49 is the entire
+	point of the bug. Do not compact this fixture.
+
+	Shape that produces the failure:
+	  - genuine product description at 5-8
+	  - "Key Features" heading at 34, the LAST heading on the page
+	  - spec lines at 35-37 that do NOT end like sentences, so the
+	    sentence-strict pass treats them as chrome and skips them
+	  - short bullet lines at 38-48, all under the 50-char bar
+	  - the 387-char licensing blurb at 49, which DOES end like a sentence
+	"""
+	nodes = [
+		_node("paragraph", 13, preview="cookieconsent"),
+		_node("heading", 12, level=1, preview="AI Requester"),
+		_node("heading", 32, level=2, preview="Connects to OpenAI API with ease"),
+		_node("paragraph", 27, preview="Release Date: June 13, 2026"),
+		_node("paragraph", 30, preview="Version: 5.2 (Version History)"),
+		_node("paragraph", 74, ends_sentence=True,
+			preview="This program requires your own OpenAI API key for onl"),
+		_node("paragraph", 103, ends_sentence=True,
+			preview="Local models can run directly on your computer without"),
+		_node("paragraph", 102, ends_sentence=True,
+			preview="Vovsoft AI Requester is a program that can connect to"),
+		_node("paragraph", 183, ends_sentence=True,
+			preview="The software provides a reliable and easy-to-use interf"),
+	]
+	# 9-33: the feature sections. Only the shape matters here, not the text.
+	nodes.append(_node("paragraph", 188, preview="Built for both offline and online environments, it"))
+	while len(nodes) < 34:
+		nodes.append(_node("paragraph", 40, preview="Short feature bullet line"))
+	# 34: the section heading that triggers the bug. Last heading on the page.
+	nodes.append(_node("heading", 12, level=2, preview="Key Features"))
+	# 35-37: spec lines. Substantial enough to qualify, but they do not end
+	# like sentences, so the strict pass discards them.
+	nodes.append(_node("paragraph", 51, preview="Category: Communications - Chat & Instant Messaging"))
+	nodes.append(_node("paragraph", 84, preview="Supports: Windows Windows 11, Windows 10, Windows 8"))
+	nodes.append(_node("paragraph", 50, preview="File Size: 3.71 MB (Installer), 2.51 MB (Portable)"))
+	# 38-48: short bullets, all below the landing bar.
+	while len(nodes) < 49:
+		nodes.append(_node("paragraph", 30, preview="Short bullet"))
+	# 49: what the add-on wrongly spoke.
+	nodes.append(_node("paragraph", 387, ends_sentence=True,
+		preview="To receive license key and use all features of the s"))
+	return nodes
+
+
+def test_content_section_does_not_claim_a_distant_paragraph():
+	# Regression: vovsoft product pages spoke a licensing blurb instead of the
+	# product description. _find_content_section_landing matched the "Key
+	# Features" heading at 34, then scanned forward with NO distance limit,
+	# stopping only at the next heading. There IS no next heading, so it ran to
+	# the end of the document and claimed the licensing paragraph at 49 —
+	# fifteen nodes past its own section heading, in a different page section.
+	#
+	# Confirmed NOT to be truncation: two sibling pages mislanded identically
+	# with truncated=False, and their descriptions were 263 and 207 chars,
+	# comfortably over the 200-char very-substantial bar. The content-section
+	# gate runs BEFORE that rule and jumped past them.
+	nodes = _vovsoft_ai_requester_nodes()
+	idx = web.find_article_landing(_summary_with(nodes))
+	assert idx != 49, "landed on the licensing blurb, the reported bug"
+	# Must land in the genuine description block near the top of the page.
+	assert 5 <= idx <= 8, f"expected the product description block, got idx={idx}"
+
+
+def test_definitional_lede_beats_a_prerequisite_note_above_it():
+	# The cluster gate awards the landing to the FIRST of two adjacent
+	# substantial paragraphs. On the real vovsoft page that is a prerequisite
+	# note ("This program requires your own OpenAI API key...", 74 chars)
+	# clustered with a feature line (103), while the sentence that says what the
+	# product IS sits two nodes below. Casey confirmed live that the note was
+	# what got spoken and that he wanted the description instead.
+	nodes = _vovsoft_ai_requester_nodes()
+	assert web.find_article_landing(_summary_with(nodes)) == 7
+
+
+def test_definitional_lede_leaves_ordinary_article_prose_alone():
+	# The refinement must be inert on news shapes. No paragraph here names the
+	# page subject followed by a copula, so the cluster gate's own choice
+	# stands. This is the guard that keeps a general prose rule from becoming a
+	# landing-mover on every article.
+	nodes = [
+		_node("heading", 48, level=1,
+			preview="These Colorado laws are going into effect in July"),
+		_node("paragraph", 86, ends_sentence=True,
+			preview="DENVER (KDVR) - A handful of Colorado laws are set to take"),
+		_node("paragraph", 190, ends_sentence=True,
+			preview="While Colorado laws get passed all the time, the effective"),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 1
+
+
+def test_definitional_lede_ignores_a_passing_mention_deep_in_prose():
+	# "is a" far from the subject, or a subject mentioned deep into the
+	# paragraph, must NOT qualify — otherwise any body paragraph that happens to
+	# name the product becomes a landing magnet.
+	subject = "Widget Pro"
+	late = (
+		"After a long preamble about pricing and availability in several "
+		"regions, the vendor notes that Widget Pro is a tool."
+	)
+	assert web._looks_like_definitional_lede(late, subject) is False
+	# Subject present early, but no copula near it.
+	assert web._looks_like_definitional_lede(
+		"Widget Pro pricing changed last year for most customers.", subject,
+	) is False
+	# The real shape, including a vendor prefix before the H1 text.
+	assert web._looks_like_definitional_lede(
+		"Acme Widget Pro is a tool that trims images.", subject,
+	) is True
+
+
+def test_content_section_still_claims_an_adjacent_paragraph():
+	# The distance bound must not break the case the gate exists for: on a real
+	# product page the description sits directly under its section heading.
+	nodes = [
+		_node("paragraph", 60, preview="Sponsored ads and tag widgets, click here for offers"),
+		_node("heading", 16, preview="About this item", level=2),
+		_node("paragraph", 180, ends_sentence=True,
+			preview="Premium stainless steel with a brushed finish makes this"),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
 def test_article_landing_skips_screen_reader_instructions():
 	# Regression scenario: Amazon-style chrome where an accessibility help
 	# paragraph (84 chars) wins via cluster with the next chrome paragraph.

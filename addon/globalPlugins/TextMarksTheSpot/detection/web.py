@@ -106,6 +106,95 @@ _ACCESSIBILITY_INSTRUCTION_PHRASES = (
 )
 
 
+# DEFINITIONAL LEDE. "<Subject> is a/an/the ..." is how product pages, docs and
+# reference entries state what the page is ABOUT. It is a general prose pattern,
+# not a site convention, and we already know the subject: the page's first
+# heading.
+#
+# Why it is needed. The cluster gate awards the landing to the FIRST of two
+# adjacent substantial paragraphs, which on a product page is routinely a
+# prerequisite note or a feature line sitting above the description. Vovsoft AI
+# Requester: "This program requires your own OpenAI API key..." (74) and "Local
+# models can run directly on your computer..." (103) form a cluster and win,
+# while "Vovsoft AI Requester is a program that can connect to OpenAI API..."
+# (102) sits two nodes below and is what the user actually wants.
+#
+# Why it is a REFINEMENT and not another gate. This cascade's documented
+# structural fault is that it awards on rule ORDER rather than evidence
+# strength, so every new early gate can preempt a good landing somewhere else.
+# This one can only move a landing FORWARD by a few nodes inside the block the
+# cluster gate already chose. It cannot reach past a heading, and it cannot
+# override a landing chosen anywhere else in the cascade.
+_DEFINITIONAL_LOOKAHEAD = 4
+# How far into the paragraph the subject may appear. Covers a vendor prefix
+# ("Vovsoft AI Requester" for an H1 of "AI Requester") without matching a
+# passing mention deep in a body paragraph.
+_DEFINITIONAL_SUBJECT_WINDOW = 40
+# How far after the subject the copula may sit, enough for "AI Requester 5.2 is
+# a ..." but not enough to pair a subject with an unrelated later clause.
+_DEFINITIONAL_COPULA_WINDOW = 15
+_DEFINITIONAL_COPULAS = (" is a", " is an", " is the")
+# Below this a "subject" is too generic to match on ("FAQ", "Home").
+_DEFINITIONAL_MIN_SUBJECT_CHARS = 4
+
+
+def _page_subject(nodes) -> str:
+	"""The page's first heading — what the page is about."""
+	for node in nodes:
+		if node.kind == "heading":
+			return (node.text_preview or "").strip()
+	return ""
+
+
+def _looks_like_definitional_lede(text: str, subject: str) -> bool:
+	"""True when this paragraph names the page's subject and says what it IS."""
+	if not subject or len(subject) < _DEFINITIONAL_MIN_SUBJECT_CHARS:
+		return False
+	lower = (text or "").strip().lower()
+	subj = subject.lower()
+	pos = lower.find(subj)
+	if pos < 0 or pos > _DEFINITIONAL_SUBJECT_WINDOW:
+		return False
+	tail = lower[pos + len(subj):pos + len(subj) + _DEFINITIONAL_COPULA_WINDOW]
+	return any(copula in tail for copula in _DEFINITIONAL_COPULAS)
+
+
+def _find_definitional_lede(nodes, start, min_chars, subject) -> Optional[int]:
+	"""A definitional lede within _DEFINITIONAL_LOOKAHEAD nodes after `start`,
+	stopping at the next heading. Returns None when there is none, which is the
+	common case and leaves the caller's own choice untouched.
+	"""
+	end = min(start + 1 + _DEFINITIONAL_LOOKAHEAD, len(nodes))
+	for j in range(start + 1, end):
+		node = nodes[j]
+		if node.kind == "heading":
+			break
+		if node.kind != "paragraph" or node.text_length < min_chars:
+			continue
+		if _is_chrome_paragraph(node):
+			continue
+		if _looks_like_definitional_lede(node.text_preview, subject):
+			return j
+	return None
+
+
+# How far past a content-section heading its paragraph may sit. Matches the
+# hero gate's lookahead (web.py, hero_lookahead = 4) for the same reason: a
+# heading vouches for the text it INTRODUCES, not for everything downstream of
+# it.
+#
+# Without a bound this gate ran to the next heading, and on a page whose
+# matching heading is the LAST one it ran to the end of the document. Vovsoft
+# product pages: "Key Features" at node 34, its spec lines at 35-37 discarded by
+# the sentence-strict pass, no further heading anywhere — so the gate claimed a
+# 387-char purchase blurb at node 49 and the add-on spoke licensing terms
+# instead of the product description sitting at node 7. Confirmed from the live
+# decision trace, and confirmed NOT to be walk truncation: sibling pages
+# mislanded identically with truncated=False and with descriptions well over the
+# 200-char very-substantial bar, which this gate outranks by running earlier.
+_CONTENT_SECTION_MAX_DISTANCE = 4
+
+
 def _find_content_section_landing(nodes, min_chars):
 	"""Look for a heading whose text matches a known "real content lives
 	here" phrase (e.g. "About this item", "Description", "Overview") and
@@ -137,8 +226,10 @@ def _find_content_section_landing(nodes, min_chars):
 		if not any(phrase in heading_text for phrase in _CONTENT_SECTION_HEADING_PHRASES):
 			continue
 		# Found a matching section. Look for the first substantial paragraph
-		# before the next heading; if none qualifies, move on.
-		for j in range(i + 1, count):
+		# before the next heading AND within _CONTENT_SECTION_MAX_DISTANCE;
+		# if none qualifies, move on to the next matching section heading.
+		limit = min(i + 1 + _CONTENT_SECTION_MAX_DISTANCE, count)
+		for j in range(i + 1, limit):
 			n = nodes[j]
 			if n.kind == "heading":
 				break
@@ -1003,6 +1094,8 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# with a hero pattern.
 	hero_lookahead = 4
 
+	subject = _page_subject(nodes)
+
 	seen_heading = False
 	for i, node in enumerate(nodes):
 		if node.kind == "heading":
@@ -1052,6 +1145,14 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 				and not _looks_like_news_dateline(node.text_preview)
 			):
 				return i + 1
+			# The cluster's FIRST paragraph is not always what the page is
+			# about: on product and reference pages a prerequisite note or a
+			# feature line commonly sits above the sentence that says what the
+			# thing IS. Prefer that sentence when it is a few nodes below.
+			# Returns None on ordinary prose, leaving this landing as-is.
+			lede = _find_definitional_lede(nodes, i, min_chars, subject)
+			if lede is not None:
+				return lede
 			return i
 		# B: hero / section-intro — a heading appears within hero_lookahead
 		# nodes BEFORE any other substantial paragraph. The hero shortcut
