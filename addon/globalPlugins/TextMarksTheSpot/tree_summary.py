@@ -92,15 +92,17 @@ except ImportError:
 # landing module so the patterns stay in one unit-tested place. We call them
 # here over the FULL chunk text (the trailing credit / "All rights reserved"
 # tail is usually past the 60-char preview cutoff) and stash the results on
-# each MainNode (is_caption / is_boilerplate).
+# each MainNode (is_caption / is_boilerplate / is_disclosure).
 try:
 	from .detection.web import (
+		_looks_like_editorial_disclosure,
 		_looks_like_image_caption,
 		_looks_like_legal_boilerplate,
 		ends_like_sentence,
 	)
 except ImportError:
 	from detection.web import (
+		_looks_like_editorial_disclosure,
 		_looks_like_image_caption,
 		_looks_like_legal_boilerplate,
 		ends_like_sentence,
@@ -2135,6 +2137,7 @@ def _node_for(obj, text: str) -> Optional[MainNode]:
 			text_preview=stripped[:60],
 			is_caption=_looks_like_image_caption(stripped),
 			is_boilerplate=_looks_like_legal_boilerplate(stripped),
+			is_disclosure=_looks_like_editorial_disclosure(stripped),
 			ends_sentence=ends_like_sentence(stripped),
 		)
 
@@ -2161,6 +2164,7 @@ def _node_for(obj, text: str) -> Optional[MainNode]:
 		text_preview=stripped[:60],
 		is_caption=_looks_like_image_caption(stripped),
 		is_boilerplate=_looks_like_legal_boilerplate(stripped),
+		is_disclosure=_looks_like_editorial_disclosure(stripped),
 		ends_sentence=ends_like_sentence(stripped),
 	)
 

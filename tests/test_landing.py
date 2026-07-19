@@ -9,10 +9,10 @@ import classifier as cls
 from detection import web
 
 
-def _node(kind, length, level=None, preview="", ends_sentence=False):
+def _node(kind, length, level=None, preview="", ends_sentence=False, is_disclosure=False):
 	return cls.MainNode(
 		kind=kind, level=level, text_length=length, text_preview=preview,
-		ends_sentence=ends_sentence,
+		ends_sentence=ends_sentence, is_disclosure=is_disclosure,
 	)
 
 
@@ -1780,6 +1780,52 @@ def test_skips_syndication_note_for_real_lede():
 		      ends_sentence=True),
 	]
 	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_disclosure_flag_catches_a_phrase_past_the_preview_cutoff():
+	# THE RUNTIME PATH, which no test used to exercise. _is_chrome_paragraph is
+	# handed text_preview, truncated to 60 chars, so a disclosure whose giveaway
+	# phrase sits past character 60 was invisible. tree_summary now computes the
+	# verdict at walk time over the FULL chunk text, exactly as it already did
+	# for is_caption and is_boilerplate.
+	#
+	# The preview here is innocuous on its own - the phrase would be in the
+	# unseen tail - so only the flag can reject this node.
+	nodes = [
+		_node("heading", 34, level=1, preview="The Best Soft Chocolate Chip Cookies"),
+		_node("paragraph", 120, is_disclosure=True, ends_sentence=True,
+			preview="Before we get to the recipe, a quick word from our team abou"),
+		_node("paragraph", 210, ends_sentence=True,
+			preview="These cookies are thick, soft, and completely irresistible."),
+		_node("paragraph", 180, ends_sentence=True,
+			preview="You only need one bowl and no chilling time."),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_long_lede_mentioning_affiliate_links_is_not_chrome():
+	# THE OTHER DIRECTION, and the reason the guard had to become live rather
+	# than just be fed better text. _EDITORIAL_DISCLOSURE_MAX_CHARS exists
+	# because "a disclosure is SHORT" - a long paragraph mentioning affiliate
+	# links is an article ABOUT affiliate marketing. Against a 60-char preview
+	# that guard could never fire, so such a lede was chrome-flagged with no
+	# length protection at all.
+	lede = (
+		"This post contains referral links, and that is precisely what we want "
+		"to talk about today, because the economics of creator compensation "
+		"have shifted enormously over the past decade and almost nobody outside "
+		"the industry understands how the money actually moves, who ends up "
+		"paying for it, or why the disclosure language you skim past at the top "
+		"of every recipe reads the way it does."
+	)
+	assert len(lede) > web._EDITORIAL_DISCLOSURE_MAX_CHARS
+	# Preview-only, the old runtime input: still rejected once the real length
+	# is supplied alongside it.
+	assert web._looks_like_editorial_disclosure(lede[:60], full_length=len(lede)) is False
+	# And the node-level helper agrees, which is what the cascade actually calls.
+	node = _node("paragraph", len(lede), preview=lede[:60], ends_sentence=True)
+	assert web._node_is_disclosure(node) is False
+	assert web._is_chrome_paragraph(node) is False
 
 
 def test_editorial_disclosure_does_not_eat_real_prose():

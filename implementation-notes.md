@@ -84,13 +84,17 @@ LAZY on the identity path, never removed outright.
 
 Two smaller ones surfaced in review, both real, neither started:
 
-1. **The 60-char preview makes `_EDITORIAL_DISCLOSURE_MAX_CHARS = 300` dead code
-   at runtime**, and it cuts both ways: phrases past char 60 are invisible, AND a
-   long genuine lede whose first 60 chars contain a disclosure phrase gets
-   chrome-flagged with no length protection. The tests pass full sentences
-   straight to the function, so they validate behaviour the runtime never sees —
-   the same tests-pass-while-wiring-differs class catalogued twice below. Fix by
-   promoting it to a walk-time flag like `is_caption` / `is_boilerplate`.
+1. ~~**The 60-char preview makes `_EDITORIAL_DISCLOSURE_MAX_CHARS = 300` dead code
+   at runtime.**~~ **DONE, same session.** Promoted to a walk-time `is_disclosure`
+   flag computed over the FULL chunk text, matching `is_caption` /
+   `is_boilerplate`, plus a `full_length` parameter so the preview fallback can
+   still apply the length guard (the precedent is the byline filter). It cut both
+   ways as predicted: phrases past char 60 were invisible, AND a long genuine
+   lede whose first 60 chars contained a disclosure phrase was chrome-flagged
+   with no length protection. Note the trap this nearly repeated — every
+   cascade-level test can hand-set the flag, so `tests/test_tree_summary.py` now
+   drives `_node_for` directly and was CONFIRMED to fail when the walk-time
+   computation is deleted. Verified live on simplyrecipes.
 2. **Counts are still identity-scoped on `chrome-pos`** (~630 ms), so counts and
    walk can describe different trees. FORM is the intent that moves keyboard
    focus, which is why it matters.

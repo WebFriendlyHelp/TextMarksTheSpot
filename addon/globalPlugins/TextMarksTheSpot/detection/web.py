@@ -715,7 +715,7 @@ _DISCLOSURE_PUBLISHING = (
 _EDITORIAL_DISCLOSURE_MAX_CHARS = 300
 
 
-def _looks_like_editorial_disclosure(text: str) -> bool:
+def _looks_like_editorial_disclosure(text: str, full_length: int = None) -> bool:
 	"""Affiliate/referral disclosure or a syndication note, both of which sit
 	between the headline and the real lede and read as ordinary prose.
 
@@ -723,9 +723,21 @@ def _looks_like_editorial_disclosure(text: str) -> bool:
 	  "This post contains referral links for products we love."      (Pinch of Yum)
 	  "This article was written by WTOP's news partner, The Banner
 	   Montgomery, and republished with permission."                 (WTOP)
+
+	`full_length` is the chunk's REAL length when the caller only has the
+	60-char preview. Without it the length guard below was dead code at runtime
+	(a 60-char preview can never exceed 300), which broke the rule in BOTH
+	directions: it could never reject a long paragraph, so an article whose
+	opening 60 chars mention affiliate links got chrome-flagged with no length
+	protection at all. Same fix, and same reason, as the byline filter's
+	`full_length`. The unit tests pass whole sentences straight in, which is why
+	they validated a guard the runtime never actually applied.
 	"""
 	stripped = (text or "").strip()
-	if not stripped or len(stripped) > _EDITORIAL_DISCLOSURE_MAX_CHARS:
+	if not stripped:
+		return False
+	length = full_length if full_length is not None else len(stripped)
+	if length > _EDITORIAL_DISCLOSURE_MAX_CHARS:
 		return False
 	lower = stripped.lower()
 	if any(phrase in lower for phrase in _DISCLOSURE_UNAMBIGUOUS):
@@ -734,6 +746,23 @@ def _looks_like_editorial_disclosure(text: str) -> bool:
 	return (
 		any(p in lower for p in _DISCLOSURE_SELF_REFERENCE)
 		and any(p in lower for p in _DISCLOSURE_PUBLISHING)
+	)
+
+
+def _node_is_disclosure(node) -> bool:
+	"""True if a node is an editorial disclosure / syndication note.
+
+	Same two-layer scheme as _node_is_caption and _node_is_boilerplate: prefer
+	the walk-time ``is_disclosure`` flag, computed over the FULL chunk text
+	because the giveaway phrase routinely sits past the 60-char preview cutoff
+	("To receive license key and use all features of the software, " is already
+	61 chars). Falls back to re-checking the preview for fixtures, passing the
+	node's real length so the 300-char guard still applies there.
+	"""
+	if getattr(node, "is_disclosure", False):
+		return True
+	return _looks_like_editorial_disclosure(
+		node.text_preview or "", full_length=getattr(node, "text_length", None),
 	)
 
 
@@ -752,7 +781,7 @@ def _is_chrome_paragraph(node) -> bool:
 		or _looks_like_share_link_payload(text)
 		or _looks_like_accessibility_instructions(text)
 		or _looks_like_promo_teaser(text)
-		or _looks_like_editorial_disclosure(text)
+		or _node_is_disclosure(node)
 		or _looks_like_byline(text, full_length=node.text_length)
 		or _node_is_caption(node)
 		or _node_is_boilerplate(node)
