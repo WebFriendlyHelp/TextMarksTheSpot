@@ -141,6 +141,29 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	# finish hydrating async content into NVDA's virtual buffer.
 	_RETRY_DELAY_MS = 1500
 
+	# Delay between attempts when the walk produced NO NODES AT ALL. That is not
+	# a page without content, it is a virtual buffer that does not exist yet.
+	#
+	# Sized against a HARD CEILING of 2.5 s from page load to the failure tone
+	# (Casey's call, 2026-07-18: waiting longer than that to be told "nothing
+	# found" is worse than the occasional miss). Three looks at 0 / 1.25 / 2.5 s
+	# fit inside it because an EMPTY walk is nearly free -- the two IMDb misses
+	# took 2 ms and 4 ms, there being nothing to walk -- so these delays are
+	# essentially the whole wall clock. A tree WITH nodes keeps the original
+	# single 1500 ms retry; those walks cost seconds and must not be repeated.
+	_EMPTY_RETRY_DELAY_MS = 1250
+
+	# Total detection attempts per page load, including the first. Only an
+	# EMPTY tree earns a third: a page that yielded real nodes and still had no
+	# landing has genuinely answered, and re-walking it costs seconds on
+	# exactly the heavy pages that can least afford it. Bounded so a document
+	# that never builds cannot retry forever.
+	#
+	# This does NOT have to catch every slow page. A buffer that finishes later
+	# fires its own documentLoadComplete and lands normally, which is exactly
+	# what rescued IMDb at +4 s while these attempts were still coming up empty.
+	_MAX_DETECTION_ATTEMPTS = 3
+
 	# Readiness poll for a TreeInterceptor that exists but hasn't finished
 	# building. 250ms x 12 = up to 3s of waiting, which covers the observed
 	# BibleGateway case (the buffer was still not ready 14s after the first
@@ -526,34 +549,69 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except Exception:
 			log.exception("[TMTS] detection error")
 
-	def _run_detection(self, ti, is_retry=False):
-		# First attempt plays the working tone + pulse. The retry runs
+	def _run_detection(self, ti, attempt=0):
+		# First attempt plays the working tone + pulse. Retries run
 		# silently — no second working tone (user already heard one) and
 		# no pulse (the wait between attempts already conveys "thinking").
+		is_retry = attempt > 0
 		if not is_retry:
 			fb_mod.working()
 			fb_mod.progress_start()
 		acted = False
+		# Initialised before the try: if build_tree_summary raises, the
+		# scheduling decision below still has to be answerable, and a failed
+		# build must not read as "the tree was empty, keep waiting".
+		unbuilt = False
+		could_retry = attempt == 0
 		try:
 			summary = ts_mod.build_tree_summary(ti)
 			try:
-				acted = self._handle_result(ti, summary, is_retry=is_retry)
+				# AN EMPTY TREE IS NOT AN ANSWER. Zero nodes does not mean
+				# "this page has no content" — it means NVDA's virtual buffer
+				# is not built yet. A real loaded document always yields text;
+				# if the scope filter had eaten everything the unscoped
+				# fallback would have refilled it. So the two outcomes get
+				# different treatment: a page that HAS content and offers no
+				# landing is a genuine no-result and earns the not_found tone,
+				# while a page with nothing in it at all earns another wait.
+				#
+				# IMDb, 2026-07-18: detection fired at page-load and again on
+				# the 1500 ms retry, both against a buffer holding ONE chunk
+				# and zero nodes, and announced failure. Four seconds later a
+				# fresh load event walked 190 chunks and landed correctly on
+				# the plot summary. The user heard "nothing found" about a page
+				# that plainly had content.
+				unbuilt = not summary.main_nodes
+				could_retry = attempt == 0 or (
+					unbuilt and attempt + 1 < self._MAX_DETECTION_ATTEMPTS
+				)
+				acted = self._handle_result(
+					ti, summary, is_retry=is_retry, is_final=not could_retry,
+				)
 			finally:
 				ts_mod.release_summary(summary)
 		finally:
 			if not is_retry:
 				fb_mod.progress_stop()
-		# Real long-term fix for SPA hydration delay: if the first attempt
-		# didn't produce a landing, schedule ONE retry. The page may still
-		# be loading async content into NVDA's virtual buffer (calendar
-		# appointments, Gmail thread list, search results). The retry runs
-		# generically — no site-specific code.
-		if not is_retry and not acted:
-			self._schedule_retry(ti)
+		# Real long-term fix for SPA hydration delay: if an attempt didn't
+		# produce a landing, wait and look again. The page may still be
+		# loading async content into NVDA's virtual buffer (calendar
+		# appointments, Gmail thread list, search results). Generic — no
+		# site-specific code.
+		#
+		# An unbuilt tree gets the LONGER delay: the buffer was not merely
+		# incomplete, it was absent, so another 1500 ms is unlikely to be
+		# enough. Bounded by _MAX_DETECTION_ATTEMPTS so a page that never
+		# builds cannot retry forever.
+		if not acted and could_retry:
+			delay = self._EMPTY_RETRY_DELAY_MS if unbuilt else self._RETRY_DELAY_MS
+			self._schedule_retry(ti, attempt + 1, delay)
 
-	def _schedule_retry(self, ti):
+	def _schedule_retry(self, ti, attempt=1, delay_ms=None):
 		# Capture the URL at scheduling time so the retry can verify the
 		# user hasn't navigated away by the time it fires.
+		if delay_ms is None:
+			delay_ms = self._RETRY_DELAY_MS
 		try:
 			expected_url = str(getattr(ti, "documentConstantIdentifier", "") or "")
 		except Exception:
@@ -566,14 +624,18 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			caret_at_schedule = ti.makeTextInfo(textInfos.POSITION_CARET)
 		except Exception:
 			caret_at_schedule = None
-		log.debug(f"[TMTS] scheduling retry in {self._RETRY_DELAY_MS}ms for url={expected_url!r}")
+		log.debug(
+			f"[TMTS] scheduling retry (attempt {attempt}) in {delay_ms}ms "
+			f"for url={expected_url!r}"
+		)
 		try:
 			self._pending_retry = wx.CallLater(
-				self._RETRY_DELAY_MS,
+				delay_ms,
 				self._fire_retry,
 				ti,
 				expected_url,
 				caret_at_schedule,
+				attempt,
 			)
 		except Exception:
 			log.exception("[TMTS] failed to schedule retry")
@@ -589,8 +651,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			pass
 		self._pending_retry = None
 
-	def _fire_retry(self, ti, expected_url, caret_at_schedule=None):
-		# Runs on the wx main thread after _RETRY_DELAY_MS.
+	def _fire_retry(self, ti, expected_url, caret_at_schedule=None, attempt=1):
+		# Runs on the wx main thread after the scheduled delay.
 		self._pending_retry = None
 		if not getattr(ti, "isReady", False):
 			log.debug("[TMTS] retry: TI no longer ready — abandon")
@@ -616,9 +678,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			if moved:
 				log.debug("[TMTS] retry: caret moved during wait — abandon")
 				return
-		log.debug("[TMTS] retry: firing")
+		log.debug(f"[TMTS] retry: firing (attempt {attempt})")
 		try:
-			self._run_detection(ti, is_retry=True)
+			self._run_detection(ti, attempt=attempt)
 		except Exception:
 			log.exception("[TMTS] retry error")
 
@@ -640,10 +702,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._last_landed_url = url or None
 		self._last_landed_time = time.monotonic()
 
-	def _handle_result(self, ti, summary, is_retry=False):
+	def _handle_result(self, ti, summary, is_retry=False, is_final=True):
 		# Returns True if we acted (moved caret + spoke). False otherwise.
-		# On the first attempt (is_retry=False), a False result triggers a
-		# scheduled retry instead of playing not_found right away.
+		# A False result on a non-final attempt triggers a scheduled retry
+		# instead of playing not_found right away.
+		#
+		# is_final, NOT is_retry, gates the failure tone. They used to be the
+		# same thing because there was exactly one retry. Now an empty tree can
+		# earn a further attempt, and announcing "nothing found" before the
+		# last look is how IMDb reported failure on a page it went on to land
+		# correctly. Silence costs nothing here; a wrong failure tone teaches
+		# the user to distrust the add-on.
 		result = cls_mod.classify(summary)
 		# Build a verbose diagnostic snippet about the classifier's view.
 		from .classifier import _largest_paragraph_cluster, _largest_heading_cluster, _hero_paragraph_chars
@@ -722,7 +791,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Guardrail #6: stay silent when the page placed focus itself.
 			# Other no-action cases either retry (first attempt) or play
 			# not_found (final attempt).
-			if result.intent != cls_mod.Intent.SILENT_FOCUS_HONORED and is_retry:
+			if result.intent != cls_mod.Intent.SILENT_FOCUS_HONORED and is_final:
 				fb_mod.not_found()
 			return False
 		if idx is None:
@@ -732,7 +801,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				f"first_nodes={[(n.kind, n.text_length, n.text_preview[:40]) for n in summary.main_nodes[:6]]} "
 				f"url={summary.url!r} retry={is_retry}"
 			)
-			if is_retry:
+			if is_final:
 				fb_mod.not_found()
 			return False
 		landing_info = ts_mod.get_landing_textinfo(summary, idx)
@@ -742,7 +811,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				f"main={summary.has_main_landmark} nodes={len(summary.main_nodes)} "
 				f"url={summary.url!r} retry={is_retry}"
 			)
-			if is_retry:
+			if is_final:
 				fb_mod.not_found()
 			return False
 		landed_node = summary.main_nodes[idx]
@@ -818,7 +887,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 						f"idx={idx} url={summary.url!r} retry={is_retry}"
 					)
 					# Reading the WRONG paragraph is worse than reading none.
-					if is_retry:
+					if is_final:
 						fb_mod.not_found()
 					return False
 				log.debug(
