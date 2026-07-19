@@ -1810,6 +1810,255 @@ def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict
 	return total
 
 
+def _role_level_from_fields(fields):
+	"""Read the chunk's role and heading level off the control field stack.
+
+	Replaces `info.NVDAObjectAtStart` for the ROLE question only. Returns
+	(role_name, level, had_control_field); role_name is None when the buffer
+	emitted no control field, which the caller must treat exactly as it
+	treats an absent object.
+
+	WHY THIS EXISTS. `NVDAObjectAtStart` is a minimum of three cross-process
+	COM round trips (accChild, QueryInterface, QueryService) plus building an
+	IAccessible whose class resolution fetches more properties. Measured on 8
+	real pages: 11-29 ms per chunk, against 0.6-0.9 ms for getTextWithFields,
+	which is in-process (VBuf_getTextInRange plus a local XML parse). On
+	chrome-scoped pages the object fetch was 60-98% of the whole walk, and on
+	vovsoft pages every one of those fetches was wasted because the scope
+	decision was fully positional.
+
+	WHAT THE PROBE ESTABLISHED, AND WHAT IT DID NOT (probes/field_stack, run
+	2026-07-18 on apnews, x.com, imdb, zoom, food.com, stevequayle, bestmidi,
+	payproglobal; 219 chunks).
+
+	It DID establish that chunks_with_no_control_field was 0 on every page, so
+	the per-paragraph control node the whole approach depends on does exist;
+	and that field['level'] comes back as a STRING, matching the object's
+	level after int(), on all 6 heading chunks.
+
+	It did NOT establish that the rule below is equivalent to
+	NVDAObjectAtStart, and the first version of this function wrongly claimed
+	it had. That version scanned the WHOLE field stream, which is a DIFFERENT
+	rule from the one implemented now (see the loop comment). The probe's
+	disagree_innermost=0 could not have caught the difference for two reasons:
+	the probe implemented the same whole-stream rule, and its comparison
+	reduced roles to heading/skip/paragraph, so LINK against PARAGRAPH scored
+	as agreement. Both reviewers found this independently. The probe has since
+	been corrected to read the leading run and to compare exact roles, so a
+	RERUN is what would establish equivalence — the existing 219-chunk result
+	does not.
+
+	WHY NOT HEADING-FIRST. The probe scored heading-first (any HEADING on the
+	stack wins) alongside innermost, and it recorded zero disagreements —
+	which means the heading-wraps-a-link shape never occurred in the sample,
+	not that the rule was validated. heading-first is UNTESTED. The rule below
+	is the one that matches NVDA's own container resolution, which is the
+	better reason to prefer it than any count. Do not switch without a probe
+	run that actually contains the shape.
+
+	NOT USED FOR TEXT. getTextWithFields also returns the text, so it could
+	replace the separate info.text call. The probe never compared the two, so
+	that substitution is unverified and is deliberately not made here;
+	info.text is ~2 ms across an entire walk, so there is little to win.
+	"""
+	if not fields:
+		return None, 0, False
+	innermost = None
+	try:
+		for cmd in fields:
+			# ONLY THE LEADING RUN. getTextWithFields returns control commands
+			# interspersed with TEXT, so the stream for a paragraph containing
+			# an inline image looks like:
+			#
+			#   controlStart(PARAGRAPH), "Some text ", controlStart(GRAPHIC),
+			#   controlEnd, " more text", controlEnd
+			#
+			# Scanning the whole stream and keeping the last controlStart would
+			# therefore answer GRAPHIC for that chunk — and GRAPHIC is a SKIP
+			# role, so the paragraph would vanish from the node list entirely.
+			# The ancestor stack at the range START is the leading run and
+			# nothing after it.
+			#
+			# This is not a guess. NVDA's own VirtualBuffer
+			# getEnclosingContainerRange does exactly this: it iterates
+			# getTextWithFields() and BREAKS at the first item that is not a
+			# controlStart FieldCommand (verified by disassembling
+			# virtualBuffers/__init__.pyc from the installed library.zip,
+			# NVDA 2026.2beta7 — the loop exits to L5 on the
+			# `command != 'controlStart'` branch).
+			#
+			# The field_stack probe made the same whole-stream mistake, which
+			# is why its disagree_innermost=0 did not catch this: its
+			# comparison reduced roles to heading/skip/paragraph, so LINK and
+			# PARAGRAPH scored as agreement, and the trailing-inline-control
+			# shape never occurred in 20 top-of-document chunks. Found by
+			# adversarial review, 2026-07-18.
+			if not isinstance(cmd, textInfos.FieldCommand):
+				break
+			if cmd.command != "controlStart":
+				break
+			innermost = cmd.field
+
+		if innermost is None:
+			return None, 0, False
+
+		# Inside the try on purpose. A controlStart whose field is not
+		# dict-like would otherwise propagate from here and silently end the
+		# walk, while the handler below promises that a malformed stack reads
+		# as no evidence. Near-zero risk with real NVDA ControlFields, but the
+		# promise should be true rather than nearly true (review, 2026-07-18).
+		role = innermost.get("role")
+		name = getattr(role, "name", None)
+	except Exception:
+		# A malformed field stack must read as "no evidence", never as a
+		# confident role — the caller falls back to the object for these.
+		return None, 0, False
+
+	if name is None:
+		# The INNERMOST field has no usable role. Do NOT fall back to an
+		# ancestor's role — a BUTTON whose role failed to resolve would
+		# inherit DOCUMENT and be admitted as a paragraph. No usable role at
+		# the innermost position means no evidence, so the caller pays for an
+		# object and gets the truth.
+		return None, 0, False
+
+	level = 0
+	if name == "HEADING":
+		# field['level'] is a STRING in Gecko's normalized fields.
+		raw = innermost.get("level")
+		try:
+			level = int(raw)
+		except (TypeError, ValueError):
+			# A heading whose level we cannot read is NOT a level-0 heading.
+			# The object path had three fallbacks (level, headingLevel,
+			# IA2Attributes), and level feeds heading-cluster comparisons in
+			# the classifier, so a wrong 0 can merge distinct levels and
+			# change LIST classification. Headings are ~3% of chunks, so
+			# deferring these to the object costs almost nothing.
+			return None, 0, False
+
+	return name, level, True
+
+
+# How one walked chunk's scope decision was reached.
+#
+# WHY THIS IS A RETURN VALUE AND NOT A COUNTER NEXT TO THE DECISION. The
+# depleted-scope net keys on `positional_drops == 0`, so that tally is a
+# safety input, not a diagnostic. While it lived as a bare `+= 1` beside the
+# branch that produced it, the increment could be deleted with the entire
+# suite still green — which is exactly how three wirings on this branch were
+# found sabotage-tolerant. Making the walk DERIVE its tallies from this kind
+# means a test that drives the decision also covers the counting; there is no
+# longer a separate thing to delete.
+#
+# Kinds, one per way the decision can be reached:
+#   RANGE / RANGE_DROP   positional containment in a <main>/<article> range
+#   FREE                 landmark-free document, nothing to filter against
+#   CHROME_KEEP / _DROP  bounded-trust positional chrome exclusion
+#   IDENTITY             the parent-chain filter was consulted
+# Only the CHROME_* kinds feed positional_drops, because _scope_looks_depleted
+# only consults it for scope_kind == "chrome-pos".
+_SCOPE_RANGE = "range"
+_SCOPE_RANGE_DROP = "range-drop"
+_SCOPE_FREE = "free"
+_SCOPE_CHROME_KEEP = "chrome-keep"
+_SCOPE_CHROME_DROP = "chrome-drop"
+_SCOPE_IDENTITY = "identity"
+
+
+def _chunk_scope(
+	info,
+	get_obj,
+	scope_range,
+	no_landmarks: bool,
+	exclude_ranges,
+	trust_boundary,
+	untrusted_ranges,
+	main_obj,
+	cache: dict,
+	scope_stats: Optional[dict] = None,
+):
+	"""Decide whether one walked chunk is in scope, and say HOW it decided.
+
+	`get_obj` is a zero-argument callable returning the chunk's NVDAObject (or
+	None). It is a CALLABLE rather than an object because resolving one costs
+	3+ cross-process COM round trips, and most chunks on a positionally-scoped
+	page never need it. Every branch below that does not call it is a branch
+	that pays nothing.
+
+	Returns (in_scope, kind). Pure apart from the parent-chain walk it may
+	delegate to, so the whole decision tree — including the objectless-chunk
+	rejection that the chrome-pos design leans on — is drivable from tests
+	with fake ranges. See tests/test_walk_wiring.py.
+	"""
+	if scope_range is not None:
+		# Positional containment: keep the chunk only if it falls inside the
+		# article's range. Stable across accesses, unlike the parent-chain
+		# identity check. Fall back to the identity filter only if the
+		# comparison itself errors.
+		try:
+			inside = (
+				info.compareEndPoints(scope_range, "startToStart") >= 0
+				and info.compareEndPoints(scope_range, "endToEnd") <= 0
+			)
+		except Exception:
+			pass
+		else:
+			return inside, (_SCOPE_RANGE if inside else _SCOPE_RANGE_DROP)
+		obj = get_obj()
+		return (
+			obj is None or _in_scope(obj, main_obj, cache, scope_stats),
+			_SCOPE_IDENTITY,
+		)
+
+	if no_landmarks:
+		# Document has no landmarks at all, corroborated. The identity walk
+		# would climb 30 ancestors and conclude "in scope" for every chunk;
+		# this is that same answer without the COM calls. See
+		# _document_has_no_landmarks.
+		return True, _SCOPE_FREE
+
+	if exclude_ranges is not None:
+		# Bounded-trust positional scoping. Before the trust boundary the
+		# chrome inventory is provably complete (see _select_scope), so the
+		# chunk is content unless it STARTS inside a chrome landmark — offset
+		# arithmetic, no browser calls. At or after the boundary, and on ANY
+		# comparison failure, fall back to the identity walk: guessing
+		# "not excluded" there is how a nav block becomes article text.
+		verdict = _chrome_pos_verdict(
+			info, trust_boundary, exclude_ranges, untrusted_ranges,
+		)
+		if verdict is not None:
+			return verdict, (_SCOPE_CHROME_KEEP if verdict else _SCOPE_CHROME_DROP)
+		obj = get_obj()
+		if obj is None:
+			# NO EVIDENCE AT ALL. Positional could not decide and there is no
+			# object to ask, so the identity filter cannot run either.
+			#
+			# Everywhere else in this module an objectless chunk defaults to
+			# IN scope, and that was harmless while identity was the primary
+			# mechanism. It is not harmless here: chrome-pos deliberately
+			# routes its uncertain chunks to the identity filter AS its safety
+			# mechanism, so this is precisely the chunk class the design leans
+			# on that filter for — and for these chunks the filter is absent.
+			# Defaulting to "content" would hand back exactly the fail-open
+			# result the tri-state plumbing exists to prevent (2026-07-18
+			# review).
+			#
+			# So: out of scope. The chunk still reaches all_nodes, so the
+			# depleted-scope net can recover it if this ever strips a page
+			# bare, and the cost of being wrong is a missed paragraph rather
+			# than a landing in a navigation menu.
+			return False, _SCOPE_IDENTITY
+		return _in_scope(obj, main_obj, cache, scope_stats), _SCOPE_IDENTITY
+
+	obj = get_obj()
+	return (
+		obj is None or _in_scope(obj, main_obj, cache, scope_stats),
+		_SCOPE_IDENTITY,
+	)
+
+
 def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list, notice_match_out: Optional[list] = None, raw_count_out: Optional[list] = None, scope_range=None, all_nodes_out: Optional[list] = None, all_positions_out: Optional[list] = None, notice_match_all_out: Optional[list] = None, truncated_out: Optional[list] = None, exclude_ranges=None, trust_boundary=None, untrusted_ranges=None, positional_out: Optional[list] = None, no_landmarks: bool = False) -> list[MainNode]:
 	# Walk the whole document by UNIT_PARAGRAPH; emit only nodes that
 	# pass _in_scope (inside <main> if present, or outside chrome
@@ -1846,8 +2095,13 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	consecutive_out = 0
 	have_seen_in_scope = False
 	# Diagnostic counters (only used when result is empty at end of walk).
+	# objs_resolved counts chunks whose object we actually RESOLVED, which
+	# since the lazy-fetch change is far fewer than the chunks that HAVE one.
+	# Named for what it measures: as raw_with_obj it read as "NVDA yielded
+	# objectless chunks", which under DEBUGGING.md's logs-first workflow is a
+	# wrong diagnosis handed to a future session (review, 2026-07-18).
 	raw_seen = 0
-	raw_with_obj = 0
+	objs_resolved = 0
 	raw_with_text = 0
 	# Diagnostic: previews of chunks the scope filter dropped AFTER the
 	# scoped region had started producing nodes. Mid-region drops are
@@ -1866,6 +2120,7 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	t_expand = 0.0
 	t_text = 0.0
 	t_obj = 0.0
+	t_fields = 0.0
 	t_scope = 0.0
 	scope_stats: dict = {}
 	# How the scope decision was actually reached, per chunk. The whole point
@@ -1919,90 +2174,105 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 			_t = time.monotonic()
 			text = info.text or ""
 			t_text += time.monotonic() - _t
+			# Role and level come from the control field stack, ALWAYS. This
+			# is an in-process call (VBuf_getTextInRange plus a local XML parse)
+			# replacing a 3+ round-trip COM fetch for the role question.
+			# See _role_level_from_fields for the probe evidence.
 			_t = time.monotonic()
-			obj = info.NVDAObjectAtStart
-			t_obj += time.monotonic() - _t
+			try:
+				fields = info.getTextWithFields()
+			except Exception:
+				fields = None
+			role_name, role_level, had_field = _role_level_from_fields(fields)
+			t_fields += time.monotonic() - _t
+
+			# The object is now fetched LAZILY, and only where something actually
+			# needs it: the scope decision when the positional verdict comes back
+			# None, and the role when the buffer emitted no control field.
+			#
+			# It is NOT removed. _in_scope is the identity fallback the whole
+			# chrome-pos design leans on as its safety mechanism, and a probe that
+			# passes is not licence to delete it. On a fully-positional page this
+			# fetches nothing; on an identity-scoped page it fetches exactly as
+			# often as before.
+			obj_box: list = []
+
+			def _get_obj(_info=info):
+				# Memoised per chunk, INCLUDING a genuine None answer, so an
+				# objectless chunk is not re-fetched on every ask. Default-arg
+				# binding of _info keeps this closure tied to its own chunk.
+				#
+				# NOTE only _info is pinned. obj_box is a loop local rebound
+				# every iteration, so a future caller that STORED this callable
+				# and invoked it after the loop advanced would read or populate
+				# a different chunk's memo and feed the wrong object into
+				# _in_scope. Every current call is same-iteration and
+				# synchronous. Keep it that way.
+				#
+				# EXCEPTIONS DELIBERATELY PROPAGATE. An earlier version caught
+				# them and memoised None, which looks defensive and is the
+				# opposite: two identity branches read `obj is None` as IN
+				# scope, so a transient COM failure would have admitted an
+				# unverified navigation chunk as content. The old eager fetch
+				# let the exception reach the walk's outer handler and stop the
+				# walk, and that is the behaviour preserved here. Timing still
+				# accumulates on the failure path via finally.
+				nonlocal t_obj
+				if not obj_box:
+					_o = time.monotonic()
+					try:
+						obj_box.append(_info.NVDAObjectAtStart)
+					finally:
+						t_obj += time.monotonic() - _o
+				return obj_box[0]
+
 			raw_seen += 1
-			if obj is not None:
-				raw_with_obj += 1
 			if text.strip():
 				raw_with_text += 1
 
-			if scope_range is not None:
-				# Positional containment: keep the chunk only if it falls
-				# inside the article's range. Stable across accesses, unlike
-				# the parent-chain identity check. Fall back to the identity
-				# filter only if the comparison itself errors.
-				try:
-					in_scope = (
-						info.compareEndPoints(scope_range, "startToStart") >= 0
-						and info.compareEndPoints(scope_range, "endToEnd") <= 0
-					)
-				except Exception:
-					_t = time.monotonic()
-					in_scope = obj is None or _in_scope(obj, main_obj, cache, scope_stats)
-					t_scope += time.monotonic() - _t
-			elif no_landmarks:
-				# Document has no landmarks at all, corroborated. The identity
-				# walk would climb 30 ancestors and conclude "in scope" for
-				# every chunk; this is that same answer without the COM calls.
-				# See _document_has_no_landmarks.
-				in_scope = True
-			elif exclude_ranges is not None:
-				# Bounded-trust positional scoping. Before the trust boundary
-				# the chrome inventory is provably complete (see
-				# _select_scope), so the chunk is content unless it STARTS
-				# inside a chrome landmark — offset arithmetic, no browser
-				# calls. At or after the boundary, and on ANY comparison
-				# failure, fall back to the identity walk: guessing
-				# "not excluded" there is how a nav block becomes article
-				# text.
-				_t = time.monotonic()
-				verdict = _chrome_pos_verdict(
-					info, trust_boundary, exclude_ranges, untrusted_ranges,
-				)
-				if verdict is not None:
-					positional_hits += 1
-					if verdict is False:
-						positional_drops += 1
-				if verdict is None:
-					if obj is None:
-						# NO EVIDENCE AT ALL. Positional could not decide and
-						# there is no object to ask, so the identity filter
-						# cannot run either.
-						#
-						# Everywhere else in this module an objectless chunk
-						# defaults to IN scope, and that was harmless while
-						# identity was the primary mechanism. It is not
-						# harmless here: chrome-pos deliberately routes its
-						# uncertain chunks to the identity filter AS its
-						# safety mechanism, so this is precisely the chunk
-						# class the design leans on that filter for — and for
-						# these chunks the filter is absent. Defaulting to
-						# "content" would hand back exactly the fail-open
-						# result the tri-state plumbing exists to prevent
-						# (2026-07-18 review).
-						#
-						# So: out of scope. The chunk still reaches all_nodes,
-						# so the depleted-scope net can recover it if this
-						# ever strips a page bare, and the cost of being wrong
-						# is a missed paragraph rather than a landing in a
-						# navigation menu.
-						verdict = False
-					else:
-						verdict = _in_scope(obj, main_obj, cache, scope_stats)
-					identity_hits += 1
-				in_scope = verdict
-				t_scope += time.monotonic() - _t
-			else:
-				_t = time.monotonic()
-				in_scope = obj is None or _in_scope(obj, main_obj, cache, scope_stats)
+			# One call, one decision, and the tallies below are DERIVED from
+			# the kind it reports rather than incremented beside the branch that
+			# produced them. See _chunk_scope for why that matters. t_scope now
+			# also covers the positional arithmetic (offset comparisons, not
+			# browser calls), so it reads a hair higher than it used to on
+			# main-pos pages and still names the parent chains on chrome pages.
+			_t = time.monotonic()
+			_obj_before = t_obj
+			in_scope, scope_decision = _chunk_scope(
+				info, _get_obj, scope_range, no_landmarks, exclude_ranges,
+				trust_boundary, untrusted_ranges, main_obj, cache, scope_stats,
+			)
+			# Subtract any object resolution that happened INSIDE the scope
+			# decision, so obj= and scope= stay disjoint in the walk-phase
+			# line. Without this an identity-scoped page double-counts the COM
+			# time in both phases, and the whole point of that line is to name
+			# which call site owns the clock.
+			t_scope += (time.monotonic() - _t) - (t_obj - _obj_before)
+			if scope_decision in (_SCOPE_CHROME_KEEP, _SCOPE_CHROME_DROP):
+				positional_hits += 1
+				if scope_decision == _SCOPE_CHROME_DROP:
+					positional_drops += 1
+			elif scope_decision == _SCOPE_IDENTITY:
 				identity_hits += 1
-				t_scope += time.monotonic() - _t
 			# Build the node once, regardless of scope. An out-of-scope node
 			# still goes into all_nodes_out so the caller can use it if the
 			# scope filter turns out to have rejected the entire document.
-			node = _node_for(obj, text)
+			# Field-stack role when the buffer gave one (the overwhelmingly
+			# common case: 219 of 219 chunks across 8 probe pages). Only when
+			# it gave NO control field do we pay for an object — and note the
+			# fallback is _node_for, not a bare paragraph, because a chunk
+			# with no control field could still be an image-only heading and
+			# those drive seen_heading and the hero/prose-run/list gates.
+			if had_field:
+				node = _node_from_role(role_name, role_level, text)
+			else:
+				node = _node_for(_get_obj(), text)
+			# Sampled AFTER the role fallback, which is the last thing that can
+			# resolve an object for this chunk. Counting it before the fallback
+			# undercounts exactly the chunks the [TMTS walk-empty] diagnostic
+			# exists to explain.
+			if obj_box and obj_box[0] is not None:
+				objs_resolved += 1
 			pos = None
 			if node is not None:
 				# Capture a collapsed-to-start position parallel to the node
@@ -2082,7 +2352,8 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	phase_line = (
 		f"[TMTS walk-phase] walk_total={walk_total*1000:.0f}ms "
 		f"expand={t_expand*1000:.0f}ms text={t_text*1000:.0f}ms "
-		f"obj={t_obj*1000:.0f}ms scope={t_scope*1000:.0f}ms "
+		f"obj={t_obj*1000:.0f}ms fields={t_fields*1000:.0f}ms "
+		f"scope={t_scope*1000:.0f}ms "
 		f"chunks={raw_seen} parent_derefs={scope_stats.get('parent_derefs', 0)} "
 		f"cache_hits={scope_stats.get('cache_hits', 0)} "
 		f"cache_misses={scope_stats.get('cache_misses', 0)} "
@@ -2118,33 +2389,33 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	# chunks but they had no obj/text, or did everything filter out?
 	if not result:
 		log.debug(
-			f"[TMTS walk-empty] raw_seen={raw_seen} raw_with_obj={raw_with_obj} "
+			f"[TMTS walk-empty] raw_seen={raw_seen} objs_resolved={objs_resolved} "
 			f"raw_with_text={raw_with_text} main_obj_set={main_obj is not None}"
 		)
 	return result
 
 
-def _node_for(obj, text: str) -> Optional[MainNode]:
-	# Classify the current chunk as heading, paragraph, or skip. Returns
-	# None to mean "skip" (don't add to the node list).
-	if obj is None:
-		stripped = text.strip()
-		if not stripped:
-			return None
-		return MainNode(
-			kind="paragraph",
-			text_length=len(stripped),
-			text_preview=stripped[:60],
-			is_caption=_looks_like_image_caption(stripped),
-			is_boilerplate=_looks_like_legal_boilerplate(stripped),
-			is_disclosure=_looks_like_editorial_disclosure(stripped),
-			ends_sentence=ends_like_sentence(stripped),
-		)
-
-	role_name = getattr(obj.role, "name", None) or str(obj.role)
-
+def _node_from_role(role_name: Optional[str], level: int, text: str) -> Optional[MainNode]:
+	# Classify the current chunk as heading, paragraph, or skip, from a ROLE
+	# rather than from an object. Returns None to mean "skip" (don't add to
+	# the node list).
+	#
+	# The walk feeds this from the control field stack (see
+	# _role_level_from_fields); _node_for feeds it from an NVDAObject. Both
+	# callers must reach the same answer, which is what the probe's
+	# disagree_innermost=0 across 219 chunks established.
+	#
+	# role_name None means "no role evidence" — from an absent object or an
+	# absent control field. Both are treated as plain text, which is what the
+	# object path has always done.
+	#
+	# NOTE the heading branch deliberately does NOT require non-empty text.
+	# An image-only heading (an <h1> wrapping a logo <img>) yields a heading
+	# node with empty text, and that node is load-bearing: it drives
+	# seen_heading, the hero gate, the prose-run gate's after-a-heading
+	# requirement, the directory redirect, and find_list_landing. Skipping
+	# empty-text chunks before the role check would silently delete them.
 	if role_name == "HEADING":
-		level = _heading_level(obj)
 		return MainNode(
 			kind="heading",
 			level=level,
@@ -2152,7 +2423,7 @@ def _node_for(obj, text: str) -> Optional[MainNode]:
 			text_preview=text[:60],
 		)
 
-	if role_name in _PARAGRAPH_SKIP_ROLES_NAMES:
+	if role_name is not None and role_name in _PARAGRAPH_SKIP_ROLES_NAMES:
 		return None
 
 	stripped = text.strip()
@@ -2167,6 +2438,15 @@ def _node_for(obj, text: str) -> Optional[MainNode]:
 		is_disclosure=_looks_like_editorial_disclosure(stripped),
 		ends_sentence=ends_like_sentence(stripped),
 	)
+
+
+def _node_for(obj, text: str) -> Optional[MainNode]:
+	# Object-backed entry point, kept for callers that already hold an object.
+	if obj is None:
+		return _node_from_role(None, 0, text)
+	role_name = getattr(obj.role, "name", None) or str(obj.role)
+	level = _heading_level(obj) if role_name == "HEADING" else 0
+	return _node_from_role(role_name, level, text)
 
 
 def _heading_level(obj) -> int:
