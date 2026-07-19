@@ -1,177 +1,84 @@
 # Next session prompt (paste into a fresh session)
 
-We're picking up Text Marks the Spot on branch `scope-hardening` (main is still
-v1.0.13, unmerged, so nothing on this branch is exposed to users). Read
-CLAUDE.md, DEBUGGING.md, and the TOP TWO entries of implementation-notes.md
-first. 301 tests pass; run them with `python -B -m pytest tests/` from the repo
-root (the `-B` matters, see the harness traps below).
+We're picking up Text Marks the Spot on branch `scope-hardening`. `main` is
+still v1.0.13 and that is what the store serves, so nothing on this branch has
+reached users. All three branches ARE pushed to GitHub now.
 
-Last session shipped one correctness fix, ran a probe that finally answered a
-question two earlier sessions got wrong, and found a merge blocker. Three
-commits, unpushed: `f4dac67` (the `_in_scope` tri-state fix), `e9b0c35` (probe
-plus results), `08a52ba` (docs, blocker record, disowned-citation cleanup).
+Read `CLAUDE.md`, `DEBUGGING.md`, and the TOP entry of `implementation-notes.md`
+first. 313 tests: `python -B -m pytest tests/` from the repo root (the `-B`
+matters — see the harness traps in `tests/sabotage_check.py`).
 
-## FIRST TASK: the chrome-none merge blocker. Decide it, then fix it.
+## State as of 2026-07-19 (end of day)
 
-`_document_has_no_landmarks` requires `seen == 0 and exhausted and
-interactive_count > 0`. `exhausted` cannot mean what the docstring claims.
-NVDA's `_iterNodesByAttribs` CATCHES the native exception from
-`VBuf_findNodeByAttributes` and RETURNS, so a natively failed landmark search
-is an ordinary empty completed generator. Confirmed empirically:
+The merge blocker is CLOSED and Task 2 SHIPPED. Three commits today:
 
-    _find_main_landmark(FakeTI([]))      -> seen=0, exhausted=True
-    _document_has_no_landmarks(scan, 5)  -> True   -> chrome-none
+- `c7ec17b` — deleted the `chrome-none` scope (it admitted every chunk with no
+  chrome check whenever the landmark enumeration came back empty, and NVDA makes
+  a FAILED search indistinguishable from a landmark-free page), and added
+  landmark ancestry from the control field stack for the WALK.
+- `ac35e89` — fixes from two independent implementation reviews, which BOTH
+  found the same two deletions that left all 307 tests green.
+- `e8eaa8c` — recorded that the depleted-scope net has never fired, and shelved
+  its planned refinement.
 
-`chrome-none` then skips chrome checking ENTIRELY, so navigation and footer are
-admitted as content and the user can land in a menu. `tests/test_chrome_scope.py:621`
-gives false confidence: it uses `raise_after=0`, which makes the exception
-ESCAPE, and that is the one shape `exhausted` genuinely catches.
+**Measured in production, both engines.** stevequayle: `walk_total=84ms`,
+`parent_derefs=0`, `identity=0`, `field=113` of 113, `field_backend=y`. Firefox
+(`Dynamic_DocumentMozillaIAccessible`) and Chromium
+(`IAccessible.chromium.Document`) both report `field_backend=y`, so the
+class-based backend gate covers both.
 
-Two options, not decided. Casey leaned toward 2 but explicitly wanted it chosen
-fresh rather than at the end of a long session:
+Casey is SOAKING this build as his daily driver. The field_stack probe add-on
+has been uninstalled, so the logs are clean.
 
-1. Delete `chrome-none`, falling back to the identity chrome filter. Sound and
-   simple. Costs real speed: stevequayle's walk is 84 ms with it, and the probe
-   clocked over six seconds of uncached parent chains on that page without it.
-2. Keep it, corroborated by the control field stack. On a `seen == 0` page,
-   check whether the leading control run shows landmarks anyway; if it does the
-   enumeration lied and the shortcut is refused. About a millisecond, so unlike
-   the sampled COM check the reviewers proposed it can check EVERY chunk. Needs
-   the backend gate below or it fails open on WebKit the same way.
+## What to do next
 
-Whatever you pick, the test that must exist is the NATIVE-SWALLOW shape: an
-enumeration that yields nothing and returns normally must not activate any
-landmark-free shortcut. Confirm it fails when the fix is removed.
+1. **Ask Casey how the soak went, and read the log before theorising.** The
+   persistent log (`%APPDATA%\nvda\TextMarksTheSpot-perf.log`) survives
+   restarts; the decision trace lives only in `nvda.log` and is gone two NVDA
+   restarts later. You can always reproduce by re-loading the page.
+2. **Still unobserved in production: `field_drops` doing real work.** Everything
+   measured so far was landmark-free or simple-nav. Pages in Casey's history
+   with no `<main>` but marked chrome: thurrott.com (9 loads), bleepingcomputer,
+   disabilityscoop, breitbart (6 chrome ranges), vovsoft (15 loads).
+3. **THE COUNTS** are now the dominant cost — 646-666 ms of ~730 ms, with
+   `counts_trunc=True` every time. This is measured, not guessed. PROBE FIRST:
+   collapse to the item start and expand ONE CHARACTER, record MAX call time
+   (not average), plus `backendName`, the TextInfo class, and the NVDA version.
+   Budget math before committing: 6 types x 300-item cap x ~1 ms is ~1.8 s
+   against a 0.6 s budget.
 
-## SECOND TASK: the guarded walk path (design already reviewed)
+## Open, none of them blockers
 
-Replace the COM parent chain with landmark ancestry read from the leading
-control run of `getTextWithFields()`. Two independent reviews approved this for
-the WALK only, with four conditions. Probe evidence (4 pages, 153 chunks,
-2026-07-19): the field stack never missed a landmark the parent chain found
-across 48 landmark-bearing chunks, caught three the chain missed and was right
-about all three, and cost 138.8 ms against the chain's 16,564 ms.
+- `_count_in_scope` (`tree_summary.py:1712`) DROPS an item whose `obj is None`
+  without setting `truncated_out` — a TRUSTED undercount, poison for NOTICE and
+  KEY_RESULT which fire on SMALL counts. Its sibling `_count_in_range` biases
+  the OPPOSITE way on the same evidence.
+- Objectless chunks still fail open on the plain-chrome and range-error identity
+  branches (`chrome-pos` correctly refuses them). Pre-existing; both reviewers
+  say CLAUDE.md mis-files this as an accepted limitation.
+- `classifier.py:448` bumps LIST confidence at `article_count >= 5` while
+  `_ARTICLE_LIMIT = 4` caps it. Dead branch.
+- The depleted-scope net is UNVERIFIED (never fired in 245 loads). Do not refine
+  it; watch the persistent log for `unscoped-depleted` and delete it if it stays
+  absent. Its shelved refinement, and a live Codex/Fable disagreement about
+  whether `_SCOPE_RANGE_DROP` may be treated as trusted, are recorded in
+  `_scope_looks_depleted`'s docstring.
+- `main-id` via `controlIdentifier_docHandle`/`_ID`, behind its own probe.
+- Whether `_LANDED_SUPPRESS_SEC` should be TI-aware rather than URL-only.
+- The branch version is still 1.0.13, same as the release, so the installed copy
+  is not self-identifying. Deliberate: the bump happens at release time.
 
-Question 1, the one that could have killed it, is SETTLED IN ITS FAVOUR from
-`nvdaHelper/vbufBase/storage.cpp` read directly: `getTextInRange` emits its own
-opening tag unconditionally and recurses into every child overlapping the
-range, starting at `rootNode`, filter defaulted to NULL. The leading run is the
-complete virtual-buffer ancestor chain. Presentation filtering happens later,
-in `getEnclosingContainerRange`.
+## How to work on this branch
 
-The four conditions, all of which change the design:
-
-1. "No landmark in the stack" is NOT "content". Call it `NOT_IN_CHROME`. Three
-   states required: definitive-chrome, definitive-not-in-chrome, and UNKNOWN
-   (failed call, `''`/`['']`, no leading controlStart, malformed field,
-   unsupported backend). `_role_level_from_fields`'s `had_field` is the
-   existing precedent.
-2. BACKEND GATE or it is fail-open. `field["landmark"]` is backend
-   normalization, not a TextInfo contract. Gecko and Chromium populate it;
-   WebKit's normalizer does not. The probe does not log `backendName`.
-3. The two mechanisms are independent in TRAVERSAL ONLY, not labeling.
-   `_normalizeControlField` and `Ia2Web._get_landmark` compute the same `next()`
-   over the same `aria.landmarkRoles` set. If a browser misreports `xml-roles`
-   both go blind. (The field stack IS independent of the landmark ENUMERATION,
-   which is the narrower claim that survives.)
-4. `main-id` is NOT answerable this way. "Inside THE `<main>` we found" is
-   identity (`cur is main_obj`); `landmark == "main"` matches any main.
-   Unprobed. Keep identity there, or probe `controlIdentifier_docHandle`/`_ID`.
-
-Combination rule (agreed, and "chrome if EITHER says chrome" was rejected
-because it keeps a COM chain per content item and, for counts, a false chrome
-verdict removes items WITHOUT setting `counts_truncated`, which manufactures
-NOTICE and KEY_RESULT): field says chrome, exclude; field definitively
-not-in-chrome, accept with no COM; unknown, call `_in_scope_verdict`; parent
-unknown, keep for walk and counts, refuse for focus.
-
-The FOCUS gate is stricter than both: the field stack is a buffer SNAPSHOT and
-`setFocus()` acts on the LIVE object, and a dynamic page can reparent the
-control in between (unmeasured race). Require definitive field permission AND a
-live `_in_scope_verdict(...) is True` immediately before `setFocus()`. That is
-one chain per FORM page, not per chunk.
-
-Do NOT delete `trust_boundary` / `untrusted_ranges` / `_chrome_pos_verdict` in
-the same change that adds the field path. Two steps, each pinned.
-
-## HELD BACK behind probes. Do not implement these on argument.
-
-- THE COUNTS. Do not extrapolate the 0.7-1.1 ms field-call figure; that is a
-  PARAGRAPH number and a quick-nav item's range can be a whole article.
-  Collapse to the item start and expand ONE CHARACTER. Budget math first:
-  6 types x 300-item scan cap x ~1 ms is ~1.8 s against a 0.6 s counts budget.
-  Probe must record MAX call time, not average, plus `backendName` and NVDA
-  version.
-- `main-id` replacement (condition 4).
-- One Firefox rerun of the existing probe before calling the mechanism
-  cross-engine.
-
-ADD `backendName` TO THE PROBE BEFORE ITS NEXT RUN, whatever that run is for.
-Both reviewers landed on the backend gate independently, and the existing
-results cannot be attributed to Gecko or Chromium after the fact because the
-probe never logged which backend produced them. Log the NVDA version with it.
-This is cheap now and unrecoverable later.
-
-Unrelated and real, found in review: `_count_in_scope` silently DROPS an item
-whose `obj is None` without setting `truncated_out`, producing a TRUSTED
-undercount. And `classifier.py:448` bumps LIST confidence at `article_count >= 5`
-while `_ARTICLE_LIMIT = 4` caps it at 4, so that branch cannot fire.
-
-## Probes: Casey installs and runs them himself
-
-Build with `python probes/build_probe.py field_stack`, open the `.nvda-addon`
-with `Start-Process`, and he installs and restarts NVDA. Trigger is
-NVDA+control+alt+f (NOT NVDA+shift+f, the `translate` add-on owns that and
-silently wins the gesture). Open pages ONE AT A TIME and wait; he cannot press a
-key on eight tabs that all steal focus as they open. Verify the installed copy
-before diagnosing anything (`%APPDATA%\nvda\addons\...`, and check for
-`pendingInstall`).
-
-## HOW THE LAST THREE SESSIONS FAILED. Same shape each time.
-
-- A check came back unanimous and was cited as proof when it could never have
-  come back the other way. `disagree_innermost=0` over 219 chunks was cited as
-  equivalence while the probe implemented the same bug and its comparison
-  scored LINK against PARAGRAPH as agreement. That run is DISOWNED; do not cite
-  it. When a number is unanimous, ask whether it could have failed, and ask it
-  of the number you are LEANING ON, not the convenient one.
-- A hazard was noticed and MIS-FILED. The chrome-none blocker above was looked
-  at directly during the Change A analysis and written down as "a pre-existing
-  accepted risk" instead of as a bug. Noticing is not disposing.
-- A design was believed because it was argued well. Every design here has been
-  reviewed by Codex AND a Fable subagent, in parallel, and they have killed
-  several and each found things the other did not. Do this before believing any
-  design. It is the highest-value habit on this branch.
-
-## HARNESS TRAPS that silently invalidate your own verification
-
-1. A sabotage check that rewrites a source file and immediately re-runs pytest
-   can execute the PREVIOUS version. `.pyc` validation keys on source mtime and
-   size. Always run with `python -B`.
-2. A harness that crashes between writing the sabotage and restoring leaves the
-   file DAMAGED, and the next run treats the damage as its baseline. Restore in
-   a `finally` from bytes captured once, and re-run the full suite afterwards
-   rather than trusting the restore. A working sabotage script from last
-   session is worth rebuilding from the pattern in implementation-notes.
-
-Sabotage checks are the control on this branch: it has been burned by tests
-that pass while the wiring feeding them is deleted. `tests/test_walk_wiring.py`
-is the pattern, driving the real `_walk_main_nodes` through a fake
-TreeInterceptor rather than hand-built node lists. Pin the CHAIN, not the
-pieces, and CONFIRM each new test fails when its wiring is removed.
-
-## House rules that cost real time when ignored
-
-- Verify NVDA behavior from NVDA's source or the installed bytecode, never from
-  recall. `marshal.loads(data[16:])` then `dis.dis` works on `library.zip` and
-  reflects the NVDA actually running. For C++, DOWNLOAD and read the file
-  directly; a WebFetch summary of this exact codebase once asserted the
-  opposite of the truth while quoting the code that disproved it.
-- Read the DECISION TRACE in `nvda.log`, not just the `[TMTS perf]` line. A
-  correct observation is not a diagnosis.
-- An automated URL sweep is only valid with Casey present and AT the focused
-  browser. Programmatic focus is not focus. Any sweep must count new perf-log
-  lines per page and abort when the first few come back void. Heartbeat beep
-  every ~3 seconds at 750 Hz (distinct from the add-on's 500/400/220).
-- Do not commit unless Casey asks. Do not tune for specific sites; fixes go in
-  at the class level or not at all.
+- **Two reviewers in parallel, every round: Codex AND a Fable subagent.** They
+  have killed several designs, they disagree with each other usefully, and today
+  they independently found the same two green-suite holes. This is the
+  highest-value habit here. Codex invocation traps are in the global CLAUDE.md.
+- **Sabotage-check every new test**: `python -B tests/sabotage_check.py` reverts
+  each fix in several disguises and confirms the suite goes red. 15 entries, all
+  caught. It found a genuine hole in today's own tests.
+- **Before improving a mechanism, confirm it has ever fired.** See DEBUGGING.md
+  step 0. This is what stopped a full day of work on the depleted net.
+- Verify NVDA behavior from source or the INSTALLED bytecode, never recall.
+- Commit and push freely (standing authorization). A TAG push is a release and
+  still needs Casey's explicit go-ahead, as does store submission.

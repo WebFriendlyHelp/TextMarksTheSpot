@@ -19,6 +19,27 @@ Do not skip to step 3. Two incidents today looked like landing-rule bugs and
 were actually a walk bug — the paragraph the user wanted was never in the
 add-on's data at all.
 
+**Step 0, before improving any mechanism: has it ever fired?** (added
+2026-07-19.) A refinement to the depleted-scope net was designed, reviewed by
+two independent reviewers, and nearly built — before anyone asked how often the
+net had run. The answer was ZERO times in 245 page loads, and on the page it was
+built for it could not fire at all. Both reviewers missed it because both were
+reasoning inside the premise they were handed; that is what reviewers do.
+
+The count is usually one command against the persistent log:
+
+```powershell
+$p = "$env:APPDATA\nvda\TextMarksTheSpot-perf.log"
+(Get-Content $p | Where-Object { $_ -match 'unscoped-depleted' }).Count
+```
+
+A safety net that has never fired is indistinguishable from one that cannot.
+This is the same discipline as "when a check comes back unanimous, ask whether
+it could ever have come back the other way", aimed at a mechanism instead of a
+probe. And check the WIRING has a test, not just the predicate: on this branch,
+five separate times, a rule was unit-tested while the code feeding it could be
+deleted with the suite still green.
+
 ## Before you assume it's a landing bug: three failures that MASQUERADE as one
 
 Added after 2026-07-14. All three look exactly like "the cascade picked the wrong
@@ -57,6 +78,29 @@ vda.log | Group-Object { $_.Line -replace '.*_maybe_fire_ti: ([a-zA-Z ]+).*','$1
 
 `PROCEEDING` = detection ran. Everything else is a skip, and a large skip count on
 DIFFERENT urls is a trigger bug, not a landing bug.
+
+### B2. A second browser on the SAME URL is suppressed, and looks broken
+
+Added 2026-07-19 after Edge appeared to fail while Firefox and Chrome worked.
+
+`_LANDED_SUPPRESS_SEC` is 120 seconds and is keyed on the **URL alone**, not on
+URL-plus-browser. So a landing in one browser suppresses the identical URL in
+the next one. Testing the same page across browsers inside two minutes is VOID,
+and the only thing that says so is the decision trace:
+
+```
+[TMTS] _maybe_fire_ti: already landed on url='...' 22.4s ago — suppressing re-detection
+```
+
+Vary the URL per browser, or wait two minutes. And note the two OTHER ways a
+browser can silently do nothing, which look identical from outside:
+
+- `readiness poll: still not ready after 12 attempts — giving up` (the buffer
+  never built inside 3 s; Edge did this on a cold load)
+- `readiness poll: not a web document (scheme) — abandon`
+
+Three different causes, one symptom. Read the trace before concluding anything
+about a browser.
 
 ### C. Your test harness broke, not the add-on
 
