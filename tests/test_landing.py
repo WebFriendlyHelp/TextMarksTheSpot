@@ -662,6 +662,55 @@ def test_notice_landing_returns_none_when_main_nodes_empty():
 	assert web.find_notice_landing(_summary_with([])) is None
 
 
+def test_notice_landing_lands_on_thank_you_page_heading_not_breadcrumb():
+	# WebAIM survey-confirmation page (2026-07-20): the status is the H1
+	# "Screen Reader User Survey Completed" and the H2 "Thank you for
+	# completing our screen reader user survey"; the paragraphs below are
+	# follow-up prompts ("share this with others", "check out our services").
+	# The page also carries a "You are here: Home > WebAIM Projects > ..."
+	# breadcrumb. The old paragraph-first rule landed the user ON the
+	# breadcrumb (idx 2) — the first 30+ char paragraph in document order.
+	# Now the breadcrumb is chrome, and a heading that owns the status (no
+	# status paragraph before the next heading) wins: land on the H1.
+	nodes = [
+		_node("heading", 35, level=1, preview="Screen Reader User Survey Completed"),
+		_node("paragraph", 13, preview="You are here:"),
+		_node("paragraph", 50, preview="Home > WebAIM Projects > Screen Reader User Survey"),
+		_node("heading", 55, level=2,
+		      preview="Thank you for completing our screen reader user survey"),
+		_node("paragraph", 159,
+		      preview="If you know other screen reader users that might be interested, ple"),
+		_node("paragraph", 107,
+		      preview="While you're here, please check out some of the services and resour"),
+	]
+	assert web.find_notice_landing(_summary_with(nodes)) == 0
+
+
+def test_notice_landing_title_heading_still_yields_to_status_sentence():
+	# The heading-owns-status rule must NOT regress the closed-form shape:
+	# a generic title heading with the real status sentence beneath it still
+	# lands on the sentence, not the title. (Google Forms "no longer
+	# accepting responses" under an H1 that repeats the form's name.)
+	nodes = [
+		_node("heading", 18, level=1, preview="Contact Us"),
+		_node("paragraph", 45, preview="This form is no longer accepting responses."),
+	]
+	assert web.find_notice_landing(_summary_with(nodes)) == 1
+
+
+def test_breadcrumb_is_chrome_but_prose_with_one_chevron_is_not():
+	# The breadcrumb filter keys on TWO spaced chevrons (three segments);
+	# ordinary prose containing a single " > " must survive as a landing.
+	crumb = _node("paragraph", 50,
+	              preview="Home > WebAIM Projects > Screen Reader User Survey")
+	you_are_here = _node("paragraph", 40, preview="You are here: Home > Projects")
+	prose = _node("paragraph", 58,
+	              preview="The rule fires when x > y in the comparison step.")
+	assert web._is_chrome_paragraph(crumb) is True
+	assert web._is_chrome_paragraph(you_are_here) is True
+	assert web._is_chrome_paragraph(prose) is False
+
+
 # ---------------------------------------------------------------------------
 # find_form_landing
 # ---------------------------------------------------------------------------

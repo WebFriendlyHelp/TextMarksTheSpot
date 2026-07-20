@@ -304,6 +304,14 @@ URL_HINTS = {
 		"/signup", "/sign-up", "/register", "/contact", "/apply", "/intake",
 		"/login", "/signin", "/sign-in", "/log-in",
 		"createaccount", "userlogin", "/auth/",
+		# A survey / questionnaire page is a form: its whole purpose is to
+		# collect answers. WebAIM's Screen Reader User Survey wraps the
+		# questions in a single <article>, which blocked FORM and landed the
+		# user mid-questions on the longest question label (2026-07-20).
+		# "/poll" is deliberately omitted -- plain substring matching would
+		# catch "/pollution". "/survey" collides only with the niche
+		# "/surveying", which a real body cluster still blocks unconditionally.
+		"/survey", "/questionnaire",
 	),
 	Intent.ARTICLE: ("/article/", "/news/", "/blog/", "/post/", "/story/", "/posts/", "/wiki/", "/podcast"),
 	Intent.LIST:    ("/search", "/results", "/category/", "/tag/", "/feed", "/topic/"),

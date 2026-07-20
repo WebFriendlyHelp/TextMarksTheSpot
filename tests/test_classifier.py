@@ -913,3 +913,66 @@ def test_wiki_article_url_still_reads_as_editorial():
 		interactive_control_count=11,
 	))
 	assert result.intent != cls.Intent.FORM
+
+
+def test_survey_url_is_a_form_not_an_article():
+	# WebAIM Screen Reader User Survey #11 questions page (2026-07-20):
+	# webaim.org/projects/screenreadersurvey11/survey. NVDA reports article=1
+	# (the theme wraps the survey body in <article>) and 10 real form inputs.
+	# The single <article> tripped has_editorial_content and, with no form-URL
+	# hint, blocked FORM -- so the page fell to the ARTICLE hero fallback (0.75)
+	# and find_article_landing's largest-paragraph fallback landed the user on
+	# the LONGEST question label (Q13, 166 chars), mid-form. Every question is
+	# separated by its short answer options, so no <article>+body-cluster and
+	# no 3-in-a-row cluster ever forms to reach the right pick. The fix is the
+	# same escape hatch /register and /contact use: a /survey URL is a form URL.
+	nodes = [
+		_node("heading", 29, level=1, preview="Screen Reader User Survey #11"),
+		_node("paragraph", 13, preview="You are here:"),
+		_node("paragraph", 54, preview="Home > WebAIM Projects > Screen Reader U"),
+		_node("heading", 16, level=2, preview="Survey Questions"),
+		_node("paragraph", 29, preview="1. Please select your region."),
+		_node("paragraph", 11, preview="No Response"),
+		_node("paragraph", 50, preview="2. Do you use a screen reader due to a d"),
+		_node("paragraph", 3, preview="Yes"),
+		_node("paragraph", 74, preview="3. Which of the following disabilities d"),
+		_node("paragraph", 3, preview="Yes"),
+		_node("paragraph", 51, preview="5. Please rate your proficiency using th"),
+		_node("paragraph", 8, preview="Advanced"),
+		_node("paragraph", 100, preview="10. Which of the following desktop/lapto"),
+		_node("paragraph", 6, preview="JAWS"),
+		_node("paragraph", 166, preview="13. Do you see free or low-cost desktop screen rea"),
+		_node("paragraph", 5, preview="Never"),
+		_node("paragraph", 124, preview="22. When navigating a web page by heading"),
+		_node("paragraph", 8, preview="Somewhat"),
+	]
+	result = cls.classify(_summary(
+		url="https://webaim.org/projects/screenreadersurvey11/survey",
+		main_nodes=nodes,
+		article_count=1,
+		form_input_count=10,
+		interactive_control_count=11,
+	))
+	assert result.intent == cls.Intent.FORM
+
+
+def test_surveying_article_with_body_cluster_stays_editorial():
+	# Guard the /survey URL hint against its substring collision: a land-
+	# SURVEYING company's article at /surveying-services contains "/survey".
+	# The URL hint must only ever UNBLOCK a page that already looks like a
+	# form -- a real article body (3+ substantial adjacent paragraphs) must
+	# still block FORM via has_body_cluster_strong, which has no URL hatch.
+	nodes = [
+		_node("heading", 24, level=1, preview="Boundary Surveying Services"),
+		_node("paragraph", 240, preview="A boundary survey establishes the legal property l"),
+		_node("paragraph", 210, preview="Our licensed surveyors use GPS and total stations t"),
+		_node("paragraph", 190, preview="We deliver a stamped plat suitable for recording wi"),
+	]
+	result = cls.classify(_summary(
+		url="https://example.com/surveying-services",
+		main_nodes=nodes,
+		article_count=1,
+		form_input_count=4,
+		interactive_control_count=6,
+	))
+	assert result.intent != cls.Intent.FORM

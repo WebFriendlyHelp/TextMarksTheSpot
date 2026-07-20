@@ -2,6 +2,82 @@
 
 Newest entries at the top.
 
+## 2026-07-20 - the WebAIM survey: a form that read as an article, and a thank-you that read as nav
+
+323 tests. `main` still v1.0.13. Two independent fixes from one soak report,
+both general, both fixture-pinned and sabotage-checked.
+
+Casey ran the WebAIM Screen Reader User Survey #11 end to end and hit two
+mislandings on consecutive pages. Both traced cleanly from the logs; neither was
+a walk bug or a stale position (the moved-caret lines carried the full node
+lists, and the classifier inputs were exactly what the perf lines reported).
+
+### 1. The questions page landed mid-form (Q13) instead of at the top
+
+`/screenreadersurvey11/survey`: `article=1`, `forms=10`. Classified
+`article(0.75)` and `find_article_landing`'s largest-paragraph fallback picked
+idx 42, "13. Do you see free or low-cost desktop screen readers..." (166 chars)
+- the LONGEST single question label on the page. Every question is separated by
+its short answer options ("Yes", "No Response", 3-11 chars), so no cluster and
+no hero gate ever fires on the questions; the cascade falls straight through to
+"pick the longest paragraph", and Q13 happened to be longest.
+
+Root cause is classification, not landing: WebAIM wraps the survey body in a
+single `<article>`. `has_editorial_content = article_count >= 1` tripped, and
+with no form-URL hint the `(has_editorial_content and not form_url_hint)` clause
+blocked FORM. So a 10-input survey classified as an article.
+
+Fix: a survey / questionnaire URL is a form URL, exactly like /register and
+/contact already are. Added `/survey`, `/questionnaire` to `URL_HINTS[FORM]`.
+That flips the existing escape hatch, FORM fires at 0.99, and the bare-form path
+announces the title and moves focus to Q1. Deliberately did NOT touch the
+`<article>` FORM block or let `strong_form_signal` bypass it - that block is a
+documented deliberate decision protecting news articles with comment forms, and
+those articles are also caught by `has_body_cluster_strong` (no URL hatch), so a
+real "/surveying-services" article with a body cluster still blocks FORM. Pinned
+that collision with `test_surveying_article_with_body_cluster_stays_editorial`.
+`/poll` was NOT added: plain substring matching would eat "/pollution".
+
+### 2. The thank-you page landed on the breadcrumb, then would have landed on a share prompt
+
+`/survey_confirm`: classified `notice(0.85)` correctly, but landed idx 2, the
+breadcrumb "Home > WebAIM Projects > Screen Reader User Survey" - the first 30+
+char paragraph in document order. The page's actual status is in its headings
+(H1 "Screen Reader User Survey Completed", H2 "Thank you for completing our
+screen reader user survey"); the paragraphs below are follow-up prompts ("share
+this with others", "check out our services").
+
+Two things were wrong, both needed:
+
+  a. The breadcrumb is nav chrome and was not filtered. Added
+     `_looks_like_breadcrumb` to the shared `_is_chrome_paragraph`: a "You are
+     here" preamble, or >= 2 spaced chevrons (>, ›, ») forming a 3+ segment
+     chain. Two separators (not one) keeps prose with a lone " > " safe; " / "
+     is excluded because "and / or" is real prose. General win - breadcrumbs are
+     never a landing on any page type.
+
+  b. Even chrome-skipped, `find_notice_landing` was paragraph-first with headings
+     as a pure fallback, so it would then land on idx 4 (the share prompt), never
+     the heading that IS the message. Rewrote it: a heading owns the status
+     UNLESS a status paragraph follows it before the next heading. The lookahead
+     is what preserves the closed-form shape (title H1 + "no longer accepting
+     responses" paragraph still lands on the sentence) - pinned by
+     `test_notice_landing_title_heading_still_yields_to_status_sentence`. Result:
+     the thank-you page lands on the H1.
+
+Sabotage-checked both: breadcrumb OFF -> idx 2 (the reported bug); heading rule
+OFF -> idx 4 (share prompt); both on -> idx 0.
+
+### Watch during the soak
+
+The notice-landing change touches a core intent's landing behavior, so it will
+affect other NOTICE pages Casey hits. The residual risk is a NOTICE page whose
+first heading in `main_nodes` is a poor label with no paragraph under it before
+the next heading (e.g. a leaked nav "Menu" heading) - it would now land on that
+heading instead of a later status paragraph. Judged unlikely on small scoped
+NOTICE pages and it degrades to "announces what page this is" (the old
+fallback), but the moved-caret line will show it if it happens.
+
 ## 2026-07-20 - an embedded video cut the lede off from the body (MacRumors)
 
 318 tests. `main` still v1.0.13. New gate: `_find_title_lede_landing`.

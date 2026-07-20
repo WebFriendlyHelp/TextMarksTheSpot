@@ -470,6 +470,32 @@ def _looks_like_share_link_payload(text: str) -> bool:
 	return len(_URL_ENCODED_TRIPLET_RE.findall(text)) >= 3
 
 
+# Breadcrumb navigation trail. Sites render the "you are here" path as a single
+# text node — "Home > WebAIM Projects > Screen Reader User Survey" — which NVDA
+# exposes as a paragraph that clears the substantial-text bar. It is pure
+# navigation and must never be a landing target: WebAIM's survey-confirmation
+# ("Thank you for completing...") page landed the user ON this breadcrumb
+# because it was the first 30+ char paragraph in document order (2026-07-20).
+# Two independent signals, either is enough:
+#   1. A "You are here" navigation preamble.
+#   2. A chain of >= 3 segments joined by breadcrumb separators (" > ", " > ",
+#      " » "). Requiring TWO separators (three segments) keeps ordinary prose
+#      that contains a single " > " (a quoted comparison, a math aside) safe;
+#      natural prose essentially never strings two spaced chevrons together.
+# The " / " separator is deliberately excluded — spaced slashes appear in prose
+# ("and / or", "he said / she said") far more often than the chevrons do.
+_BREADCRUMB_SEP_RE = _re.compile(r"\s[>›»]\s")
+
+
+def _looks_like_breadcrumb(text: str) -> bool:
+	if not text:
+		return False
+	stripped = text.strip()
+	if stripped.lower().startswith("you are here"):
+		return True
+	return len(_BREADCRUMB_SEP_RE.findall(stripped)) >= 2
+
+
 # Photo/image-credit signature. News and blog articles place a figure caption
 # right next to the hero image, directly above the opening line. NVDA exposes
 # that caption as a paragraph that commonly clears the 50-char "substantial"
@@ -861,6 +887,7 @@ def _is_chrome_paragraph(node) -> bool:
 	return (
 		_looks_like_tag_list(text)
 		or _looks_like_share_link_payload(text)
+		or _looks_like_breadcrumb(text)
 		or _looks_like_accessibility_instructions(text)
 		or _looks_like_promo_teaser(text)
 		or _node_is_disclosure(node)
@@ -1488,18 +1515,32 @@ def find_notice_landing(tree: TreeSummary) -> Optional[int]:
 	one the user came here to read (e.g. "The form is no longer accepting
 	responses", "Thank you for submitting", "Page not found").
 
-	Strategy:
-	  1. First paragraph >= _NOTICE_LANDING_MIN_CHARS in DOCUMENT ORDER.
-	     This is the simplest and most reliable heuristic on small pages:
-	     the meaningful sentence is usually one of the first substantial
-	     text nodes, regardless of whether it sits before or after the
-	     first heading. The previous "first paragraph after the first
-	     heading" rule failed on pages where the intro sentence precedes
-	     any heading (bestmidi.com/bg/ — log showed it landing on a
-	     footer text node at idx 18 because the only heading detected
-	     was a region H2 deep in the page).
-	  2. First heading — at least announces what page this is.
-	  3. First node — last resort.
+	Strategy: walk document order and return the first meaningful node,
+	skipping chrome shapes (a status page's message is never a copyright
+	line, a breadcrumb, or a photo credit).
+
+	  1. A substantial paragraph (>= _NOTICE_LANDING_MIN_CHARS, non-chrome)
+	     is the message. This is the common case: closed forms and error
+	     pages carry the status as a sentence ("This form is no longer
+	     accepting responses", "Page not found. Try the homepage."), often
+	     under a generic title heading. Landing on the sentence, not the
+	     title, is what the user came for.
+	  2. A heading is the message ONLY when no status paragraph follows it
+	     before the next heading. Some confirmation pages put the whole
+	     status in the heading and give the paragraphs to follow-up prompts:
+	     WebAIM's survey-confirmation page is H1 "Screen Reader User Survey
+	     Completed", then the paragraphs are "share this with others" /
+	     "check out our services" — the message is the heading, so the old
+	     paragraph-first rule sailed past it to the share prompt. The
+	     lookahead is what keeps case 1 intact: a title heading with a
+	     status sentence under it still yields to the sentence.
+
+	The previous rule was paragraph-first with headings as a pure fallback,
+	which failed both ways — it landed on a breadcrumb before the real
+	message, and it could never land on a heading that WAS the message.
+	Chrome-skipping plus the "first paragraph in document order" idea (not
+	"first paragraph after the first heading") still fixes the original
+	bestmidi.com/bg/ case, where the intro sentence precedes any heading.
 
 	Returns None only if tree.main_nodes is empty.
 	"""
@@ -1507,21 +1548,33 @@ def find_notice_landing(tree: TreeSummary) -> Optional[int]:
 	if not nodes:
 		return None
 
-	# 1. First substantial paragraph anywhere in document order — skipping
-	#    chrome shapes (a status page's message is never a copyright line
-	#    or a photo credit).
-	for i, n in enumerate(nodes):
-		if n.kind == "paragraph" and n.text_length >= _NOTICE_LANDING_MIN_CHARS:
-			if _is_chrome_paragraph(n):
-				continue
-			return i
+	def _is_status_paragraph(n) -> bool:
+		return (
+			n.kind == "paragraph"
+			and n.text_length >= _NOTICE_LANDING_MIN_CHARS
+			and not _is_chrome_paragraph(n)
+		)
 
-	# 2. First heading.
 	for i, n in enumerate(nodes):
+		if _is_status_paragraph(n):
+			return i
 		if n.kind == "heading":
-			return i
+			# Is this heading merely a title sitting above a status
+			# sentence? If a status paragraph appears before the next
+			# heading, it is — skip this heading and let that paragraph
+			# win. Otherwise the heading itself carries the status.
+			heading_owns_status = True
+			for m in nodes[i + 1:]:
+				if m.kind == "heading":
+					break
+				if _is_status_paragraph(m):
+					heading_owns_status = False
+					break
+			if heading_owns_status:
+				return i
 
-	# 3. First node.
+	# Nothing substantial and no heading — anchor on the first node so the
+	# caller still has something to speak.
 	return 0
 
 
