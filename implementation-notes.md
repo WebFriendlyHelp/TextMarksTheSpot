@@ -2,6 +2,106 @@
 
 Newest entries at the top.
 
+## 2026-07-20 - an embedded video cut the lede off from the body (MacRumors)
+
+318 tests. `main` still v1.0.13. New gate: `_find_title_lede_landing`.
+
+### What Casey reported
+
+macrumors.com "Apple Just Increased Prices" landed on "Subscribe to the
+MacRumors YouTube channel for more videos." instead of the lede, "Apple today
+dramatically increased device prices across multiple product lines."
+
+### It was not a walk bug and not a stale position
+
+Worth saying, because two of the three masquerading failures in DEBUGGING.md were
+live possibilities. The lede WAS in the buffer (idx 2 of 82, `substantial` field
+of the moved-caret line) and the speech path was honest: `stale-recovered` shows
+the offset drifted and re-anchored BY TEXT onto the paragraph the classifier had
+actually chosen. The add-on said what it meant. It meant the wrong thing.
+
+Also worth recording as a non-event: `walk=102ms` on 181 chunks, against
+1712-1850 ms on the same site on 2026-07-18. The field-stack backend is doing
+what the scope-hardening branch hoped. No page in the 37 loads today truncated.
+
+### The shape, and why every gate declined
+
+    idx 0  H1        "Apple Just Increased Prices on MacBooks, ..."
+    idx 1  paragraph  byline / timestamp                                (54)
+    idx 2  paragraph  the lede                                          (79)
+    idx 3-8           YouTube embed chrome: player name, video title,
+                      channel, "648K subscribers", "Watch later", "Share"
+    idx 9  paragraph "Subscribe to the MacRumors YouTube channel ..."   (59)
+    idx 10 paragraph  body resumes                                     (149)
+
+idx 2 loses on LENGTH alone: 79 is under VERY_SUBSTANTIAL (200) and under
+HERO_PATTERN_MIN_CHARS (100), and the embed means its neighbour is a 20-char
+player label rather than a substantial paragraph, so the cluster gate declines.
+The cascade walked on to idx 9, which clusters with idx 10 and won.
+
+Two near-misses that made this land wrong rather than merely oddly. idx 9 is 59
+chars and idx 10 is 149, so teaser-skip needs 150 and misses by one character.
+And idx 9 genuinely ends like a sentence, so the sentence-strict pass keeps it.
+Neither is a bug; they just both failed to save us.
+
+This is the structural fault CLAUDE.md already names: **the cascade awards the
+landing on rule ORDER rather than evidence strength.** Same disease as IMDb, and
+`_find_lead_section_landing` did not cover it -- that gate wants exactly ONE
+candidate of 100+ chars in the section, and MacRumors' lead section holds four.
+
+### The rule
+
+Sentence-ending prose sitting directly under the page's own H1 is the lede.
+POSITION plus GRAMMAR, not length. Nothing else on a news page occupies that slot.
+
+Five guards, all five sabotage-checked (see below):
+
+1. **Level-1 heading only.** A nav or widget heading is an H2/H3; requiring the
+   H1 is what makes the slot mean "the page's title" and keeps the gate off
+   cookie banners under a sidebar heading in an unscoped tree.
+2. **Only fires where the cascade currently walks PAST the candidate** -- the
+   next node must not be a substantial paragraph. When it is, the cluster gate
+   already owns the page, teaser-skip included. This is what keeps the gate off
+   the CNET teaser shape and off Wikipedia-style ledes; it makes the gate purely
+   additive rather than a re-ordering of the cascade.
+3. **Lookahead of 4 from the H1.** The lede sits under the title, past a byline
+   at most. Eight nodes down it is a caption or a promo and we would be guessing.
+4. **Stop at an intervening heading.** Once a second heading appears the slot is
+   closed. hellomagazine.com is the live case: its H1 is immediately followed by
+   an H2 dek, and without this the gate would have reached into the newsletter
+   blurb below it.
+5. **Sentence-ending required.** Bylines and timestamps share the slot and are
+   skipped rather than being disqualifying, so the scan continues past them.
+
+### Sabotage-check found two guards that no test enforced
+
+Per the standing rule, each guard was deleted in turn to confirm a test fails.
+Guard 1 and guard 3 came back NOT CAUGHT on the first pass, and guard 4 on the
+second -- the suite stayed green with the safety removed. That is the fifth,
+sixth and seventh time on this branch a rule has been unit-testable while the
+thing enforcing it was deletable. Tests added for all three.
+
+**One of those repair attempts was itself hollow, and that is the transferable
+part.** The first guard-3 fixture passed with the lookahead deleted, not because
+the guard was unnecessary but because `_find_lead_section_landing` claimed the
+same index first and masked it. A fixture that exercises a gate has to be shaped
+so the gates ABOVE it decline; otherwise it pins nothing and looks like it does.
+Adding a second body paragraph made the lead-section gate decline ("exactly one"
+is its load-bearing condition) and the fixture started biting.
+
+### Verified against real trees, not just fixtures
+
+Reconstructed all 82 MacRumors nodes from the log rather than trusting the
+11-node fixture, because gates ABOVE the new one (content-section, lead-section)
+only get their real chance on the full tree: 2, as wanted. ZDNET Prime Day stays
+on 5 and hellomagazine stays on 18, both from their full logged trails.
+
+### Still open, from the same log sweep
+
+ewtnnews.com classified as `form(0.68)` on what reads like a news page
+(`forms=4`) and landed on a 78-char headline-ish line. Not chased -- no node
+trail was captured for it. Worth a look if Casey hits it again.
+
 ## 2026-07-19 (night) - the depleted-scope net has never fired, and its premise no longer holds
 
 313 tests. `main` still v1.0.13. NO CODE CHANGE in this entry - it records why a

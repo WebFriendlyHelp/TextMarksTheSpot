@@ -1332,6 +1332,116 @@ def test_collapsed_form_shell_lands_on_heading_not_lone_question_label():
 	assert web.find_article_landing(_summary_with(nodes)) == 5
 
 
+def test_lede_after_title_survives_an_embedded_video_block():
+	# MacRumors "Apple Just Increased Prices" (2026-07-20 report). The lede
+	# sits at idx 2, two nodes under the H1, and is 79 chars — too short for
+	# VERY_SUBSTANTIAL (200) and too short for the hero gate (100). A YouTube
+	# embed follows it, so the chunks at idx 3-8 are player chrome and the
+	# cluster gate finds no substantial neighbour. The cascade therefore
+	# walked past the lede entirely and landed on the embed's own
+	# "Subscribe to the MacRumors YouTube channel" line at idx 9, which DOES
+	# cluster with the 149-char paragraph after it.
+	nodes = [
+		_node("heading", 56, level=1,
+			preview="Apple Just Increased Prices on MacBooks,"),                 # 0
+		_node("paragraph", 54,
+			preview="Thursday June 25, 2026 5:44 am PDT by Hartley Char"),       # 1
+		_node("paragraph", 79, ends_sentence=True,
+			preview="Apple today dramatically increased device prices a"),       # 2
+		_node("paragraph", 20, preview="YouTube Video Player"),                  # 3
+		_node("paragraph", 34, preview="Apple Just Raised Prices... By A LOT"),   # 4
+		_node("paragraph", 9, preview="MacRumors"),                              # 5
+		_node("paragraph", 25, preview="MacRumors648K subscribers"),             # 6
+		_node("paragraph", 11, preview="Watch later"),                           # 7
+		_node("paragraph", 5, preview="Share"),                                  # 8
+		_node("paragraph", 59, ends_sentence=True,
+			preview="Subscribe to the MacRumors YouTube channel for mor"),       # 9
+		_node("paragraph", 149,
+			preview="After temporarily taking it down earlier today, Ap"),       # 10
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_lede_after_title_does_not_override_a_real_cluster():
+	# Guard on the gate above: when the paragraph under the H1 IS followed by
+	# a substantial paragraph, the ordinary cluster gate already handles the
+	# page (including teaser-skip), so the new gate must decline and leave
+	# the CNET teaser behavior untouched.
+	nodes = [
+		_node("heading", 51, level=1, preview="MacOS Keyboard Shortcuts Make Typing"),
+		_node("paragraph", 82, ends_sentence=True,
+			preview="MacOS keyboard shortcuts can be a huge time saver."),
+		_node("paragraph", 209,
+			preview="When I first started using an iMac all the way back in 2008"),
+		_node("paragraph", 72, preview="If you think you already know them all, read on."),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 2
+
+
+def test_lede_after_title_ignores_a_non_h1_first_heading():
+	# Guard on _find_title_lede_landing: the "slot under the title" only means
+	# anything when the heading IS the page title. On an unscoped tree the
+	# first heading is routinely site chrome (a sidebar or widget H2), and the
+	# sentence-ending paragraph beneath it is a cookie notice or a widget
+	# blurb, not a lede. Requiring level 1 makes the gate decline here so the
+	# very-substantial rule can claim the real body paragraph.
+	nodes = [
+		_node("heading", 9, level=2, preview="Main menu"),
+		_node("paragraph", 62, ends_sentence=True,
+			preview="We use cookies to improve your experience on this site."),
+		_node("paragraph", 12, preview="Learn more"),
+		_node("heading", 30, level=1, preview="The Actual Article Headline"),
+		_node("paragraph", 300, ends_sentence=True,
+			preview="The real body of the story begins right here and runs on"),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 4
+
+
+def test_lede_after_title_does_not_reach_past_its_lookahead():
+	# Guard on _find_title_lede_landing: the lede sits directly under the H1,
+	# past a byline at most. A sentence-ending paragraph eight nodes down is
+	# not "the slot under the title" — it is a caption, a promo, or a pull
+	# quote, and claiming it would be a guess. The gate must decline and let
+	# the very-substantial rule take the real body paragraph.
+	nodes = [
+		_node("heading", 30, level=1, preview="The Article Headline"),
+		_node("paragraph", 20, preview="Share this story"),
+		_node("paragraph", 15, preview="Photo gallery"),
+		_node("paragraph", 18, preview="Advertisement"),
+		_node("paragraph", 22, preview="Sponsored content"),
+		_node("paragraph", 19, preview="Related stories"),
+		_node("paragraph", 64, ends_sentence=True,
+			preview="Sign up for our newsletter to get the day's top stories."),
+		_node("paragraph", 11, preview="Subscribe"),
+		_node("paragraph", 260, ends_sentence=True,
+			preview="The story itself finally begins in this paragraph and"),
+		# A second body paragraph, so the lead-section gate declines ("exactly
+		# one" candidate is its load-bearing condition) and the title-lede
+		# lookahead is genuinely the thing under test here.
+		_node("paragraph", 180, ends_sentence=True,
+			preview="And the story continues in a second body paragraph"),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 8
+
+
+def test_lede_after_title_stops_at_an_intervening_heading():
+	# Guard on _find_title_lede_landing: the gate's whole claim is that the
+	# paragraph occupies the slot directly under the page title. Once a second
+	# heading intervenes, that slot is closed — whatever follows belongs to the
+	# new section, not to the title — so the gate must stop rather than scan
+	# through into a widget's blurb.
+	nodes = [
+		_node("heading", 30, level=1, preview="The Article Headline"),
+		_node("heading", 10, level=2, preview="Newsletter"),
+		_node("paragraph", 60, ends_sentence=True,
+			preview="Get our best stories delivered to you every morning."),
+		_node("paragraph", 12, preview="Sign up"),
+		_node("paragraph", 250, ends_sentence=True,
+			preview="The actual story text starts here and keeps going for"),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 4
+
+
 def test_z_scan_falls_back_to_notice_bar_on_short_content_pages():
 	# Zoom confirmation page: no paragraph anywhere clears the 50-char bar
 	# (the longest real line is 44 chars). Z from the top must land on that

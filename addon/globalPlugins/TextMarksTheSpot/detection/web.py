@@ -44,6 +44,12 @@ LANDING_MIN_PARAGRAPH_CHARS = 50
 # real content (e.g. Calendar's 181-char first appointment).
 HERO_PATTERN_MIN_CHARS = 100
 
+# How far below the page's H1 the lede may sit before _find_title_lede_landing
+# stops looking. On MacRumors it is two nodes down (the byline sits between).
+# Sized for "title, maybe a byline, maybe a timestamp, then the lede" and no
+# further -- past that we would be guessing at which paragraph is the opening.
+_TITLE_LEDE_LOOKAHEAD = 4
+
 # A paragraph this long is unambiguously real article body — it wins the
 # primary loop on its own without needing a substantial neighbor or
 # heading-in-lookahead. Without this rule, a long article intro that's
@@ -308,6 +314,82 @@ def _find_lead_section_landing(nodes) -> Optional[int]:
 		):
 			return None
 	return idx
+
+
+def _find_title_lede_landing(nodes) -> Optional[int]:
+	"""Land on the article's opening sentence when an embedded widget cuts it
+	off from the body.
+
+	MacRumors "Apple Just Increased Prices" (2026-07-20). The shape:
+
+	    idx 0  H1        "Apple Just Increased Prices on MacBooks, ..."
+	    idx 1  paragraph "Thursday June 25, 2026 5:44 am PDT by Hartley ..."
+	    idx 2  paragraph "Apple today dramatically increased device prices ..."  (79)
+	    idx 3-8          YouTube embed chrome: player name, video title, channel,
+	                     subscriber count, "Watch later", "Share"
+	    idx 9  paragraph "Subscribe to the MacRumors YouTube channel ..."  (59)
+	    idx 10 paragraph "After temporarily taking it down earlier today ..." (149)
+
+	idx 2 is the lede and it loses every gate on LENGTH alone: 79 chars is under
+	VERY_SUBSTANTIAL (200) and under HERO_PATTERN_MIN_CHARS (100), and the video
+	embed means its neighbour is a 20-char player label rather than a substantial
+	paragraph, so the cluster gate declines. The cascade walked on to idx 9, which
+	clusters with idx 10 and wins -- the user was dropped into the embed's own
+	subscribe pitch. This is the structural fault named in CLAUDE.md: the cascade
+	awards the landing on rule ORDER rather than evidence strength.
+
+	The positive evidence this gate uses is POSITION plus GRAMMAR: sentence-ending
+	prose sitting directly under the page's own H1 is the lede. Nothing else on a
+	news page occupies that slot.
+
+	Three guards keep it narrow, and each one is load-bearing:
+
+	  1. Level-1 heading only. A nav or widget heading is an H2/H3; requiring the
+	     H1 means "the page's title", which is what makes the slot meaningful. On
+	     an unscoped tree whose first heading is site chrome, the gate declines
+	     rather than landing on a cookie banner underneath it.
+	  2. It only fires where the cascade currently walks PAST the candidate --
+	     the next node must not be a substantial paragraph. When it is, the
+	     cluster gate already handles the page correctly, teaser-skip included,
+	     so this gate must not preempt it. That is what keeps it off the CNET
+	     teaser shape (82-char teaser, 209-char narrative right after) and off
+	     ordinary Wikipedia-style ledes.
+	  3. A short lookahead from the H1. The lede sits under the title, possibly
+	     past a byline or timestamp; it is not eight nodes down. Beyond the
+	     window we are guessing, and a wrong auto-jump is worse than no jump.
+
+	Returns None to mean "not my case; run the normal cascade."
+	"""
+	title = next(
+		(i for i, n in enumerate(nodes) if n.kind == "heading" and n.level == 1),
+		None,
+	)
+	if title is None:
+		return None
+	for i in range(title + 1, min(title + 1 + _TITLE_LEDE_LOOKAHEAD, len(nodes))):
+		node = nodes[i]
+		if node.kind == "heading":
+			# A second heading closes the title's own section before any lede
+			# appeared. Whatever follows belongs to that section, not here.
+			return None
+		if node.kind != "paragraph":
+			continue
+		if node.text_length < LANDING_MIN_PARAGRAPH_CHARS:
+			continue
+		if _is_chrome_paragraph(node) or not _node_ends_sentence(node):
+			# Bylines, timestamps and dateline fragments live in this slot too.
+			# They are not disqualifying -- keep scanning past them.
+			continue
+		nxt = nodes[i + 1] if i + 1 < len(nodes) else None
+		if (
+			nxt is not None
+			and nxt.kind == "paragraph"
+			and nxt.text_length >= LANDING_MIN_PARAGRAPH_CHARS
+		):
+			# Guard 2: the ordinary cluster gate owns this shape.
+			return None
+		return i
+	return None
 
 
 def _looks_like_accessibility_instructions(text: str) -> bool:
@@ -1112,6 +1194,15 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# document. That is precisely how IMDb's plot summary lost to a rail of video
 	# clip titles. See _find_lead_section_landing.
 	idx = _find_lead_section_landing(nodes)
+	if idx is not None:
+		return idx
+
+	# Title-lede gate: sentence-ending prose directly under the page's H1 is the
+	# opening line, even when it is too short for the size gates and an embedded
+	# widget (a video player, a newsletter box) sits between it and the body so
+	# the cluster gate cannot see it. Declines whenever the cluster gate can
+	# handle the page itself. See _find_title_lede_landing.
+	idx = _find_title_lede_landing(nodes)
 	if idx is not None:
 		return idx
 
