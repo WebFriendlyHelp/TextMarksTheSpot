@@ -190,6 +190,16 @@ WALK_TIME_BUDGET_SEC = 2.0
 # enough to catch a page heading for truncation, not just one that got there.
 _WALK_PHASE_LOG_THRESHOLD_SEC = 1.0
 
+# A counts phase at or above this — OR one that truncated — gets its
+# per-call-site breakdown written to the PERSISTENT perf log
+# ([TMTS counts-phase]); faster phases log to the session log only. Set well
+# below the walk threshold on purpose: the counts burn under investigation is
+# ~0.6 s on no-<main> pages (identity parent-chain counting), which a 1.0 s
+# gate would miss entirely. Truncation always logs because every one of those
+# pages truncated. Routine pages count in a few ms and stay out of the
+# persistent log so they don't cost rotation history.
+_COUNTS_PHASE_LOG_THRESHOLD_SEC = 0.3
+
 # Text-content roles we treat as paragraph candidates when walking by
 # UNIT_PARAGRAPH. Non-content roles get silently skipped so they don't
 # pollute the paragraph count.
@@ -354,6 +364,23 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	# as a present <article>).
 	article_truncated = [False]
 
+	# Per-call-site timing + items-scanned for the [TMTS counts-phase] line.
+	# Passive measurement only: this quantifies WHERE the counts phase spends
+	# its time (which enumeration) and WHETHER it is paying a parent-chain walk
+	# per item (identity mode scans many items) or COM iterator latency (few
+	# items, high time). The scope= field on the adjacent [TMTS perf] line says
+	# identity-vs-positional; this says which enumeration and how many items.
+	cph_time: dict = {}
+	cph_scanned: dict = {}
+
+	def _timed_count(name, fn):
+		scanned = [0]
+		start = time.monotonic()
+		result = fn(scanned)
+		cph_time[name] = cph_time.get(name, 0.0) + (time.monotonic() - start)
+		cph_scanned[name] = cph_scanned.get(name, 0) + scanned[0]
+		return result
+
 	# Article count first — the article-scope decision below needs it, and
 	# the ORDER is load-bearing for the fail-safe argument: if the article
 	# count is ever truncated to 0 by the DEADLINE (dropping the
@@ -364,21 +391,23 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	# exception truncation leave time on the clock — article_truncated
 	# covers those.)
 	if scope_range is not None:
-		summary.article_count = _count_in_range(treeInterceptor, "article", scope_range, limit=_ARTICLE_LIMIT, deadline=counts_deadline, truncated_out=article_truncated)
+		summary.article_count = _timed_count("article", lambda sc: _count_in_range(treeInterceptor, "article", scope_range, limit=_ARTICLE_LIMIT, deadline=counts_deadline, truncated_out=article_truncated, scanned_out=sc))
 	else:
-		summary.article_count = _count_in_scope(treeInterceptor, "article", main_obj, scope_cache, limit=_ARTICLE_LIMIT, deadline=counts_deadline, truncated_out=article_truncated)
+		summary.article_count = _timed_count("article", lambda sc: _count_in_scope(treeInterceptor, "article", main_obj, scope_cache, limit=_ARTICLE_LIMIT, deadline=counts_deadline, truncated_out=article_truncated, scanned_out=sc))
 	if article_truncated[0]:
 		counts_truncated[0] = True
 	if main_obj is None and summary.article_count == 1:
+		_sar_start = time.monotonic()
 		article_range = _single_article_scope_range(treeInterceptor, deadline=counts_deadline)
+		cph_time["single_article"] = time.monotonic() - _sar_start
 		if article_range is not None:
 			scope_range = article_range
 			scope_kind = "article"
 
-	summary.form_input_count = _count_form_inputs(
+	summary.form_input_count = _timed_count("forms", lambda sc: _count_form_inputs(
 		treeInterceptor, scope_range, main_obj, scope_cache, _FORM_LIMIT,
-		deadline=counts_deadline, truncated_out=counts_truncated,
-	)
+		deadline=counts_deadline, truncated_out=counts_truncated, scanned_out=sc,
+	))
 	# Interactive subtypes ordered most-common first so the running-sum
 	# short-circuit usually triggers on the first one or two enumerations
 	# (link-heavy pages dominate). Each per-type call also caps at the
@@ -396,9 +425,9 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 			counts_truncated[0] = True
 			break
 		if scope_range is not None:
-			running += _count_in_range(treeInterceptor, t, scope_range, limit=remaining, deadline=counts_deadline, truncated_out=counts_truncated)
+			running += _timed_count("iv:" + t, lambda sc, _t=t, _r=remaining: _count_in_range(treeInterceptor, _t, scope_range, limit=_r, deadline=counts_deadline, truncated_out=counts_truncated, scanned_out=sc))
 		else:
-			running += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining, deadline=counts_deadline, truncated_out=counts_truncated)
+			running += _timed_count("iv:" + t, lambda sc, _t=t, _r=remaining: _count_in_scope(treeInterceptor, _t, main_obj, scope_cache, limit=_r, deadline=counts_deadline, truncated_out=counts_truncated, scanned_out=sc))
 	summary.interactive_control_count = running
 	t2 = time.monotonic()
 	positions: list = []
@@ -525,6 +554,34 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	summary.article_count_truncated = article_truncated[0]
 	summary.walk_truncated = walk_truncated[0]
 	_captured_positions[id(summary)] = positions
+
+	# [TMTS counts-phase]: per-call-site breakdown of the PRIMARY counts phase
+	# (t1->t2). Reflects the scoped counts only — the fallback recount (t3->t4,
+	# unscoped, rare, cheap) is deliberately not folded in, so attribution stays
+	# clean. Persistent log only when the phase was slow or truncated; always to
+	# the session log. Sits immediately before the [TMTS perf] line for the same
+	# detection, the same adjacency the walk-phase line relies on to tie to a URL.
+	counts_total = t2 - t1
+	_cph_order = ["article", "single_article", "forms",
+	              "iv:link", "iv:button", "iv:edit", "iv:comboBox",
+	              "iv:checkBox", "iv:radioButton"]
+	_cph_parts = []
+	for _k in _cph_order:
+		if _k not in cph_time:
+			continue
+		if _k in cph_scanned:
+			_cph_parts.append(f"{_k}={cph_time[_k]*1000:.0f}ms({cph_scanned[_k]}sc)")
+		else:
+			_cph_parts.append(f"{_k}={cph_time[_k]*1000:.0f}ms")
+	counts_phase_line = (
+		f"[TMTS counts-phase] counts_total={counts_total*1000:.0f}ms "
+		f"{' '.join(_cph_parts)} "
+		f"scope={scope_kind} counts_trunc={counts_truncated[0]} url={summary.url!r}"
+	)
+	log.debug(counts_phase_line)
+	if counts_truncated[0] or counts_total >= _COUNTS_PHASE_LOG_THRESHOLD_SEC:
+		_append_perf_line(counts_phase_line)
+
 	perf_line = (
 		f"[TMTS perf] total={(t4-t0)*1000:.0f}ms "
 		f"find_main={(t1-t0)*1000:.0f}ms "
@@ -1760,7 +1817,7 @@ def _in_scope(obj, main_obj, cache: dict, stats: Optional[dict] = None) -> bool:
 	return verdict
 
 
-def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limit: int = 0, deadline: Optional[float] = None, truncated_out: Optional[list] = None) -> int:
+def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limit: int = 0, deadline: Optional[float] = None, truncated_out: Optional[list] = None, scanned_out: Optional[list] = None) -> int:
 	# Count quick-nav items of item_type that pass _in_scope. If `limit` is
 	# positive, return as soon as count reaches it — the classifier only
 	# compares counts against fixed thresholds (e.g. APP_CONTROL_FLOOR=10),
@@ -1794,6 +1851,11 @@ def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limi
 		scanned = 0
 		for item in treeInterceptor._iterNodesByType(item_type):
 			scanned += 1
+			# Live-incremented so every early return (limit hit, scan cap,
+			# deadline, exception) reports the true items-scanned — this is a
+			# passive [TMTS counts-phase] measurement, never a control signal.
+			if scanned_out is not None:
+				scanned_out[0] += 1
 			obj = getattr(item, "obj", None)
 			if obj is not None and _in_scope(obj, main_obj, cache):
 				count += 1
@@ -1817,7 +1879,7 @@ def _count_in_scope(treeInterceptor, item_type: str, main_obj, cache: dict, limi
 _COUNT_SCAN_LIMIT = 300
 
 
-def _count_in_range(treeInterceptor, item_type: str, scope_range, limit: int = 0, deadline: Optional[float] = None, truncated_out: Optional[list] = None) -> int:
+def _count_in_range(treeInterceptor, item_type: str, scope_range, limit: int = 0, deadline: Optional[float] = None, truncated_out: Optional[list] = None, scanned_out: Optional[list] = None) -> int:
 	"""Count quick-nav items of item_type POSITIONALLY: an item counts when
 	its range STARTS inside scope_range. With scope_range=None, counts the
 	whole document. No parent-chain walks — a buffer-offset comparison per
@@ -1849,6 +1911,9 @@ def _count_in_range(treeInterceptor, item_type: str, scope_range, limit: int = 0
 		scanned = 0
 		for item in treeInterceptor._iterNodesByType(item_type):
 			scanned += 1
+			# Passive [TMTS counts-phase] measurement (see _count_in_scope).
+			if scanned_out is not None:
+				scanned_out[0] += 1
 			in_range = True
 			if scope_range is not None:
 				ti = getattr(item, "textInfo", None)
@@ -1938,7 +2003,7 @@ _FORM_INPUT_TYPES = ("edit", "comboBox", "checkBox", "radioButton")
 _COUNT_TIME_BUDGET_SEC = 0.6
 
 
-def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict, limit: int, deadline: Optional[float] = None, truncated_out: Optional[list] = None) -> int:
+def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict, limit: int, deadline: Optional[float] = None, truncated_out: Optional[list] = None, scanned_out: Optional[list] = None) -> int:
 	# Sum the real input types, stopping as soon as we reach the cap (so an
 	# obvious form doesn't pay for four full enumerations) or the clock.
 	# `deadline` is the shared counts-phase deadline from build_tree_summary
@@ -1970,9 +2035,9 @@ def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict
 				truncated_out[0] = True
 			break
 		if scope_range is not None:
-			total += _count_in_range(treeInterceptor, t, scope_range, limit=remaining, deadline=deadline, truncated_out=truncated_out)
+			total += _count_in_range(treeInterceptor, t, scope_range, limit=remaining, deadline=deadline, truncated_out=truncated_out, scanned_out=scanned_out)
 		else:
-			total += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining, deadline=deadline, truncated_out=truncated_out)
+			total += _count_in_scope(treeInterceptor, t, main_obj, scope_cache, limit=remaining, deadline=deadline, truncated_out=truncated_out, scanned_out=scanned_out)
 	return total
 
 

@@ -2,6 +2,47 @@
 
 Newest entries at the top.
 
+## 2026-07-20 - counts-phase instrumentation (measure before touching the burn)
+
+328 tests. `main` still v1.0.13. Passive measurement only, no behavior change.
+
+Today's soak log showed every no-`<main>` page (stevequayle, armstrong,
+alexjones, kyivpost, thurrott, two Square invoice pages, three glidance.webflow
+pages) spending ~600-730 ms in the COUNTS phase and coming back
+`counts_trunc=True`. That is the documented identity-counting cost, now the
+dominant remaining cost on that page shape since the field-stack walk rework
+dropped walks to ~100 ms. Before anyone designs or reviews a fix, the counts
+phase needs the same per-call-site measurement the walk already has
+(`[TMTS walk-phase]`) - the `counts=Nms` field is a single number and cannot say
+WHICH enumeration or WHY. Reviewing a fix without it would repeat the
+payproglobal mistake (two reviewers declined to approve until the walk-phase
+line existed) and the hollow-probe mistake.
+
+New `[TMTS counts-phase]` line: per-call-site wall-clock and items-scanned for
+`article`, `single_article`, `forms`, and each interactive type
+(`iv:link` ... `iv:radioButton`). Wall-clock localizes the burn to one
+enumeration; items-scanned times the already-known mode (`scope=` on the perf
+line says identity vs positional) separates "300 items each paying a
+parent-chain walk" from "the COM iterator itself is slow". Persistent log when
+the phase is slow (>= 0.3 s, below the walk's 1.0 s on purpose - the burn is
+~0.6 s) or truncated; session log always; emitted adjacent to the `[TMTS perf]`
+line, same as walk-phase.
+
+Mechanics: added an optional `scanned_out` list to `_count_in_scope` /
+`_count_in_range` (live-incremented so every early return reports true scanned)
+and threaded it through `_count_form_inputs`. Zero behavioral change - the leaf
+count loops and their check-placement contract (`tests/test_count_budgets.py`)
+are untouched; five new tests pin that `scanned_out` reports correctly on every
+exit path (full scan, limit short-circuit, scan cap, multi-type accumulation)
+and never alters the count or the truncated flag. The primary counts phase is
+instrumented; the rare/cheap fallback recount (t3->t4) is deliberately not
+folded in so attribution stays clean.
+
+This is a "ship the diagnostic and wait a day" step (DEBUGGING.md): the fix
+itself - positional counting on chrome/no-`<main>` pages - waits on the data,
+and a Sol/Fable review is worth its cost only once there are real per-call-site
+numbers to attack.
+
 ## 2026-07-20 - the WebAIM survey: a form that read as an article, and a thank-you that read as nav
 
 323 tests. `main` still v1.0.13. Two independent fixes from one soak report,
