@@ -54,11 +54,16 @@ CASES = [
     ("tomshardware.com", "Nvidia's DLSS 5", None),
     ("lite.cnn.com", "A timeline of US strikes on boats", None),
     ("text.npr.org", "A homeless man was charged", None),
-    # KNOWN BAD: the author bio ("After a 7-year corporate stint, Tanveer found
-    # his love for writing...") is 337 chars, so it wins the very-substantial
-    # gate before the real body. The giveaway word sits past the 60-char preview,
-    # so a fix needs a walk-time author-bio flag; deferred, not shipped blind.
-    ("xda-developers", "Most modern Wi-Fi", "author bio wins very-substantial gate; needs a bio flag"),
+    # KNOWN GAP, LEFT DELIBERATELY (Casey's call, 2026-07-21): the author bio
+    # ("After a 7-year corporate stint, Tanveer found his love for writing...",
+    # 337 chars) wins the very-substantial gate before the real body. It has NO
+    # structural anchor the add-on can see (no "About the author" heading, not in
+    # a landmark) - it's a plain paragraph after the date line, indistinguishable
+    # from a first body paragraph without open-vocabulary word-matching that would
+    # risk eating real ledes. So it stays as-is; the cost is one Down arrow. This
+    # xfail documents the shape, not a TODO. Anchored bios (under a heading / in a
+    # footer) sit AFTER the body and never mislead the landing.
+    ("xda-developers", "Most modern Wi-Fi", "author bio, no reliable anchor - left deliberately, not a TODO"),
 ]
 
 
