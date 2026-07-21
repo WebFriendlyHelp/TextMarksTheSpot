@@ -2,6 +2,82 @@
 
 Newest entries at the top.
 
+## 2026-07-21 - positional chrome-pos counting: SHELVED after two reviews; auto-capture + replay harness added
+
+332 tests. `main` still v1.0.13. Net add-on change today: an auto-capture debug
+log + a replay harness. The counts optimization was written, reviewed, and
+REVERTED. Shelved patch: scratch `counts_positional_SHELVED.patch`.
+
+### The counts burn, and why the fix was shelved
+
+The `[TMTS counts-phase]` instrumentation (shipped earlier today) showed the
+~600 ms no-`<main>` counts burn is per-ITEM parent-chain COM cost, not scan
+volume: e.g. abc7ny 8 links / 677 ms (~85 ms each), DuckDuckGo 4 articles /
+424 ms. On no-`<main>` pages the counts use identity `_count_in_scope`, which
+walks each item's parent chain to the document root.
+
+The fix attempted: `_count_chrome_pos`, reusing `_chrome_pos_verdict` (the same
+positional verdict the walk and `_form_field_in_scope` already use) so the common
+case is offset arithmetic, falling back to identity only on a None verdict. It
+was pitched as "same result, just faster." TWO independent reviews (Sol/Codex
+read-only on the diff; Fable reading the full repo) each found a real,
+FORM-flipping OVER-count, in the guardrail-violating direction, and Fable found
+the framing itself was wrong. Do NOT rebuild it without addressing all of this:
+
+1. **Shared-cache divergence (Sol).** Old `_count_in_scope` calls `_in_scope`
+   for EVERY item, and each parent walk POPULATES the shared cache with its
+   ancestors' verdicts, so later controls sharing a nav ancestor short-circuit
+   to chrome. The positional path decides items WITHOUT walking, so it never
+   primes that cache. A deep control that then falls to identity exhausts the
+   30-parent depth limit before reaching the nav ancestor and — because
+   `_in_scope` fails OPEN (undecided -> True on a no-`<main>` page) — is counted
+   as content. Reproduced in memory: old form count 0, new 3 -> UNKNOWN flips to
+   FORM. Preserving the old result requires priming the cache, i.e. the walk,
+   i.e. the cost we were removing.
+
+2. **Objectless-item over-count (Fable).** On the decided (True/False) path
+   `_count_chrome_pos` never consults `obj`; old code skipped every `obj is
+   None` item. `VirtualBufferQuickNavItem.obj` is a COM resolution that FAILS
+   mid-hydration — which is exactly when `documentLoadComplete` fires — while
+   `textInfo` is offset arithmetic and nearly always present. So a hydrating SPA
+   with 4 obj=None edits (valid textInfo, verdict True) counts 4 -> FORM, where
+   old counted 0. My docstring even claimed "fails OPEN, objectless item
+   counted" while the None+obj=None branch does the opposite: doc and code
+   disagreed on the highest-stakes counter, untested.
+
+3. **It is NOT a perf no-op (Fable, the reframe).** The whole reason identity is
+   slow on these pages is that it walks to root and fails OPEN, counting nav and
+   banner controls as content. The positional verdict correctly EXCLUDES them —
+   so counts genuinely DROP on the burn pages, with NO truncated flag, so the
+   small-count-intent protections (NOTICE/KEY_RESULT) do not engage. That may be
+   MORE correct (it closes the "counts still identity while walk is positional"
+   divergence CLAUDE.md flags), but it is a deliberate BEHAVIOR change needing
+   its own soak and truncation-flag handling, not a quiet optimization.
+
+4. Under-tested: deleting the `_count_form_inputs` chrome-pos branch left the
+   suite green (no test, no `sabotage_check.py` entry) — the exact hazard this
+   branch has hit repeatedly.
+
+Decision (Casey's "integrate if safe"): NOT safe -> reverted. The burn is a
+documented, accepted, NON-user-facing cost; the fix's failure mode is a FORM
+misfire (focus move / false form-title announcement), which the guardrails
+rank worse. If revisited, treat it as an intentional accuracy change: fail
+CLOSED on undecidable items with per-count-type truncation flags (article-count
+0 is NOT fail-safe), pin the objectless and shared-cache cases, and soak it.
+
+### Auto-capture + replay harness (kept)
+
+To build a faithful, NVDA-free regression corpus from real browsing: `_append_capture`
+writes one JSON record per detection to `%APPDATA%\nvda\TextMarksTheSpot-captures.jsonl`
+(DEBUG-gated, 2 MB self-rotation, errors swallowed — same discipline as the perf
+log). It records every field the classifier and landing finders READ (kind,
+level, length, 60-char preview, the four walk-time flags). Those finders never
+see more than that, so `tests/replay_captures.py` reconstructs the MainNode list
+and reproduces the add-on's intent + landing EXACTLY, offline. This is why
+driving NVDA headlessly is unnecessary here (and per DEBUGGING.md D5, impossible
+anyway — NVDA only builds a buffer for the truly-focused document). Casey browses
+normally; the corpus fills itself; verified rows become assertions.
+
 ## 2026-07-21 - Gateway Pundit landed on a dated byline
 
 332 tests. `main` still v1.0.13. One more chrome shape, not a per-CMS branch.

@@ -277,6 +277,67 @@ def _append_perf_line(line: str) -> None:
 		pass
 
 
+# Fixture-capture log — one JSON record per detection with the FULL node list
+# (every field the classifier and landing finders actually read: kind, level,
+# length, 60-char preview, and the four walk-time flags). The finders never see
+# more than these fields, so replaying a record reproduces the add-on's decision
+# EXACTLY — which makes this a faithful, NVDA-free regression corpus built from
+# real browsing. Same DEBUG gate, rotation, and error-swallowing as the perf
+# log; lives beside it. Replayed by tests/replay_captures.py.
+_CAPTURE_LOG_MAX_BYTES = 2_000_000
+_CAPTURE_LOG_PATH_CACHE: Optional[str] = None
+
+
+def _capture_log_path() -> Optional[str]:
+	global _CAPTURE_LOG_PATH_CACHE
+	if _CAPTURE_LOG_PATH_CACHE is not None:
+		return _CAPTURE_LOG_PATH_CACHE
+	appdata = os.environ.get("APPDATA")
+	if not appdata:
+		return None
+	_CAPTURE_LOG_PATH_CACHE = os.path.join(appdata, "nvda", "TextMarksTheSpot-captures.jsonl")
+	return _CAPTURE_LOG_PATH_CACHE
+
+
+def _append_capture(summary: "TreeSummary") -> None:
+	import logging
+	if not log.isEnabledFor(logging.DEBUG):
+		return
+	path = _capture_log_path()
+	if path is None:
+		return
+	try:
+		import json
+		rec = {
+			"url": summary.url,
+			"has_main": summary.has_main_landmark,
+			"article": summary.article_count,
+			"forms": summary.form_input_count,
+			"interactive": summary.interactive_control_count,
+			"counts_trunc": summary.counts_truncated,
+			"positionally_scoped": summary.positionally_scoped,
+			"nodes": [
+				[n.kind, n.level, n.text_length, n.text_preview,
+				 n.is_caption, n.is_boilerplate, n.is_disclosure, n.ends_sentence]
+				for n in summary.main_nodes
+			],
+		}
+		try:
+			if os.path.getsize(path) > _CAPTURE_LOG_MAX_BYTES:
+				rotated = path + ".old"
+				try:
+					os.remove(rotated)
+				except OSError:
+					pass
+				os.rename(path, rotated)
+		except OSError:
+			pass
+		with open(path, "a", encoding="utf-8") as fh:
+			fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+	except Exception:
+		pass
+
+
 def build_tree_summary(treeInterceptor) -> TreeSummary:
 	"""Inspect the browse-mode tree and produce a TreeSummary for the
 	classifier. Read-only. Returns an empty TreeSummary if the interceptor
@@ -597,6 +658,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 	)
 	log.debug(perf_line)
 	_append_perf_line(perf_line)
+	_append_capture(summary)
 	return summary
 
 
