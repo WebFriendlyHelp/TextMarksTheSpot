@@ -704,6 +704,29 @@ _PARTICIPLE_BYLINE_RE = _re.compile(
 )
 _PARTICIPLE_BYLINE_MAX_CHARS = 120
 
+# Dated byline: "By Jenn Baker Jul. 20, 2026 7:40 pm" (Gateway Pundit, and the
+# common news/CMS shape generally). This is the mixed-case "By Name" the
+# all-caps rule below deliberately skips, but the publication DATE makes it
+# safe: a full "Month DD, YYYY" date right after a "By Name" opener is a
+# timestamp, not prose. Three guards keep it off real ledes that open with
+# "By": the word after "By" must be a capitalized NAME (so "By 2026, ...",
+# "By all accounts ...", "By NASA's estimate ..." with a lowercase/numeric
+# second token never match... "By NASA" is caught by the weekday/temporal
+# exclusion? no — NASA is a name, but a real lede "By NASA's estimate" carries
+# no Month-DD-YYYY date, so the date guard rejects it); it must carry a full
+# Month-DD-YYYY date (so "By January 2026, sales rose" — no day — is safe);
+# and the opener word must not be a weekday ("By Monday, June 5, 2026, the
+# crews ..." is temporal prose, not a byline). Short cap for the same reason
+# as the participle form: a real sentence built around a date runs longer.
+_BYLINE_FULLDATE_RE = _re.compile(
+	r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b"
+)
+_BYLINE_TEMPORAL_OPENERS = frozenset({
+	"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+	"then", "now", "morning", "afternoon", "evening", "midnight", "noon",
+})
+_DATED_BYLINE_MAX_CHARS = 120
+
 
 def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
 	"""Detect a news byline masquerading as a body paragraph. Two forms:
@@ -733,6 +756,16 @@ def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
 		return True
 	if not text.startswith("By "):
 		return False
+	# Dated byline: "By Name ... Month DD, YYYY [time]". See _BYLINE_FULLDATE_RE.
+	if effective_length <= _DATED_BYLINE_MAX_CHARS:
+		rest = text[3:].lstrip()
+		first_word = rest.split(maxsplit=1)[0] if rest else ""
+		if (
+			first_word[:1].isupper()
+			and first_word.strip(".,'").lower() not in _BYLINE_TEMPORAL_OPENERS
+			and _BYLINE_FULLDATE_RE.search(text)
+		):
+			return True
 	letters = [c for c in text[3:] if c.isalpha()]
 	if len(letters) < 6:
 		return False

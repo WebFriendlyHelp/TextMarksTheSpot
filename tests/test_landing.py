@@ -106,6 +106,45 @@ def test_opinion_disclaimer_detected_and_prose_is_safe():
 		"These lab results do not necessarily represent the broader population.") is False
 
 
+def test_article_landing_skips_dated_byline():
+	# Gateway Pundit (2026-07-21): "By Jenn Baker Jul. 20, 2026 7:40 pm" (with
+	# the article slug jammed onto the end) is the first substantial paragraph,
+	# a mixed-case "By Name" byline the all-caps rule skips. It won idx 1 and
+	# the real lede sat at idx 9. The publication date makes the byline safe to
+	# flag. Full byline text as the preview so the detector runs, not a flag.
+	byline = "By Jenn Baker Jul. 20, 2026 7:40 pmflock-safetys-billion-dollar-surv"
+	lede = ("The Orange traffic barrel on the side of Arizona State Route 60 looked "
+	        "like any other piece of construction equipment.")
+	nodes = [
+		_node("heading", 89, level=1, preview="Flock Safety's Billion-Dollar Surveillance Machine"),
+		_node("paragraph", 66, ends_sentence=True, preview=byline),
+		_node("paragraph", 15, preview="TruthTweetShare"),
+		_node("paragraph", 5, preview="Gettr"),
+		_node("paragraph", 122, preview="GabShare on TelegramShare on LinkedInShare on Fre"),
+		_node("paragraph", 25, preview="Listen to the article now"),
+		_node("paragraph", 19, preview="Audio by Carbonatix"),
+		_node("paragraph", 1, preview="0"),
+		_node("paragraph", 96, preview="Your Firefox settings blocked this content from tr"),
+		_node("paragraph", len(lede), ends_sentence=True, preview=lede),
+		_node("paragraph", 136, ends_sentence=True, preview="It also had a camera lens carved into both sides,"),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 9
+
+
+def test_dated_byline_detected_and_by_prose_openers_safe():
+	# The dated byline matches; real ledes that open with "By" do not — the
+	# guards are: a full Month-DD-YYYY date, a capitalized non-weekday name after
+	# "By", and a short length.
+	assert web._looks_like_byline("By Jenn Baker Jul. 20, 2026 7:40 pm") is True
+	assert web._looks_like_byline("By Sarah Connor March 3, 2025") is True
+	# weekday opener + date = temporal prose, not a byline
+	assert web._looks_like_byline("By Monday, June 5, 2026, the crews had cleared the debris.") is False
+	# no day in the date
+	assert web._looks_like_byline("By January 2026, sales had risen sharply.") is False
+	# no date at all
+	assert web._looks_like_byline("By NASA's estimate, the mission will cost billions.") is False
+
+
 def test_article_landing_skips_caption_via_flag_when_credit_truncated():
 	# Production path: tree_summary truncates text_preview to 60 chars, so the
 	# trailing "(Getty Images)" credit is GONE from the preview and only the

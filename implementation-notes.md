@@ -2,6 +2,35 @@
 
 Newest entries at the top.
 
+## 2026-07-21 - Gateway Pundit landed on a dated byline
+
+332 tests. `main` still v1.0.13. One more chrome shape, not a per-CMS branch.
+
+thegatewaypundit.com landed idx 1 on "By Jenn Baker Jul. 20, 2026 7:40 pm"
+(with the article slug concatenated onto the end), the first substantial
+paragraph; the real lede ("The Orange traffic barrel on the side of Arizona
+State Route 60...") sat at idx 9. This is the mixed-case "By Name" byline the
+all-caps rule deliberately skips (indistinguishable from "By Tuesday, the storm
+had..." on its own).
+
+The publication DATE is the extra signal that makes it safe. Added a dated-byline
+form to `_looks_like_byline`: "By " + capitalized non-weekday name + a full
+Month-DD-YYYY date, capped at 120 chars. Three guards keep it off real "By"
+ledes, each pinned by a test: a bare year with no day ("By January 2026, sales
+rose") lacks the date; a weekday opener ("By Monday, June 5, 2026, the crews...")
+is temporal prose; "By NASA's estimate..." carries no date. Preview-based (the
+date sits in the first ~27 chars, well inside the 60-char preview).
+
+CMS note (Casey asked): we deliberately do NOT detect WordPress/Drupal/etc. The
+add-on sees NVDA's accessibility tree, not HTML source, so the generator tag /
+wp-content paths / script URLs that identify a CMS are invisible to it - and the
+platform wouldn't tell us where the lede is anyway (RedState, Gateway Pundit,
+armstrong are all probably WordPress with different layouts). The right lever is
+the recurring STRUCTURAL furniture those CMSes render - byline blocks, share
+rows, disclaimers, breadcrumbs, promo teasers - keyed on the rendered shape,
+which is CMS-agnostic and also catches hand-built sites. The chrome-shape library
+IS the "common CMS elements" approach; this dated byline is one more entry.
+
 ## 2026-07-20 - RedState landed on the publisher opinion-disclaimer
 
 330 tests. `main` still v1.0.13. One-line general fix to the disclosure detector.
