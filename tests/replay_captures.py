@@ -96,6 +96,12 @@ def replay(rec: dict) -> dict:
 
 
 def main(argv: list) -> int:
+    # Captured previews carry arbitrary page text; the Windows console default
+    # (cp1252) can't encode it. Force UTF-8 and never crash on an odd glyph.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     path = _default_capture_path()
     url_filter = None
     args = list(argv)
