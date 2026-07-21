@@ -2,6 +2,34 @@
 
 Newest entries at the top.
 
+## 2026-07-21 - newsletter-signup CTA filter (verified via the full NVDA loop)
+
+342 tests + 1 xfail. Casey's rule: a newsletter box is never what you came to
+read. Added an explicit newsletter-signup family to the disclosure detector
+(`_NEWSLETTER_PROMO`: "to your inbox", "sign up for our newsletter", etc. -
+near-mandated phrasing, NOT the bare word "newsletter"). Computed at walk time
+via the existing `is_disclosure` flag because the giveaway ("to your inbox")
+sits past the 60-char preview.
+
+**First fix verified end-to-end with the autonomous NVDA loop** (Casey authorized
+restart, 2026-07-21): edit source -> full suite green -> copy web.py into the
+installed add-on (`%APPDATA%\nvda\addons\...`, back up first) -> `nvda.exe -r`
+-> confirm the add-on loaded (`Z binding registered`, no import error) -> open
+the real page -> read the fresh capture. Confirmed: Tom's Hardware's "Get Tom's
+Hardware's best news and in-depth reviews, straight to your inbox" (idx 46, the
+"to your inbox" past the preview) now carries `is_disclosure=True`. RedState
+still lands on its lede (no regression). This loop is the way to verify any
+walk-time flag without waiting for a manual install.
+
+**Tom's Hardware itself is NOT fixed and that's the right call.** It is a
+HOMEPAGE stacked with grammatical chrome; skipping the newsletter just exposed
+the next chrome line ("Tom's Hardware is part of Future US Inc..."), and below
+that sit team-bio taglines. Whack-a-mole. The real fix is homepage/LIST
+handling: a page whose content is a wall of non-sentence headlines should land
+on the first headline (the unrestricted cascade already does this - idx 9 - it's
+the sentence-strict pass "trusting" grammatical chrome that overrides it). That
+is a deferred design item, tracked with the other replay findings below.
+
 ## 2026-07-21 - direct-Start-Process sweep works; capture/replay corpus; XDA bio found + deferred
 
 341 tests + 1 xfail. `main` still v1.0.13.
