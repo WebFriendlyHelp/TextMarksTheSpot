@@ -487,6 +487,19 @@ def _looks_like_share_link_payload(text: str) -> bool:
 _BREADCRUMB_SEP_RE = _re.compile(r"\s[>›»]\s")
 
 
+def _looks_like_url_slug(text: str) -> bool:
+	"""A URL slug exposed as a text node: hyphen-joined words with NO spaces,
+	e.g. "when-your-vehicle-outlives-its-cloud" (Ars Technica lists each story's
+	slug as a line above its headline). Read aloud it is "when hyphen your
+	hyphen ..." — never a landing. Tight: real prose always has spaces, and a
+	lone compound like "state-of-the-art" rarely stands as its own paragraph.
+	"""
+	stripped = (text or "").strip()
+	if not stripped or " " in stripped:
+		return False
+	return stripped.count("-") >= 2
+
+
 def _looks_like_breadcrumb(text: str) -> bool:
 	if not text:
 		return False
@@ -982,6 +995,7 @@ def _is_chrome_paragraph(node) -> bool:
 	return (
 		_looks_like_tag_list(text)
 		or _looks_like_share_link_payload(text)
+		or _looks_like_url_slug(text)
 		or _looks_like_breadcrumb(text)
 		or _looks_like_accessibility_instructions(text)
 		or _looks_like_promo_teaser(text)
@@ -1205,6 +1219,75 @@ def _sentence_strict_view(tree: TreeSummary) -> Optional[TreeSummary]:
 	return _dataclasses.replace(tree, main_nodes=strict_nodes)
 
 
+# Headline-list (index / homepage) landing. A news index is a WALL of headline
+# links: a run of consecutive medium paragraphs that are article TITLES (mostly
+# NOT sentence-ending), with no real article body. Casey's rule: land on the
+# FIRST headline, the way stevequayle.com already lands on its first bullet.
+# Tom's Hardware, lite.cnn, and text.npr were landing deep in chrome because
+# their newsletter/footer/bio prose (grammatical, sentence-ending) hijacked the
+# sentence-strict pass; this gate runs first and lands on the first headline.
+_HEADLINE_MIN_CHARS = 30       # shorter than this is nav/label, not a headline
+_HEADLINE_MAX_CHARS = 250      # longer is prose, not a title
+_HEADLINE_RUN_MIN = 6          # need a real WALL, not a couple of nav rows
+_HEADLINE_SENTENCE_FRAC_MAX = 0.5  # titles mostly don't end like sentences
+_HEADLINE_GAP_MAX = 2          # short/chrome nodes inside the wall are transparent
+
+
+def _has_article_body_cluster(nodes) -> bool:
+	"""True when the page has a real article body: >= 2 consecutive non-chrome
+	sentence-ending paragraphs of >= 100 chars. This is what separates an ARTICLE
+	(with maybe a related-stories rail) from an INDEX (all titles, no body)."""
+	run = 0
+	for node in nodes:
+		if (
+			node.kind == "paragraph"
+			and node.text_length >= 100
+			and node.ends_sentence
+			and not _is_chrome_paragraph(node)
+		):
+			run += 1
+			if run >= 2:
+				return True
+		elif node.kind == "heading" or (node.kind == "paragraph" and node.text_length >= _HEADLINE_MIN_CHARS):
+			run = 0
+	return False
+
+
+def _find_headline_list_landing(nodes) -> Optional[int]:
+	"""Index/homepage detection: the FIRST run of >= _HEADLINE_RUN_MIN
+	consecutive headline-ish paragraphs (medium length, non-chrome), mostly
+	non-sentence-ending, on a page with no article body. Returns the first
+	member's index, or None. See the header comment above."""
+	if _has_article_body_cluster(nodes):
+		return None
+	i, count = 0, len(nodes)
+	while i < count:
+		members, gap, j = [], 0, i
+		while j < count:
+			node = nodes[j]
+			if node.kind == "heading":
+				break
+			headlineish = (
+				node.kind == "paragraph"
+				and _HEADLINE_MIN_CHARS <= node.text_length <= _HEADLINE_MAX_CHARS
+				and not _is_chrome_paragraph(node)
+			)
+			if headlineish:
+				members.append(j)
+				gap = 0
+			elif members:
+				gap += 1
+				if gap > _HEADLINE_GAP_MAX:
+					break
+			j += 1
+		if len(members) >= _HEADLINE_RUN_MIN:
+			sent = sum(1 for m in members if _node_ends_sentence(nodes[m]))
+			if sent / len(members) <= _HEADLINE_SENTENCE_FRAC_MAX:
+				return members[0]
+		i = max(j, i + 1)
+	return None
+
+
 def find_article_landing(tree: TreeSummary) -> Optional[int]:
 	"""Land on real body prose, preferring paragraphs that end like a sentence.
 
@@ -1223,10 +1306,14 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 	there. Without pass 2 such a page would land nowhere at all. There is a
 	test pinning this: test_article_landing_falls_back_when_no_sentence_enders.
 
-	Known hole, accepted: an aggregator page carrying ONE stray prose sentence
-	(ad copy, a cookie notice) would let pass 1 win and land on it instead of
-	the first headline. The existing chrome filters catch most such strays.
+	Index/homepage pages (a wall of headline links, no article body) are handled
+	FIRST by _find_headline_list_landing, so a stray prose sentence in a
+	newsletter box or footer can't hijack pass 1 into landing on chrome. This
+	closes the "known hole" the two passes alone left open.
 	"""
+	idx = _find_headline_list_landing(tree.main_nodes)
+	if idx is not None:
+		return idx
 	strict = _sentence_strict_view(tree)
 	if strict is not None:
 		idx = _find_article_landing_impl(strict)

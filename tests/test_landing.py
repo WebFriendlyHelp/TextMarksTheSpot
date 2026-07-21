@@ -160,6 +160,52 @@ def test_dated_byline_detected_and_by_prose_openers_safe():
 	assert web._looks_like_byline("By NASA's estimate, the mission will cost billions.") is False
 
 
+def test_headline_list_fires_on_wall_of_titles():
+	# Index/homepage: nav labels, then a wall of non-sentence headline titles,
+	# no article body. Land on the FIRST headline.
+	nodes = [
+		_node("paragraph", 6, preview="Home"),
+		_node("paragraph", 9, preview="Sections"),
+		_node("paragraph", 62, preview="Nvidia's DLSS 5 can switch between three AI models in real"),
+		_node("paragraph", 55, preview="China is considering export controls on AI technologies"),
+		_node("paragraph", 48, preview="Amazon data center in Bahrain struck and destroyed"),
+		_node("paragraph", 70, preview="Anthropic slapped with a settlement in a copyright case"),
+		_node("paragraph", 66, preview="Intel to co-develop next-gen firewall silicon"),
+		_node("paragraph", 58, preview="TSMC eyes price hikes on chip production services"),
+	]
+	assert web._find_headline_list_landing(nodes) == 2
+
+
+def test_headline_list_declines_when_article_body_present():
+	# A real article with a related-stories rail: the sentence-ending body
+	# cluster must keep the headline gate OFF so the cascade lands on the body.
+	nodes = [
+		_node("heading", 30, level=1, preview="The Big Story"),
+		_node("paragraph", 180, ends_sentence=True, preview="The event unfolded over three days, beginning when the crew"),
+		_node("paragraph", 210, ends_sentence=True, preview="Officials confirmed the details in a briefing on Monday mor"),
+		_node("paragraph", 160, ends_sentence=True, preview="The full impact is still being assessed by the agency invol"),
+		_node("heading", 10, level=2, preview="Read more"),
+		_node("paragraph", 62, preview="Nvidia's DLSS 5 can switch between three AI models in real"),
+		_node("paragraph", 55, preview="China is considering export controls on AI technologies"),
+		_node("paragraph", 48, preview="Amazon data center in Bahrain struck and destroyed"),
+		_node("paragraph", 70, preview="Anthropic slapped with a settlement in a copyright case"),
+		_node("paragraph", 66, preview="Intel to co-develop next-gen firewall silicon"),
+		_node("paragraph", 58, preview="TSMC eyes price hikes on chip production services"),
+	]
+	assert web._find_headline_list_landing(nodes) is None
+	# and the cascade lands on the body, not the rail
+	assert web.find_article_landing(_summary_with(nodes)) == 1
+
+
+def test_url_slug_is_chrome():
+	# Ars Technica exposes each story's slug as its own line above the headline.
+	assert web._is_chrome_paragraph(
+		_node("paragraph", 36, preview="when-your-vehicle-outlives-its-cloud")) is True
+	# Real prose with spaces is never a slug, even with hyphens.
+	assert web._is_chrome_paragraph(
+		_node("paragraph", 24, preview="state-of-the-art design work")) is False
+
+
 def test_article_landing_skips_caption_via_flag_when_credit_truncated():
 	# Production path: tree_summary truncates text_preview to 60 chars, so the
 	# trailing "(Getty Images)" credit is GONE from the preview and only the

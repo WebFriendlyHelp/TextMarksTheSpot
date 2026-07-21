@@ -48,6 +48,12 @@ CASES = [
     # Aggregator front page: landing on the first bullet headline is correct
     # (nothing on the page ends like a sentence; see find_article_landing).
     ("stevequayle.com", "Apocalypse Early Warning System", None),
+    # News index / homepage pages: the headline-list gate lands on the first
+    # headline instead of deep chrome (newsletter box / footer). These were the
+    # 2026-07-21 mislandings (Tom's Hardware on a newsletter CTA, etc.).
+    ("tomshardware.com", "Nvidia's DLSS 5", None),
+    ("lite.cnn.com", "A timeline of US strikes on boats", None),
+    ("text.npr.org", "A homeless man was charged", None),
     # KNOWN BAD: the author bio ("After a 7-year corporate stint, Tanveer found
     # his love for writing...") is 337 chars, so it wins the very-substantial
     # gate before the real body. The giveaway word sits past the 60-char preview,
