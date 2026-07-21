@@ -2,6 +2,38 @@
 
 Newest entries at the top.
 
+## 2026-07-20 - RedState landed on the publisher opinion-disclaimer
+
+330 tests. `main` still v1.0.13. One-line general fix to the disclosure detector.
+
+Three RedState articles (F-16s, State Dept, Iran), all `article(0.90)`, all
+landed idx 3 on "The opinions expressed by contributors are their own and do
+not necessarily represent the views of RedState.com." (112 chars). The real
+lede sits at idx 6 (233 / 356 / 218 chars, all very-substantial >=200). Page
+shape: H1, author slug, byline, THIS disclaimer, a `?subject=...` share-link
+payload, a photo credit, then the lede.
+
+It is the documented `_looks_like_editorial_disclosure` blind spot - boilerplate
+that reads as a grammatical sentence, so the sentence-strict pass cannot see it
+and it clustered with the share payload to win idx 3. The existing detector
+covered affiliate / syndication / marketing-consent families but not the
+publisher opinion-disclaimer, which is just as standardized on opinion/news
+sites.
+
+Added a `_DISCLOSURE_OPINION` x `_DISCLOSURE_NOT_NECESSARILY` conjunction (an
+"opinions/views expressed" phrase AND a "not necessarily reflect/represent/those
+of" phrase). Same discipline as the publishing family: neither half is safe
+alone ("the opinions expressed at the meeting were heated" is prose; "these
+results do not necessarily represent the population" is prose), but together
+they essentially only occur in this disclaimer. The "not necessarily..." half
+sits past the 60-char preview (char ~62 here), so it relies on the walk-time
+`is_disclosure` flag over full text, which is already how tree_summary computes
+it. Once flagged chrome, the cascade reaches the very-substantial lede at idx 6.
+
+Sabotage-checked: rule off -> chrome=False -> lands idx 3 (the bug); rule on ->
+idx 6. Landing test passes the FULL disclaimer as the preview so it exercises
+the detector, not a hardcoded flag, and fails before the rule exists.
+
 ## 2026-07-20 - counts-phase instrumentation (measure before touching the burn)
 
 328 tests. `main` still v1.0.13. Passive measurement only, no behavior change.

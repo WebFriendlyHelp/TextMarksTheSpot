@@ -818,6 +818,33 @@ _DISCLOSURE_PUBLISHING = (
 	"first published",
 )
 
+# Publisher opinion-disclaimer -- "The opinions expressed by contributors are
+# their own and do not necessarily represent the views of RedState.com." This
+# is standardized boilerplate on opinion/news sites; it sits between the byline
+# and the lede, reads as a grammatical sentence, and ended sentence-strict, so
+# the cascade landed on it (RedState, three articles, 2026-07-20). Matched as a
+# conjunction, same discipline as the publishing family: an "expressed
+# opinion/view" phrase AND a "not necessarily reflect/represent" phrase. Neither
+# half is safe alone -- "the opinions expressed at the meeting were heated" is
+# prose, and "these results do not necessarily represent the population" is
+# prose -- but together they essentially only occur in this disclaimer. The
+# giveaway "not necessarily..." half routinely sits past the 60-char preview,
+# so this is computed at walk time over the full chunk text like the rest.
+_DISCLOSURE_OPINION = (
+	"opinions expressed",
+	"views expressed",
+	"opinion expressed",
+	"view expressed",
+)
+_DISCLOSURE_NOT_NECESSARILY = (
+	"not necessarily reflect",
+	"not necessarily represent",
+	"not necessarily those of",
+	"not necessarily the views",
+	"not necessarily the opinions",
+	"not necessarily shared by",
+)
+
 # Disclosures are SHORT. A long paragraph that mentions affiliate links is
 # probably an article ABOUT affiliate marketing, i.e. real content.
 _EDITORIAL_DISCLOSURE_MAX_CHARS = 300
@@ -851,9 +878,16 @@ def _looks_like_editorial_disclosure(text: str, full_length: int = None) -> bool
 	if any(phrase in lower for phrase in _DISCLOSURE_UNAMBIGUOUS):
 		return True
 	# Publishing language only counts when the paragraph refers to ITSELF.
-	return (
+	if (
 		any(p in lower for p in _DISCLOSURE_SELF_REFERENCE)
 		and any(p in lower for p in _DISCLOSURE_PUBLISHING)
+	):
+		return True
+	# Publisher opinion-disclaimer: an "expressed opinion/view" phrase paired
+	# with a "not necessarily reflect/represent" phrase.
+	return (
+		any(p in lower for p in _DISCLOSURE_OPINION)
+		and any(p in lower for p in _DISCLOSURE_NOT_NECESSARILY)
 	)
 
 

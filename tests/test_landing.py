@@ -59,6 +59,53 @@ def test_article_landing_skips_photo_caption_before_lede():
 	assert web.find_article_landing(_summary_with(nodes)) == 2
 
 
+def test_article_landing_skips_publisher_opinion_disclaimer():
+	# RedState articles (2026-07-20, three of them, identical shape): H1, an
+	# author slug, a byline, then "The opinions expressed by contributors are
+	# their own and do not necessarily represent the views of RedState.com." —
+	# a grammatical sentence that ended sentence-strict and clustered with the
+	# adjacent share-link payload, so the cascade landed on it (idx 3). The real
+	# lede is two nodes later. Passing the FULL disclaimer text as the preview
+	# exercises the detector itself (not a hardcoded flag), so this fails before
+	# the _DISCLOSURE_OPINION rule exists.
+	disclaimer = ("The opinions expressed by contributors are their own and do "
+	              "not necessarily represent the views of RedState.com.")
+	share = "?subject=F-16s%20Scrambled%2C%20Flares%20Deployed%20After%20Pilots"
+	# The real lede is 233 chars — very-substantial (>=200), the gate that
+	# reaches it once the disclaimer is chrome. Keep the fixture length faithful.
+	lede = ("The North American Aerospace Defense Command (NORAD) scrambled F-16 "
+	        "fighter jets on Sunday after several general aviation aircraft breached "
+	        "the temporary flight restrictions around President Trump at the World Cup "
+	        "final in New Jersey.")
+	assert len(lede) >= 200
+	nodes = [
+		_node("heading", 91, level=1, preview="F-16s Scrambled, Flares Deployed After Pilots Breach Airspace"),
+		_node("paragraph", 11, preview="rusty-weiss"),
+		_node("paragraph", 73, preview="By Rusty Weiss Rusty_Weiss ref_src=twsrc"),
+		_node("paragraph", len(disclaimer), ends_sentence=True, preview=disclaimer),
+		_node("paragraph", 427, ends_sentence=True, preview=share),
+		_node("paragraph", 101, preview="A U.S. Air Force F-16 Fighting Falcon. (Credit: U."),
+		_node("paragraph", len(lede), ends_sentence=True, preview=lede),
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 6
+
+
+def test_opinion_disclaimer_detected_and_prose_is_safe():
+	# The RedState disclaimer and a BBC-style variant match; prose containing
+	# only ONE half of the conjunction must not (both halves occur in ordinary
+	# sentences on their own).
+	assert web._looks_like_editorial_disclosure(
+		"The opinions expressed by contributors are their own and do not "
+		"necessarily represent the views of RedState.com.") is True
+	assert web._looks_like_editorial_disclosure(
+		"Views expressed in this article do not necessarily reflect those of "
+		"the BBC.") is True
+	assert web._looks_like_editorial_disclosure(
+		"The opinions expressed at the town hall were heated and divided.") is False
+	assert web._looks_like_editorial_disclosure(
+		"These lab results do not necessarily represent the broader population.") is False
+
+
 def test_article_landing_skips_caption_via_flag_when_credit_truncated():
 	# Production path: tree_summary truncates text_preview to 60 chars, so the
 	# trailing "(Getty Images)" credit is GONE from the preview and only the
