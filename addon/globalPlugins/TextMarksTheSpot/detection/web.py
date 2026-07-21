@@ -793,11 +793,18 @@ def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
 # the affiliate wording), which makes them as enumerable as the "All rights
 # reserved" filter already here -- and they work on the first visit.
 #
-# The signup promos ("Keep your favorites in MyRecipes for free") and masthead
-# marketing ("rigorously tested in our Nashville Test Kitchen") are NOT in here.
-# Their vocabulary is open, and a rule loose enough to catch them would eat real
-# ledes ("Keep your eyes on...", "Imagine you're..."). Those stay a KNOWN GAP:
-# the cost is landing one paragraph early, which is one Down arrow.
+# Masthead marketing ("rigorously tested in our Nashville Test Kitchen") and
+# generic value-prop promos ("Keep your favorites in MyRecipes for free") are
+# NOT in here. Their vocabulary is open, and a rule loose enough to catch them
+# would eat real ledes ("Keep your eyes on...", "Imagine you're..."). Those stay
+# a KNOWN GAP: the cost is landing one paragraph early, one Down arrow.
+#
+# The EXPLICIT newsletter-signup CTA is the exception, added 2026-07-21 after a
+# Tom's Hardware front page landed on "Get Tom's Hardware's best news and
+# in-depth reviews, straight to your inbox." Casey's rule: a newsletter box is
+# never what you came to read. It has near-mandated phrasing ("to your inbox",
+# "sign up for our newsletter") as enumerable as the affiliate family, so it is
+# tractable where open value-prop marketing is not. See _NEWSLETTER_PROMO.
 
 # Phrases that essentially never occur outside a disclosure. Safe on their own.
 _DISCLOSURE_UNAMBIGUOUS = (
@@ -878,6 +885,24 @@ _DISCLOSURE_NOT_NECESSARILY = (
 	"not necessarily shared by",
 )
 
+# Explicit newsletter-signup CTA. Near-mandated phrasing, safe on its own — real
+# article prose essentially never says "to your inbox" or "sign up for our
+# newsletter" in a landing-length paragraph. Deliberately NOT the bare word
+# "newsletter" (an article ABOUT a newsletter would trip it); each phrase names
+# the SIGNUP action or the inbox delivery.
+_NEWSLETTER_PROMO = (
+	"to your inbox",
+	"in your inbox",
+	"straight to your inbox",
+	"delivered to your inbox",
+	"sign up for our newsletter",
+	"sign up for the newsletter",
+	"subscribe to our newsletter",
+	"join our newsletter",
+	"sign up to receive",
+	"signup for our newsletter",
+)
+
 # Disclosures are SHORT. A long paragraph that mentions affiliate links is
 # probably an article ABOUT affiliate marketing, i.e. real content.
 _EDITORIAL_DISCLOSURE_MAX_CHARS = 300
@@ -915,6 +940,9 @@ def _looks_like_editorial_disclosure(text: str, full_length: int = None) -> bool
 		any(p in lower for p in _DISCLOSURE_SELF_REFERENCE)
 		and any(p in lower for p in _DISCLOSURE_PUBLISHING)
 	):
+		return True
+	# Explicit newsletter-signup CTA.
+	if any(p in lower for p in _NEWSLETTER_PROMO):
 		return True
 	# Publisher opinion-disclaimer: an "expressed opinion/view" phrase paired
 	# with a "not necessarily reflect/represent" phrase.

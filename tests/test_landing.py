@@ -106,6 +106,21 @@ def test_opinion_disclaimer_detected_and_prose_is_safe():
 		"These lab results do not necessarily represent the broader population.") is False
 
 
+def test_newsletter_signup_promo_is_chrome_but_prose_is_safe():
+	# Tom's Hardware front page landed on this newsletter CTA (2026-07-21); the
+	# "to your inbox" giveaway sits past the 60-char preview, so this is a
+	# walk-time is_disclosure flag over full text. Real prose is left alone.
+	assert web._looks_like_editorial_disclosure(
+		"Get Tom's Hardware's best news and in-depth reviews, straight to your inbox.") is True
+	assert web._looks_like_editorial_disclosure(
+		"Sign up for our newsletter to get the latest deals and reviews.") is True
+	# Prose that merely mentions email / newsletters is NOT a signup CTA.
+	assert web._looks_like_editorial_disclosure(
+		"The startup builds a newsletter platform for independent writers.") is False
+	assert web._looks_like_editorial_disclosure(
+		"She opened her laptop and found the report waiting for her.") is False
+
+
 def test_article_landing_skips_dated_byline():
 	# Gateway Pundit (2026-07-21): "By Jenn Baker Jul. 20, 2026 7:40 pm" (with
 	# the article slug jammed onto the end) is the first substantial paragraph,
