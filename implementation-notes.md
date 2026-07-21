@@ -2,6 +2,40 @@
 
 Newest entries at the top.
 
+## 2026-07-21 - headline-list (index/homepage) landing + URL-slug filter
+
+348 tests + 1 xfail. Casey's rule: a page that's a wall of headline articles
+should land on the FIRST headline, like stevequayle.com already does.
+
+`_find_headline_list_landing` runs FIRST in `find_article_landing`: the first run
+of >= 6 consecutive medium (30-250 char) non-chrome paragraphs, mostly
+non-sentence-ending (titles), on a page with no article body, lands on the first
+member. `_has_article_body_cluster` (>= 2 consecutive sentence-ending >= 100-char
+non-chrome paragraphs) is the article-vs-index discriminator: an article with a
+related-stories rail keeps the gate OFF. Also added `_looks_like_url_slug`
+(hyphen-joined, no spaces - "when-your-vehicle-outlives-its-cloud") to the chrome
+filter; Ars Technica lists each story's slug above its headline and it was
+winning as a 31-char "headline".
+
+**Verified live (NVDA loop) against a broad sweep of homepages AND articles.**
+The critical result: all four test articles (apnews dateline, techcrunch,
+arstechnica Sony, zdnet) landed on their LEDES - the gate correctly declined on
+real articles, zero regression. Index pages land on the first headline
+(tomshardware, lite.cnn, text.npr, stevequayle, apnews, arstechnica).
+
+**Known limitation, shipped deliberately (NOT a regression).** The Verge and
+TechCrunch homepages carry a featured block of 2 consecutive long sentence-ending
+deks, so `_has_article_body_cluster` (bar = 2) treats them as articles and the
+gate declines; they land on a headline but a DEEP one (Verge idx 37), which is
+exactly their pre-gate cascade behavior. Raising the body bar to 3 fixes them but
+FALSE-FIRES on XDA (a real article whose body is one 954-char paragraph plus a
+related rail - only 2 consecutive >=100-S). So 2 is the safe bar: no article
+regression. The "land on the TOP headline of a homepage-with-a-featured-story"
+refinement waits for more corpus data - do not raise the bar to 3.
+
+Corpus (`tests/fixtures/capture_corpus.jsonl`) gained the three fixed homepages
+as real-page regression guards.
+
 ## 2026-07-21 - newsletter-signup CTA filter (verified via the full NVDA loop)
 
 342 tests + 1 xfail. Casey's rule: a newsletter box is never what you came to
