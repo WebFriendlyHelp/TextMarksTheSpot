@@ -174,6 +174,44 @@ landing choice on pages that fire. It CANNOT validate the trigger gates.
    future sweep must count new perf-log lines per page and stop early when the
    first few come back void.
 
+### E. A DIRECT `Start-Process <url>` sweep DOES work — the hidden child was the bug (2026-07-21)
+
+The rule above (D5: "an unattended sweep cannot work") is now qualified, not
+overturned. What actually fails is a sweep run from a HIDDEN BACKGROUND process
+or via Win32 window-forcing — Windows won't let a background process take the
+foreground, so the browser never really comes forward and NVDA never builds the
+buffer. But opening a URL DIRECTLY from the main automation context —
+`Start-Process "<url>"` (the shell-open form, NOT `Start-Process firefox <url>`
+from a `-WindowStyle Hidden` child) — brings Firefox forward with a genuine
+focus change, and the add-on fires. Confirmed 2026-07-21: three sweeps from a
+hidden `pwsh` child were 0/N void; the SAME URLs opened directly, one
+`Start-Process` per page, fired 10 of 12, then 4 of the remaining 6 on a retry.
+
+The conditions that make it reliable:
+1. **Open directly, not from a hidden child.** `Start-Process "<url>"` from the
+   tool call itself. A hidden background launcher cannot set foreground.
+2. **Use the shell-open form `Start-Process "<url>"`**, which hands the URL to
+   the default browser, exactly like opening a link for Casey. `Start-Process
+   firefox <url>` behaved differently in testing.
+3. **Casey's Firefox is single-tab** (every link loads in the one tab in place),
+   so focus stays in that document across navigations. And opening a link
+   switches focus INTO Firefox even from the terminal (Casey confirmed).
+4. **Casey must not touch the machine during the run** — typing in the terminal
+   pulls focus back and voids the rest. Him being away (e.g. on his phone) is the
+   cleanest condition of all.
+5. **Adaptive dwell, not fixed.** Poll the perf-log line count every ~2 s and
+   advance the instant it increments; give a slow page up to ~40 s. A fixed 20 s
+   dwell voided pages that actually fire in 2 s once Firefox is foreground — the
+   next `Start-Process` was interrupting a still-settling page.
+6. **Still verify by counting** (D5) and expect ~revisit-suppressed pages to
+   read void (a page landed earlier this session won't re-fire — that's the gate,
+   not a failure).
+
+Pair this with the capture log + `tests/replay_captures.py`: a direct sweep banks
+faithful `captures.jsonl` records, and the replay reproduces every landing
+offline. That is how the 2026-07-21 corpus (and `tests/fixtures/capture_corpus.jsonl`)
+was built, and how the XDA author-bio mislanding was found without touching NVDA.
+
 ## Step 1: Logs before theories
 
 Two logs, different lifetimes:
