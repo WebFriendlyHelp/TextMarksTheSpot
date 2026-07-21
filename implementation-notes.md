@@ -2,6 +2,52 @@
 
 Newest entries at the top.
 
+## 2026-07-21 - direct-Start-Process sweep works; capture/replay corpus; XDA bio found + deferred
+
+341 tests + 1 xfail. `main` still v1.0.13.
+
+### The scripted sweep works after all (see DEBUGGING.md E)
+
+Every prior sweep attempt voided because it ran from a HIDDEN background pwsh
+(can't take foreground) or used Win32 window-forcing (not a real focus event).
+Opening a URL DIRECTLY from the tool call - `Start-Process "<url>"`, the
+shell-open form - brings Firefox forward with a genuine focus change and the
+add-on fires. Three hidden-child sweeps were 0/N; the same URLs opened directly
+fired 10/12 then 4/6 on retry. Keys: direct open (not hidden child), the
+`Start-Process "<url>"` shell form (not `Start-Process firefox <url>`), Casey's
+single-tab Firefox, Casey away from the machine (phone), and ADAPTIVE dwell
+(advance when the perf-log count ticks, up to ~40 s) - a fixed 20 s dwell voided
+pages that actually fire in 2 s because the next open interrupted a settling
+page. Revisit-suppressed pages correctly read void.
+
+### Capture + replay corpus (the durable payoff)
+
+`_append_capture` (added earlier today) banks one faithful JSON record per
+detection. A direct sweep fills it fast; `tests/replay_captures.py` reproduces
+every landing offline; `tests/test_replay_corpus.py` +
+`tests/fixtures/capture_corpus.jsonl` freeze 10 real pages as a regression guard
+(9 verified-correct landings locked, XDA xfail). This is the "automated tests
+from real sites" Casey asked for, and it needs NO NVDA driving (which per
+DEBUGGING.md D5 is impossible headlessly regardless).
+
+### Bugs the replay surfaced
+
+- **XDA author-bio (xfail'd, fix DEFERRED).** reboot-your-router landed idx 5 on
+  "After a 7-year corporate stint, Tanveer found his love for writing..." (337
+  chars) - it wins the very-substantial (>=200) gate before the real body at idx
+  9. Not fixed autonomously: the giveaway ("writing"/"writer") sits past the
+  60-char preview (needs a walk-time flag), and the tempting byline-name-echo
+  detector ("bio repeats the author's name") risks common-word names ("By Mark
+  Smith" + a lede "Mark my words..."). Needs a curated bio-phrase vocabulary and
+  NVDA verification against a broad page set. The xfail flips to a failure the
+  day it lands right, which is the reminder to drop it.
+- **Homepage / promo landings (noted, not bugs per se).** Tom's Hardware landed
+  on a newsletter-signup blurb (idx 57); lite.cnn (idx 54) and text.npr (idx 19)
+  landed deep on news homepages. These are the open-vocabulary promo and the
+  "where should a homepage even land" questions the disclosure detector already
+  declines to touch. Deferred as a design question (homepages arguably want LIST
+  intent / first-headline), not a quick fix.
+
 ## 2026-07-21 - positional chrome-pos counting: SHELVED after two reviews; auto-capture + replay harness added
 
 332 tests. `main` still v1.0.13. Net add-on change today: an auto-capture debug
