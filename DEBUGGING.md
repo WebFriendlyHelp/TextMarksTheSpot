@@ -19,6 +19,27 @@ Do not skip to step 3. Two incidents today looked like landing-rule bugs and
 were actually a walk bug — the paragraph the user wanted was never in the
 add-on's data at all.
 
+**Step 0, before improving any mechanism: has it ever fired?** (added
+2026-07-19.) A refinement to the depleted-scope net was designed, reviewed by
+two independent reviewers, and nearly built — before anyone asked how often the
+net had run. The answer was ZERO times in 245 page loads, and on the page it was
+built for it could not fire at all. Both reviewers missed it because both were
+reasoning inside the premise they were handed; that is what reviewers do.
+
+The count is usually one command against the persistent log:
+
+```powershell
+$p = "$env:APPDATA\nvda\TextMarksTheSpot-perf.log"
+(Get-Content $p | Where-Object { $_ -match 'unscoped-depleted' }).Count
+```
+
+A safety net that has never fired is indistinguishable from one that cannot.
+This is the same discipline as "when a check comes back unanimous, ask whether
+it could ever have come back the other way", aimed at a mechanism instead of a
+probe. And check the WIRING has a test, not just the predicate: on this branch,
+five separate times, a rule was unit-tested while the code feeding it could be
+deleted with the suite still green.
+
 ## Before you assume it's a landing bug: three failures that MASQUERADE as one
 
 Added after 2026-07-14. All three look exactly like "the cascade picked the wrong
@@ -57,6 +78,29 @@ vda.log | Group-Object { $_.Line -replace '.*_maybe_fire_ti: ([a-zA-Z ]+).*','$1
 
 `PROCEEDING` = detection ran. Everything else is a skip, and a large skip count on
 DIFFERENT urls is a trigger bug, not a landing bug.
+
+### B2. A second browser on the SAME URL is suppressed, and looks broken
+
+Added 2026-07-19 after Edge appeared to fail while Firefox and Chrome worked.
+
+`_LANDED_SUPPRESS_SEC` is 120 seconds and is keyed on the **URL alone**, not on
+URL-plus-browser. So a landing in one browser suppresses the identical URL in
+the next one. Testing the same page across browsers inside two minutes is VOID,
+and the only thing that says so is the decision trace:
+
+```
+[TMTS] _maybe_fire_ti: already landed on url='...' 22.4s ago — suppressing re-detection
+```
+
+Vary the URL per browser, or wait two minutes. And note the two OTHER ways a
+browser can silently do nothing, which look identical from outside:
+
+- `readiness poll: still not ready after 12 attempts — giving up` (the buffer
+  never built inside 3 s; Edge did this on a cold load)
+- `readiness poll: not a web document (scheme) — abandon`
+
+Three different causes, one symptom. Read the trace before concluding anything
+about a browser.
 
 ### C. Your test harness broke, not the add-on
 
@@ -101,6 +145,72 @@ landing choice on pages that fire. It CANNOT validate the trigger gates.
    same-TI/URL-swap paths — where the 1.0.10 bug class lived — only run on
    same-SITE navigation and SPA route changes. For those, only Casey's real
    browsing counts (see the rule above this section).
+5. **PROGRAMMATIC focus is NOT focus. An unattended sweep cannot work at all.**
+   This is stronger than rule 1 and was learned the hard way on 2026-07-18: two
+   more sweeps (38 URLs, then 32) were run while Casey was away, the second one
+   explicitly forcing the window forward with `AppActivate` +
+   `SetForegroundWindow` + `SW_RESTORE`, asserting the foreground window title
+   really was "Mozilla Firefox" before dwelling, and re-asserting it mid-dwell.
+   Every check passed (`focus=True` on all 32) and **every single page was still
+   void — fired=0, void=32.** The session log shows why, identically on every
+   page: `[TMTS event] documentLoadComplete` arrives, then
+   `ti not ready — readiness poll attempt 1..12/12`, then `giving up`. NVDA
+   never built the browse buffer.
+   Raising a window with the Win32 foreground APIs is not the same thing as
+   NVDA's focus object moving into the document. NVDA only builds a
+   TreeInterceptor in its pre-step when the loaded object is the focus or a
+   focus ancestor (`eventHandler.py:431-432`), and that requires a real focus
+   event, not a window that merely sits in front.
+   **Do not try to fix this with more focus trickery, and do not send synthetic
+   keystrokes at an unattended machine.** The conclusion is simply that a
+   scripted sweep is only valid with Casey present and actually at the browser.
+   And usually it is not needed: any PASSIVE diagnostic (a perf field, a probe
+   line) collects itself from his ordinary browsing, which is better evidence
+   anyway — real pages, real timing, real TI reuse. Prefer "ship the diagnostic
+   and wait a day" over "script 30 loads and wait 20 minutes for nothing."
+   **Verify by counting, always.** The v2 sweep logged an `OK`/`VOID` delta of
+   perf-log lines per page and so reported its own failure on page 1. The v1
+   sweep did not, and looked fine for 21 minutes while producing nothing. Any
+   future sweep must count new perf-log lines per page and stop early when the
+   first few come back void.
+
+### E. A DIRECT `Start-Process <url>` sweep DOES work — the hidden child was the bug (2026-07-21)
+
+The rule above (D5: "an unattended sweep cannot work") is now qualified, not
+overturned. What actually fails is a sweep run from a HIDDEN BACKGROUND process
+or via Win32 window-forcing — Windows won't let a background process take the
+foreground, so the browser never really comes forward and NVDA never builds the
+buffer. But opening a URL DIRECTLY from the main automation context —
+`Start-Process "<url>"` (the shell-open form, NOT `Start-Process firefox <url>`
+from a `-WindowStyle Hidden` child) — brings Firefox forward with a genuine
+focus change, and the add-on fires. Confirmed 2026-07-21: three sweeps from a
+hidden `pwsh` child were 0/N void; the SAME URLs opened directly, one
+`Start-Process` per page, fired 10 of 12, then 4 of the remaining 6 on a retry.
+
+The conditions that make it reliable:
+1. **Open directly, not from a hidden child.** `Start-Process "<url>"` from the
+   tool call itself. A hidden background launcher cannot set foreground.
+2. **Use the shell-open form `Start-Process "<url>"`**, which hands the URL to
+   the default browser, exactly like opening a link for Casey. `Start-Process
+   firefox <url>` behaved differently in testing.
+3. **Casey's Firefox is single-tab** (every link loads in the one tab in place),
+   so focus stays in that document across navigations. And opening a link
+   switches focus INTO Firefox even from the terminal (Casey confirmed).
+4. **Casey must not touch the machine during the run** — typing in the terminal
+   pulls focus back and voids the rest. Him being away (e.g. on his phone) is the
+   cleanest condition of all.
+5. **Adaptive dwell, not fixed.** Poll the perf-log line count every ~2 s and
+   advance the instant it increments; give a slow page up to ~40 s. A fixed 20 s
+   dwell voided pages that actually fire in 2 s once Firefox is foreground — the
+   next `Start-Process` was interrupting a still-settling page.
+6. **Still verify by counting** (D5) and expect ~revisit-suppressed pages to
+   read void (a page landed earlier this session won't re-fire — that's the gate,
+   not a failure).
+
+Pair this with the capture log + `tests/replay_captures.py`: a direct sweep banks
+faithful `captures.jsonl` records, and the replay reproduces every landing
+offline. That is how the 2026-07-21 corpus (and `tests/fixtures/capture_corpus.jsonl`)
+was built, and how the XDA author-bio mislanding was found without touching NVDA.
 
 ## Step 1: Logs before theories
 

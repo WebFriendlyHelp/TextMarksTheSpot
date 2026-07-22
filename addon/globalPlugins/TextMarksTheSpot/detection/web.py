@@ -44,6 +44,12 @@ LANDING_MIN_PARAGRAPH_CHARS = 50
 # real content (e.g. Calendar's 181-char first appointment).
 HERO_PATTERN_MIN_CHARS = 100
 
+# How far below the page's H1 the lede may sit before _find_title_lede_landing
+# stops looking. On MacRumors it is two nodes down (the byline sits between).
+# Sized for "title, maybe a byline, maybe a timestamp, then the lede" and no
+# further -- past that we would be guessing at which paragraph is the opening.
+_TITLE_LEDE_LOOKAHEAD = 4
+
 # A paragraph this long is unambiguously real article body — it wins the
 # primary loop on its own without needing a substantial neighbor or
 # heading-in-lookahead. Without this rule, a long article intro that's
@@ -106,6 +112,95 @@ _ACCESSIBILITY_INSTRUCTION_PHRASES = (
 )
 
 
+# DEFINITIONAL LEDE. "<Subject> is a/an/the ..." is how product pages, docs and
+# reference entries state what the page is ABOUT. It is a general prose pattern,
+# not a site convention, and we already know the subject: the page's first
+# heading.
+#
+# Why it is needed. The cluster gate awards the landing to the FIRST of two
+# adjacent substantial paragraphs, which on a product page is routinely a
+# prerequisite note or a feature line sitting above the description. Vovsoft AI
+# Requester: "This program requires your own OpenAI API key..." (74) and "Local
+# models can run directly on your computer..." (103) form a cluster and win,
+# while "Vovsoft AI Requester is a program that can connect to OpenAI API..."
+# (102) sits two nodes below and is what the user actually wants.
+#
+# Why it is a REFINEMENT and not another gate. This cascade's documented
+# structural fault is that it awards on rule ORDER rather than evidence
+# strength, so every new early gate can preempt a good landing somewhere else.
+# This one can only move a landing FORWARD by a few nodes inside the block the
+# cluster gate already chose. It cannot reach past a heading, and it cannot
+# override a landing chosen anywhere else in the cascade.
+_DEFINITIONAL_LOOKAHEAD = 4
+# How far into the paragraph the subject may appear. Covers a vendor prefix
+# ("Vovsoft AI Requester" for an H1 of "AI Requester") without matching a
+# passing mention deep in a body paragraph.
+_DEFINITIONAL_SUBJECT_WINDOW = 40
+# How far after the subject the copula may sit, enough for "AI Requester 5.2 is
+# a ..." but not enough to pair a subject with an unrelated later clause.
+_DEFINITIONAL_COPULA_WINDOW = 15
+_DEFINITIONAL_COPULAS = (" is a", " is an", " is the")
+# Below this a "subject" is too generic to match on ("FAQ", "Home").
+_DEFINITIONAL_MIN_SUBJECT_CHARS = 4
+
+
+def _page_subject(nodes) -> str:
+	"""The page's first heading — what the page is about."""
+	for node in nodes:
+		if node.kind == "heading":
+			return (node.text_preview or "").strip()
+	return ""
+
+
+def _looks_like_definitional_lede(text: str, subject: str) -> bool:
+	"""True when this paragraph names the page's subject and says what it IS."""
+	if not subject or len(subject) < _DEFINITIONAL_MIN_SUBJECT_CHARS:
+		return False
+	lower = (text or "").strip().lower()
+	subj = subject.lower()
+	pos = lower.find(subj)
+	if pos < 0 or pos > _DEFINITIONAL_SUBJECT_WINDOW:
+		return False
+	tail = lower[pos + len(subj):pos + len(subj) + _DEFINITIONAL_COPULA_WINDOW]
+	return any(copula in tail for copula in _DEFINITIONAL_COPULAS)
+
+
+def _find_definitional_lede(nodes, start, min_chars, subject) -> Optional[int]:
+	"""A definitional lede within _DEFINITIONAL_LOOKAHEAD nodes after `start`,
+	stopping at the next heading. Returns None when there is none, which is the
+	common case and leaves the caller's own choice untouched.
+	"""
+	end = min(start + 1 + _DEFINITIONAL_LOOKAHEAD, len(nodes))
+	for j in range(start + 1, end):
+		node = nodes[j]
+		if node.kind == "heading":
+			break
+		if node.kind != "paragraph" or node.text_length < min_chars:
+			continue
+		if _is_chrome_paragraph(node):
+			continue
+		if _looks_like_definitional_lede(node.text_preview, subject):
+			return j
+	return None
+
+
+# How far past a content-section heading its paragraph may sit. Matches the
+# hero gate's lookahead (web.py, hero_lookahead = 4) for the same reason: a
+# heading vouches for the text it INTRODUCES, not for everything downstream of
+# it.
+#
+# Without a bound this gate ran to the next heading, and on a page whose
+# matching heading is the LAST one it ran to the end of the document. Vovsoft
+# product pages: "Key Features" at node 34, its spec lines at 35-37 discarded by
+# the sentence-strict pass, no further heading anywhere — so the gate claimed a
+# 387-char purchase blurb at node 49 and the add-on spoke licensing terms
+# instead of the product description sitting at node 7. Confirmed from the live
+# decision trace, and confirmed NOT to be walk truncation: sibling pages
+# mislanded identically with truncated=False and with descriptions well over the
+# 200-char very-substantial bar, which this gate outranks by running earlier.
+_CONTENT_SECTION_MAX_DISTANCE = 4
+
+
 def _find_content_section_landing(nodes, min_chars):
 	"""Look for a heading whose text matches a known "real content lives
 	here" phrase (e.g. "About this item", "Description", "Overview") and
@@ -137,8 +232,10 @@ def _find_content_section_landing(nodes, min_chars):
 		if not any(phrase in heading_text for phrase in _CONTENT_SECTION_HEADING_PHRASES):
 			continue
 		# Found a matching section. Look for the first substantial paragraph
-		# before the next heading; if none qualifies, move on.
-		for j in range(i + 1, count):
+		# before the next heading AND within _CONTENT_SECTION_MAX_DISTANCE;
+		# if none qualifies, move on to the next matching section heading.
+		limit = min(i + 1 + _CONTENT_SECTION_MAX_DISTANCE, count)
+		for j in range(i + 1, limit):
 			n = nodes[j]
 			if n.kind == "heading":
 				break
@@ -219,6 +316,82 @@ def _find_lead_section_landing(nodes) -> Optional[int]:
 	return idx
 
 
+def _find_title_lede_landing(nodes) -> Optional[int]:
+	"""Land on the article's opening sentence when an embedded widget cuts it
+	off from the body.
+
+	MacRumors "Apple Just Increased Prices" (2026-07-20). The shape:
+
+	    idx 0  H1        "Apple Just Increased Prices on MacBooks, ..."
+	    idx 1  paragraph "Thursday June 25, 2026 5:44 am PDT by Hartley ..."
+	    idx 2  paragraph "Apple today dramatically increased device prices ..."  (79)
+	    idx 3-8          YouTube embed chrome: player name, video title, channel,
+	                     subscriber count, "Watch later", "Share"
+	    idx 9  paragraph "Subscribe to the MacRumors YouTube channel ..."  (59)
+	    idx 10 paragraph "After temporarily taking it down earlier today ..." (149)
+
+	idx 2 is the lede and it loses every gate on LENGTH alone: 79 chars is under
+	VERY_SUBSTANTIAL (200) and under HERO_PATTERN_MIN_CHARS (100), and the video
+	embed means its neighbour is a 20-char player label rather than a substantial
+	paragraph, so the cluster gate declines. The cascade walked on to idx 9, which
+	clusters with idx 10 and wins -- the user was dropped into the embed's own
+	subscribe pitch. This is the structural fault named in CLAUDE.md: the cascade
+	awards the landing on rule ORDER rather than evidence strength.
+
+	The positive evidence this gate uses is POSITION plus GRAMMAR: sentence-ending
+	prose sitting directly under the page's own H1 is the lede. Nothing else on a
+	news page occupies that slot.
+
+	Three guards keep it narrow, and each one is load-bearing:
+
+	  1. Level-1 heading only. A nav or widget heading is an H2/H3; requiring the
+	     H1 means "the page's title", which is what makes the slot meaningful. On
+	     an unscoped tree whose first heading is site chrome, the gate declines
+	     rather than landing on a cookie banner underneath it.
+	  2. It only fires where the cascade currently walks PAST the candidate --
+	     the next node must not be a substantial paragraph. When it is, the
+	     cluster gate already handles the page correctly, teaser-skip included,
+	     so this gate must not preempt it. That is what keeps it off the CNET
+	     teaser shape (82-char teaser, 209-char narrative right after) and off
+	     ordinary Wikipedia-style ledes.
+	  3. A short lookahead from the H1. The lede sits under the title, possibly
+	     past a byline or timestamp; it is not eight nodes down. Beyond the
+	     window we are guessing, and a wrong auto-jump is worse than no jump.
+
+	Returns None to mean "not my case; run the normal cascade."
+	"""
+	title = next(
+		(i for i, n in enumerate(nodes) if n.kind == "heading" and n.level == 1),
+		None,
+	)
+	if title is None:
+		return None
+	for i in range(title + 1, min(title + 1 + _TITLE_LEDE_LOOKAHEAD, len(nodes))):
+		node = nodes[i]
+		if node.kind == "heading":
+			# A second heading closes the title's own section before any lede
+			# appeared. Whatever follows belongs to that section, not here.
+			return None
+		if node.kind != "paragraph":
+			continue
+		if node.text_length < LANDING_MIN_PARAGRAPH_CHARS:
+			continue
+		if _is_chrome_paragraph(node) or not _node_ends_sentence(node):
+			# Bylines, timestamps and dateline fragments live in this slot too.
+			# They are not disqualifying -- keep scanning past them.
+			continue
+		nxt = nodes[i + 1] if i + 1 < len(nodes) else None
+		if (
+			nxt is not None
+			and nxt.kind == "paragraph"
+			and nxt.text_length >= LANDING_MIN_PARAGRAPH_CHARS
+		):
+			# Guard 2: the ordinary cluster gate owns this shape.
+			return None
+		return i
+	return None
+
+
 def _looks_like_accessibility_instructions(text: str) -> bool:
 	"""Detect screen-reader instructional text appended to interactive
 	widgets. Amazon product pages are the canonical case — dropdowns and
@@ -295,6 +468,45 @@ def _looks_like_share_link_payload(text: str) -> bool:
 	if "url=http" in lower:
 		return True
 	return len(_URL_ENCODED_TRIPLET_RE.findall(text)) >= 3
+
+
+# Breadcrumb navigation trail. Sites render the "you are here" path as a single
+# text node — "Home > WebAIM Projects > Screen Reader User Survey" — which NVDA
+# exposes as a paragraph that clears the substantial-text bar. It is pure
+# navigation and must never be a landing target: WebAIM's survey-confirmation
+# ("Thank you for completing...") page landed the user ON this breadcrumb
+# because it was the first 30+ char paragraph in document order (2026-07-20).
+# Two independent signals, either is enough:
+#   1. A "You are here" navigation preamble.
+#   2. A chain of >= 3 segments joined by breadcrumb separators (" > ", " > ",
+#      " » "). Requiring TWO separators (three segments) keeps ordinary prose
+#      that contains a single " > " (a quoted comparison, a math aside) safe;
+#      natural prose essentially never strings two spaced chevrons together.
+# The " / " separator is deliberately excluded — spaced slashes appear in prose
+# ("and / or", "he said / she said") far more often than the chevrons do.
+_BREADCRUMB_SEP_RE = _re.compile(r"\s[>›»]\s")
+
+
+def _looks_like_url_slug(text: str) -> bool:
+	"""A URL slug exposed as a text node: hyphen-joined words with NO spaces,
+	e.g. "when-your-vehicle-outlives-its-cloud" (Ars Technica lists each story's
+	slug as a line above its headline). Read aloud it is "when hyphen your
+	hyphen ..." — never a landing. Tight: real prose always has spaces, and a
+	lone compound like "state-of-the-art" rarely stands as its own paragraph.
+	"""
+	stripped = (text or "").strip()
+	if not stripped or " " in stripped:
+		return False
+	return stripped.count("-") >= 2
+
+
+def _looks_like_breadcrumb(text: str) -> bool:
+	if not text:
+		return False
+	stripped = text.strip()
+	if stripped.lower().startswith("you are here"):
+		return True
+	return len(_BREADCRUMB_SEP_RE.findall(stripped)) >= 2
 
 
 # Photo/image-credit signature. News and blog articles place a figure caption
@@ -505,6 +717,29 @@ _PARTICIPLE_BYLINE_RE = _re.compile(
 )
 _PARTICIPLE_BYLINE_MAX_CHARS = 120
 
+# Dated byline: "By Jenn Baker Jul. 20, 2026 7:40 pm" (Gateway Pundit, and the
+# common news/CMS shape generally). This is the mixed-case "By Name" the
+# all-caps rule below deliberately skips, but the publication DATE makes it
+# safe: a full "Month DD, YYYY" date right after a "By Name" opener is a
+# timestamp, not prose. Three guards keep it off real ledes that open with
+# "By": the word after "By" must be a capitalized NAME (so "By 2026, ...",
+# "By all accounts ...", "By NASA's estimate ..." with a lowercase/numeric
+# second token never match... "By NASA" is caught by the weekday/temporal
+# exclusion? no — NASA is a name, but a real lede "By NASA's estimate" carries
+# no Month-DD-YYYY date, so the date guard rejects it); it must carry a full
+# Month-DD-YYYY date (so "By January 2026, sales rose" — no day — is safe);
+# and the opener word must not be a weekday ("By Monday, June 5, 2026, the
+# crews ..." is temporal prose, not a byline). Short cap for the same reason
+# as the participle form: a real sentence built around a date runs longer.
+_BYLINE_FULLDATE_RE = _re.compile(
+	r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b"
+)
+_BYLINE_TEMPORAL_OPENERS = frozenset({
+	"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+	"then", "now", "morning", "afternoon", "evening", "midnight", "noon",
+})
+_DATED_BYLINE_MAX_CHARS = 120
+
 
 def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
 	"""Detect a news byline masquerading as a body paragraph. Two forms:
@@ -534,6 +769,16 @@ def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
 		return True
 	if not text.startswith("By "):
 		return False
+	# Dated byline: "By Name ... Month DD, YYYY [time]". See _BYLINE_FULLDATE_RE.
+	if effective_length <= _DATED_BYLINE_MAX_CHARS:
+		rest = text[3:].lstrip()
+		first_word = rest.split(maxsplit=1)[0] if rest else ""
+		if (
+			first_word[:1].isupper()
+			and first_word.strip(".,'").lower() not in _BYLINE_TEMPORAL_OPENERS
+			and _BYLINE_FULLDATE_RE.search(text)
+		):
+			return True
 	letters = [c for c in text[3:] if c.isalpha()]
 	if len(letters) < 6:
 		return False
@@ -561,11 +806,18 @@ def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
 # the affiliate wording), which makes them as enumerable as the "All rights
 # reserved" filter already here -- and they work on the first visit.
 #
-# The signup promos ("Keep your favorites in MyRecipes for free") and masthead
-# marketing ("rigorously tested in our Nashville Test Kitchen") are NOT in here.
-# Their vocabulary is open, and a rule loose enough to catch them would eat real
-# ledes ("Keep your eyes on...", "Imagine you're..."). Those stay a KNOWN GAP:
-# the cost is landing one paragraph early, which is one Down arrow.
+# Masthead marketing ("rigorously tested in our Nashville Test Kitchen") and
+# generic value-prop promos ("Keep your favorites in MyRecipes for free") are
+# NOT in here. Their vocabulary is open, and a rule loose enough to catch them
+# would eat real ledes ("Keep your eyes on...", "Imagine you're..."). Those stay
+# a KNOWN GAP: the cost is landing one paragraph early, one Down arrow.
+#
+# The EXPLICIT newsletter-signup CTA is the exception, added 2026-07-21 after a
+# Tom's Hardware front page landed on "Get Tom's Hardware's best news and
+# in-depth reviews, straight to your inbox." Casey's rule: a newsletter box is
+# never what you came to read. It has near-mandated phrasing ("to your inbox",
+# "sign up for our newsletter") as enumerable as the affiliate family, so it is
+# tractable where open value-prop marketing is not. See _NEWSLETTER_PROMO.
 
 # Phrases that essentially never occur outside a disclosure. Safe on their own.
 _DISCLOSURE_UNAMBIGUOUS = (
@@ -619,12 +871,57 @@ _DISCLOSURE_PUBLISHING = (
 	"first published",
 )
 
+# Publisher opinion-disclaimer -- "The opinions expressed by contributors are
+# their own and do not necessarily represent the views of RedState.com." This
+# is standardized boilerplate on opinion/news sites; it sits between the byline
+# and the lede, reads as a grammatical sentence, and ended sentence-strict, so
+# the cascade landed on it (RedState, three articles, 2026-07-20). Matched as a
+# conjunction, same discipline as the publishing family: an "expressed
+# opinion/view" phrase AND a "not necessarily reflect/represent" phrase. Neither
+# half is safe alone -- "the opinions expressed at the meeting were heated" is
+# prose, and "these results do not necessarily represent the population" is
+# prose -- but together they essentially only occur in this disclaimer. The
+# giveaway "not necessarily..." half routinely sits past the 60-char preview,
+# so this is computed at walk time over the full chunk text like the rest.
+_DISCLOSURE_OPINION = (
+	"opinions expressed",
+	"views expressed",
+	"opinion expressed",
+	"view expressed",
+)
+_DISCLOSURE_NOT_NECESSARILY = (
+	"not necessarily reflect",
+	"not necessarily represent",
+	"not necessarily those of",
+	"not necessarily the views",
+	"not necessarily the opinions",
+	"not necessarily shared by",
+)
+
+# Explicit newsletter-signup CTA. Near-mandated phrasing, safe on its own — real
+# article prose essentially never says "to your inbox" or "sign up for our
+# newsletter" in a landing-length paragraph. Deliberately NOT the bare word
+# "newsletter" (an article ABOUT a newsletter would trip it); each phrase names
+# the SIGNUP action or the inbox delivery.
+_NEWSLETTER_PROMO = (
+	"to your inbox",
+	"in your inbox",
+	"straight to your inbox",
+	"delivered to your inbox",
+	"sign up for our newsletter",
+	"sign up for the newsletter",
+	"subscribe to our newsletter",
+	"join our newsletter",
+	"sign up to receive",
+	"signup for our newsletter",
+)
+
 # Disclosures are SHORT. A long paragraph that mentions affiliate links is
 # probably an article ABOUT affiliate marketing, i.e. real content.
 _EDITORIAL_DISCLOSURE_MAX_CHARS = 300
 
 
-def _looks_like_editorial_disclosure(text: str) -> bool:
+def _looks_like_editorial_disclosure(text: str, full_length: int = None) -> bool:
 	"""Affiliate/referral disclosure or a syndication note, both of which sit
 	between the headline and the real lede and read as ordinary prose.
 
@@ -632,17 +929,56 @@ def _looks_like_editorial_disclosure(text: str) -> bool:
 	  "This post contains referral links for products we love."      (Pinch of Yum)
 	  "This article was written by WTOP's news partner, The Banner
 	   Montgomery, and republished with permission."                 (WTOP)
+
+	`full_length` is the chunk's REAL length when the caller only has the
+	60-char preview. Without it the length guard below was dead code at runtime
+	(a 60-char preview can never exceed 300), which broke the rule in BOTH
+	directions: it could never reject a long paragraph, so an article whose
+	opening 60 chars mention affiliate links got chrome-flagged with no length
+	protection at all. Same fix, and same reason, as the byline filter's
+	`full_length`. The unit tests pass whole sentences straight in, which is why
+	they validated a guard the runtime never actually applied.
 	"""
 	stripped = (text or "").strip()
-	if not stripped or len(stripped) > _EDITORIAL_DISCLOSURE_MAX_CHARS:
+	if not stripped:
+		return False
+	length = full_length if full_length is not None else len(stripped)
+	if length > _EDITORIAL_DISCLOSURE_MAX_CHARS:
 		return False
 	lower = stripped.lower()
 	if any(phrase in lower for phrase in _DISCLOSURE_UNAMBIGUOUS):
 		return True
 	# Publishing language only counts when the paragraph refers to ITSELF.
-	return (
+	if (
 		any(p in lower for p in _DISCLOSURE_SELF_REFERENCE)
 		and any(p in lower for p in _DISCLOSURE_PUBLISHING)
+	):
+		return True
+	# Explicit newsletter-signup CTA.
+	if any(p in lower for p in _NEWSLETTER_PROMO):
+		return True
+	# Publisher opinion-disclaimer: an "expressed opinion/view" phrase paired
+	# with a "not necessarily reflect/represent" phrase.
+	return (
+		any(p in lower for p in _DISCLOSURE_OPINION)
+		and any(p in lower for p in _DISCLOSURE_NOT_NECESSARILY)
+	)
+
+
+def _node_is_disclosure(node) -> bool:
+	"""True if a node is an editorial disclosure / syndication note.
+
+	Same two-layer scheme as _node_is_caption and _node_is_boilerplate: prefer
+	the walk-time ``is_disclosure`` flag, computed over the FULL chunk text
+	because the giveaway phrase routinely sits past the 60-char preview cutoff
+	("To receive license key and use all features of the software, " is already
+	61 chars). Falls back to re-checking the preview for fixtures, passing the
+	node's real length so the 300-char guard still applies there.
+	"""
+	if getattr(node, "is_disclosure", False):
+		return True
+	return _looks_like_editorial_disclosure(
+		node.text_preview or "", full_length=getattr(node, "text_length", None),
 	)
 
 
@@ -659,9 +995,11 @@ def _is_chrome_paragraph(node) -> bool:
 	return (
 		_looks_like_tag_list(text)
 		or _looks_like_share_link_payload(text)
+		or _looks_like_url_slug(text)
+		or _looks_like_breadcrumb(text)
 		or _looks_like_accessibility_instructions(text)
 		or _looks_like_promo_teaser(text)
-		or _looks_like_editorial_disclosure(text)
+		or _node_is_disclosure(node)
 		or _looks_like_byline(text, full_length=node.text_length)
 		or _node_is_caption(node)
 		or _node_is_boilerplate(node)
@@ -881,6 +1219,75 @@ def _sentence_strict_view(tree: TreeSummary) -> Optional[TreeSummary]:
 	return _dataclasses.replace(tree, main_nodes=strict_nodes)
 
 
+# Headline-list (index / homepage) landing. A news index is a WALL of headline
+# links: a run of consecutive medium paragraphs that are article TITLES (mostly
+# NOT sentence-ending), with no real article body. Casey's rule: land on the
+# FIRST headline, the way stevequayle.com already lands on its first bullet.
+# Tom's Hardware, lite.cnn, and text.npr were landing deep in chrome because
+# their newsletter/footer/bio prose (grammatical, sentence-ending) hijacked the
+# sentence-strict pass; this gate runs first and lands on the first headline.
+_HEADLINE_MIN_CHARS = 30       # shorter than this is nav/label, not a headline
+_HEADLINE_MAX_CHARS = 250      # longer is prose, not a title
+_HEADLINE_RUN_MIN = 6          # need a real WALL, not a couple of nav rows
+_HEADLINE_SENTENCE_FRAC_MAX = 0.5  # titles mostly don't end like sentences
+_HEADLINE_GAP_MAX = 2          # short/chrome nodes inside the wall are transparent
+
+
+def _has_article_body_cluster(nodes) -> bool:
+	"""True when the page has a real article body: >= 2 consecutive non-chrome
+	sentence-ending paragraphs of >= 100 chars. This is what separates an ARTICLE
+	(with maybe a related-stories rail) from an INDEX (all titles, no body)."""
+	run = 0
+	for node in nodes:
+		if (
+			node.kind == "paragraph"
+			and node.text_length >= 100
+			and node.ends_sentence
+			and not _is_chrome_paragraph(node)
+		):
+			run += 1
+			if run >= 2:
+				return True
+		elif node.kind == "heading" or (node.kind == "paragraph" and node.text_length >= _HEADLINE_MIN_CHARS):
+			run = 0
+	return False
+
+
+def _find_headline_list_landing(nodes) -> Optional[int]:
+	"""Index/homepage detection: the FIRST run of >= _HEADLINE_RUN_MIN
+	consecutive headline-ish paragraphs (medium length, non-chrome), mostly
+	non-sentence-ending, on a page with no article body. Returns the first
+	member's index, or None. See the header comment above."""
+	if _has_article_body_cluster(nodes):
+		return None
+	i, count = 0, len(nodes)
+	while i < count:
+		members, gap, j = [], 0, i
+		while j < count:
+			node = nodes[j]
+			if node.kind == "heading":
+				break
+			headlineish = (
+				node.kind == "paragraph"
+				and _HEADLINE_MIN_CHARS <= node.text_length <= _HEADLINE_MAX_CHARS
+				and not _is_chrome_paragraph(node)
+			)
+			if headlineish:
+				members.append(j)
+				gap = 0
+			elif members:
+				gap += 1
+				if gap > _HEADLINE_GAP_MAX:
+					break
+			j += 1
+		if len(members) >= _HEADLINE_RUN_MIN:
+			sent = sum(1 for m in members if _node_ends_sentence(nodes[m]))
+			if sent / len(members) <= _HEADLINE_SENTENCE_FRAC_MAX:
+				return members[0]
+		i = max(j, i + 1)
+	return None
+
+
 def find_article_landing(tree: TreeSummary) -> Optional[int]:
 	"""Land on real body prose, preferring paragraphs that end like a sentence.
 
@@ -899,10 +1306,14 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 	there. Without pass 2 such a page would land nowhere at all. There is a
 	test pinning this: test_article_landing_falls_back_when_no_sentence_enders.
 
-	Known hole, accepted: an aggregator page carrying ONE stray prose sentence
-	(ad copy, a cookie notice) would let pass 1 win and land on it instead of
-	the first headline. The existing chrome filters catch most such strays.
+	Index/homepage pages (a wall of headline links, no article body) are handled
+	FIRST by _find_headline_list_landing, so a stray prose sentence in a
+	newsletter box or footer can't hijack pass 1 into landing on chrome. This
+	closes the "known hole" the two passes alone left open.
 	"""
+	idx = _find_headline_list_landing(tree.main_nodes)
+	if idx is not None:
+		return idx
 	strict = _sentence_strict_view(tree)
 	if strict is not None:
 		idx = _find_article_landing_impl(strict)
@@ -995,6 +1406,15 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	if idx is not None:
 		return idx
 
+	# Title-lede gate: sentence-ending prose directly under the page's H1 is the
+	# opening line, even when it is too short for the size gates and an embedded
+	# widget (a video player, a newsletter box) sits between it and the body so
+	# the cluster gate cannot see it. Declines whenever the cluster gate can
+	# handle the page itself. See _find_title_lede_landing.
+	idx = _find_title_lede_landing(nodes)
+	if idx is not None:
+		return idx
+
 	# How far to look ahead for a section-ending heading when checking
 	# the hero/section-intro pattern. Some landing pages have a substantial
 	# hero paragraph followed by 1-3 short banner/CTA lines before the
@@ -1002,6 +1422,8 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# before "Top Links" H2. Capped to prevent confusing distant content
 	# with a hero pattern.
 	hero_lookahead = 4
+
+	subject = _page_subject(nodes)
 
 	seen_heading = False
 	for i, node in enumerate(nodes):
@@ -1052,6 +1474,14 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 				and not _looks_like_news_dateline(node.text_preview)
 			):
 				return i + 1
+			# The cluster's FIRST paragraph is not always what the page is
+			# about: on product and reference pages a prerequisite note or a
+			# feature line commonly sits above the sentence that says what the
+			# thing IS. Prefer that sentence when it is a few nodes below.
+			# Returns None on ordinary prose, leaving this landing as-is.
+			lede = _find_definitional_lede(nodes, i, min_chars, subject)
+			if lede is not None:
+				return lede
 			return i
 		# B: hero / section-intro — a heading appears within hero_lookahead
 		# nodes BEFORE any other substantial paragraph. The hero shortcut
@@ -1267,18 +1697,32 @@ def find_notice_landing(tree: TreeSummary) -> Optional[int]:
 	one the user came here to read (e.g. "The form is no longer accepting
 	responses", "Thank you for submitting", "Page not found").
 
-	Strategy:
-	  1. First paragraph >= _NOTICE_LANDING_MIN_CHARS in DOCUMENT ORDER.
-	     This is the simplest and most reliable heuristic on small pages:
-	     the meaningful sentence is usually one of the first substantial
-	     text nodes, regardless of whether it sits before or after the
-	     first heading. The previous "first paragraph after the first
-	     heading" rule failed on pages where the intro sentence precedes
-	     any heading (bestmidi.com/bg/ — log showed it landing on a
-	     footer text node at idx 18 because the only heading detected
-	     was a region H2 deep in the page).
-	  2. First heading — at least announces what page this is.
-	  3. First node — last resort.
+	Strategy: walk document order and return the first meaningful node,
+	skipping chrome shapes (a status page's message is never a copyright
+	line, a breadcrumb, or a photo credit).
+
+	  1. A substantial paragraph (>= _NOTICE_LANDING_MIN_CHARS, non-chrome)
+	     is the message. This is the common case: closed forms and error
+	     pages carry the status as a sentence ("This form is no longer
+	     accepting responses", "Page not found. Try the homepage."), often
+	     under a generic title heading. Landing on the sentence, not the
+	     title, is what the user came for.
+	  2. A heading is the message ONLY when no status paragraph follows it
+	     before the next heading. Some confirmation pages put the whole
+	     status in the heading and give the paragraphs to follow-up prompts:
+	     WebAIM's survey-confirmation page is H1 "Screen Reader User Survey
+	     Completed", then the paragraphs are "share this with others" /
+	     "check out our services" — the message is the heading, so the old
+	     paragraph-first rule sailed past it to the share prompt. The
+	     lookahead is what keeps case 1 intact: a title heading with a
+	     status sentence under it still yields to the sentence.
+
+	The previous rule was paragraph-first with headings as a pure fallback,
+	which failed both ways — it landed on a breadcrumb before the real
+	message, and it could never land on a heading that WAS the message.
+	Chrome-skipping plus the "first paragraph in document order" idea (not
+	"first paragraph after the first heading") still fixes the original
+	bestmidi.com/bg/ case, where the intro sentence precedes any heading.
 
 	Returns None only if tree.main_nodes is empty.
 	"""
@@ -1286,21 +1730,33 @@ def find_notice_landing(tree: TreeSummary) -> Optional[int]:
 	if not nodes:
 		return None
 
-	# 1. First substantial paragraph anywhere in document order — skipping
-	#    chrome shapes (a status page's message is never a copyright line
-	#    or a photo credit).
-	for i, n in enumerate(nodes):
-		if n.kind == "paragraph" and n.text_length >= _NOTICE_LANDING_MIN_CHARS:
-			if _is_chrome_paragraph(n):
-				continue
-			return i
+	def _is_status_paragraph(n) -> bool:
+		return (
+			n.kind == "paragraph"
+			and n.text_length >= _NOTICE_LANDING_MIN_CHARS
+			and not _is_chrome_paragraph(n)
+		)
 
-	# 2. First heading.
 	for i, n in enumerate(nodes):
+		if _is_status_paragraph(n):
+			return i
 		if n.kind == "heading":
-			return i
+			# Is this heading merely a title sitting above a status
+			# sentence? If a status paragraph appears before the next
+			# heading, it is — skip this heading and let that paragraph
+			# win. Otherwise the heading itself carries the status.
+			heading_owns_status = True
+			for m in nodes[i + 1:]:
+				if m.kind == "heading":
+					break
+				if _is_status_paragraph(m):
+					heading_owns_status = False
+					break
+			if heading_owns_status:
+				return i
 
-	# 3. First node.
+	# Nothing substantial and no heading — anchor on the first node so the
+	# caller still has something to speak.
 	return 0
 
 

@@ -155,3 +155,59 @@ def test_exception_at_first_item_is_not_a_trustworthy_zero():
 	n = ts._count_in_range(ti, "link", None, limit=0, deadline=FAR_FUTURE, truncated_out=flag)
 	assert n == 0
 	assert flag[0] is True
+
+
+# ---------------------------------------------------------------------------
+# scanned_out: the passive [TMTS counts-phase] measurement. It must report the
+# true items-scanned on every exit path and NEVER alter the count or the
+# truncated flag (it is a probe, not a control signal).
+# ---------------------------------------------------------------------------
+
+def test_scanned_out_matches_fetched_on_full_scan():
+	ti = FakeTI(40)
+	scanned = [0]
+	n = ts._count_in_range(ti, "link", None, limit=0, deadline=FAR_FUTURE, scanned_out=scanned)
+	assert n == 40
+	assert scanned[0] == 40 == ti.fetched
+
+
+def test_scanned_out_counts_up_to_the_limit_early_return():
+	# The limit short-circuit returns mid-loop; scanned must reflect the items
+	# actually pulled (the parent-chain cost we are trying to measure), not the
+	# whole page.
+	ti = FakeTI(500)
+	scanned = [0]
+	n = ts._count_in_scope(ti, "link", None, {}, limit=10, deadline=FAR_FUTURE, scanned_out=scanned)
+	assert n == 10
+	assert scanned[0] == 10 == ti.fetched
+
+
+def test_scanned_out_reaches_scan_cap():
+	ti = FakeTI(5000)
+	scanned = [0]
+	flag = [False]
+	n = ts._count_in_range(ti, "link", None, limit=0, deadline=FAR_FUTURE,
+	                       truncated_out=flag, scanned_out=scanned)
+	assert scanned[0] == ts._COUNT_SCAN_LIMIT
+	assert flag[0] is True
+
+
+def test_scanned_out_accumulates_across_form_types():
+	# _count_form_inputs sums four enumerations; scanned_out must accumulate
+	# across all of them so the "forms" call site reports total items scanned.
+	ti = FakeTI(3)  # scope_range=None counts every item, so 3 per type
+	scanned = [0]
+	n = ts._count_form_inputs(ti, None, None, {}, 100, deadline=FAR_FUTURE, scanned_out=scanned)
+	assert n == 12  # 4 types * 3
+	assert scanned[0] == 12
+
+
+def test_scanned_out_does_not_change_count_or_truncation():
+	# Same inputs, with and without the probe: identical count and flag.
+	a = ts._count_in_range(FakeTI(50, raise_after=7), "link", None, limit=0,
+	                       deadline=FAR_FUTURE, truncated_out=(fa := [False]))
+	b = ts._count_in_range(FakeTI(50, raise_after=7), "link", None, limit=0,
+	                       deadline=FAR_FUTURE, truncated_out=(fb := [False]),
+	                       scanned_out=[0])
+	assert a == b == 7
+	assert fa[0] == fb[0] is True

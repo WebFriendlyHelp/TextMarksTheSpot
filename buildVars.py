@@ -23,18 +23,26 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Get to the actual content on a web page without working so hard to find it. Hands off. Let the page load, listen for the short beeps, and you're at the start of the article. NVDA reads the first paragraph. Press Z to skim forward, Shift+Z to jump back to the start, NVDA+Z to turn the add-on off on a specific site. Runs locally, no network calls."""),
 	# version
-	addon_version="1.0.13",
+	addon_version="1.0.14",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""Checkout pages land on what you're buying, not in the legal fine print.
+	addon_changelog=_("""Fewer landings in the site menu, and pages that are nothing but headlines land on the first one.
 
-Checkout pages are recognized as forms. On a software checkout page, the add-on read the legal notice beside the Submit order button, "By placing your order, you agree to our Terms and Conditions...", as if that were the point of the page. That notice and the security-badge text next to it were long enough to pass for article paragraphs, so the whole checkout, ten input fields and all, got treated as an article. Consent wording like "you agree to our Terms and Conditions" now counts as legal boilerplate: it can't pass for content anymore, and the checkout is treated as the form it is.
+The cursor stops wandering into the menu and the footer. On a page that never marks where its main content begins, the add-on has to work out for itself which text belongs to the page and which belongs to the menus and footers around it. A shortcut inside that step could hand one paragraph another paragraph's answer, and once enough paragraphs got the wrong answer the add-on gave up and read the whole page, menu and footer included. That is fixed, and those pages are quicker now as well.
 
-The landing goes to the line that says what you're buying. That checkout has no headings at all, and the fallback for that case used to pick the first longish text on the page, which turned out to be the seller's slogan up in the page header. A form's real description reads like a sentence, and a slogan doesn't, so the landing now prefers the first paragraph that ends like one: on that checkout, the product description right under "You're Buying".
+Your keyboard focus no longer lands in the site's search box. On a form page with no marked main region, the step that puts you in the first field could pick the first field anywhere on the page, which is usually the search box up in the header. It now leaves the site's own menus and header alone.
 
-The same page now lands the same way every time. On a slow load, the add-on's reading of the page runs out of clock partway down, and it used to decide "this form has no description worth reading" just because it hadn't gotten far enough to see one. That could drop your keyboard focus into the quantity box on one visit and land you at the top of the page in reading mode on the next. When the add-on knows it only saw part of a page, it now always takes the reading-mode landing, which never moves your focus.
+Pages that are nothing but headlines land on the first headline. A news home page or a link roundup has no article to find, so the cursor used to come down somewhere in the middle of the list. Real articles are untouched: a page with a genuine body of text still lands on its opening line.
 
-Known gaps, unchanged from 1.0.12: single-field sign-in pages that ask for your email first still get no landing (the two low beeps); recipe sites can still land on a marketing line or a reader's review; script-drawn result widgets like the fast.com speed test are still not detected."""),
+More of the publisher's boilerplate gets skipped. The cursor now passes over the "opinions expressed by contributors are their own" disclaimer, dated bylines, newsletter pitches that end "straight to your inbox", breadcrumb trails, and the web address some sites print above each headline.
+
+A short opening line above a video is no longer skipped. On MacRumors, a story that opened with one short sentence and then a video player landed you on "Subscribe to the MacRumors YouTube channel for more videos." A sentence sitting directly under the page's own headline is now treated as the opening line, however short it is.
+
+Survey pages are treated as forms. The WebAIM screen reader survey used to land you in the middle of the questions, on whichever question happened to be longest, and its thank-you page landed on the breadcrumb trail. The questions page is now handled as the form it is, and the thank-you page lands on the message.
+
+Fewer of the two low beeps when nothing was actually wrong. If NVDA had not finished building the page yet, the add-on could announce that it found nothing at a page it never really got to look at. It waits instead.
+
+Known gaps: on some articles the cursor lands on the author's biography instead of the story; recipe sites can still land on a marketing line or a reader's review; the Verge and TechCrunch home pages lead with a large featured story and land on a headline further down the list; single-field sign-in pages that ask for your email first still get no landing (the two low beeps); and script-drawn result widgets like the fast.com speed test are still not detected."""),
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support

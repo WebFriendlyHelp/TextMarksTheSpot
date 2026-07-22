@@ -68,6 +68,16 @@ class MainNode:
 	# copyright (Zoom webinar registration was the canonical case) can't
 	# classify as ARTICLE and land the user on the copyright line.
 	is_boilerplate: bool = False
+	# True when this paragraph is an editorial disclosure — an affiliate /
+	# referral note, a syndication credit, or marketing-consent boilerplate.
+	# Computed at walk time over the FULL chunk text for two reasons, not one:
+	# the giveaway phrase routinely sits past the 60-char preview cutoff, AND
+	# the filter's 300-char "a disclosure is SHORT" guard can only be applied
+	# against the real length. Checking the preview alone made that guard dead
+	# code, so a long genuine lede whose opening 60 chars mentioned affiliate
+	# links was chrome-flagged with no length protection. Landing finders skip
+	# these.
+	is_disclosure: bool = False
 	# True when the FULL chunk text ends like a sentence (terminal . ! ? or
 	# ellipsis, allowing trailing closing quotes/brackets). Computed at walk
 	# time because the terminal punctuation on a 61+ char line sits past the
@@ -294,6 +304,14 @@ URL_HINTS = {
 		"/signup", "/sign-up", "/register", "/contact", "/apply", "/intake",
 		"/login", "/signin", "/sign-in", "/log-in",
 		"createaccount", "userlogin", "/auth/",
+		# A survey / questionnaire page is a form: its whole purpose is to
+		# collect answers. WebAIM's Screen Reader User Survey wraps the
+		# questions in a single <article>, which blocked FORM and landed the
+		# user mid-questions on the longest question label (2026-07-20).
+		# "/poll" is deliberately omitted -- plain substring matching would
+		# catch "/pollution". "/survey" collides only with the niche
+		# "/surveying", which a real body cluster still blocks unconditionally.
+		"/survey", "/questionnaire",
 	),
 	Intent.ARTICLE: ("/article/", "/news/", "/blog/", "/post/", "/story/", "/posts/", "/wiki/", "/podcast"),
 	Intent.LIST:    ("/search", "/results", "/category/", "/tag/", "/feed", "/topic/"),
