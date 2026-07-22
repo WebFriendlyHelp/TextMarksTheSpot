@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.14
+
+Fewer landings in the site menu, and pages that are nothing but headlines land on the first one.
+
+- **The cursor stops wandering into the menu and the footer.** On a page that never marks where its main content begins, the add-on has to work out for itself which text belongs to the page and which belongs to the menus and footers around it. A shortcut inside that step could hand one paragraph another paragraph's answer, and once enough paragraphs got the wrong answer the add-on gave up and read the whole page, menu and footer included. That is fixed, and those pages are quicker now as well.
+- **Your keyboard focus no longer lands in the site's search box.** On a form page with no marked main region, the step that puts you in the first field could pick the first field anywhere on the page, which is usually the search box up in the header. It now leaves the site's own menus and header alone.
+- **Pages that are nothing but headlines land on the first headline.** A news home page or a link roundup has no article to find, so the cursor used to come down somewhere in the middle of the list. Real articles are untouched: a page with a genuine body of text still lands on its opening line.
+- **More of the publisher's boilerplate gets skipped.** The cursor now passes over the "opinions expressed by contributors are their own" disclaimer, dated bylines like "By Jenn Baker Jul. 20, 2026 7:40 pm", newsletter pitches that end "straight to your inbox", breadcrumb trails, and the web address some sites print above each headline.
+- **A short opening line above a video is no longer skipped.** On MacRumors, a story that opened with one short sentence and then a video player landed you on "Subscribe to the MacRumors YouTube channel for more videos." A sentence sitting directly under the page's own headline is now treated as the opening line, however short it is.
+- **Survey pages are treated as forms.** The WebAIM screen reader survey used to land you in the middle of the questions, on whichever question happened to be longest, and its thank-you page landed on the breadcrumb trail. The questions page is now handled as the form it is, and the thank-you page lands on the message.
+- **Fewer of the two low beeps when nothing was actually wrong.** If NVDA had not finished building the page yet, the add-on could announce that it found nothing at a page it never really got to look at. It waits instead.
+
+Known gaps: on some articles the cursor lands on the author's biography instead of the story; recipe sites can still land on a marketing line or a reader's review; the Verge and TechCrunch home pages lead with a large featured story and land on a headline further down the list; single-field sign-in pages that ask for your email first still get no landing (the two low beeps); and script-drawn result widgets like the fast.com speed test are still not detected.
+
 ## 1.0.13
 
 Checkout pages land on what you're buying, not in the legal fine print.
