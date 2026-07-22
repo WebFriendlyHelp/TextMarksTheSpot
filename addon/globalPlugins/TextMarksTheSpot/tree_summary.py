@@ -282,10 +282,23 @@ def _append_perf_line(line: str) -> None:
 # length, 60-char preview, and the four walk-time flags). The finders never see
 # more than these fields, so replaying a record reproduces the add-on's decision
 # EXACTLY — which makes this a faithful, NVDA-free regression corpus built from
-# real browsing. Same DEBUG gate, rotation, and error-swallowing as the perf
-# log; lives beside it. Replayed by tests/replay_captures.py.
+# real browsing. Rotation and error-swallowing match the perf log, and it lives
+# beside it. Replayed by tests/replay_captures.py.
+#
+# OFF UNLESS EXPLICITLY ASKED FOR, and that is load-bearing, not tidiness. The
+# record contains the FULL url — query string, tokens, session ids and all — plus
+# previews of the text on the page. A real day of browsing collected invoice
+# links, OAuth authorization codes, and an app path carrying a client secret.
+# That is a wiretap on someone's browsing, so it is NOT gated on NVDA's DEBUG log
+# level: plenty of users run DEBUG for unrelated reasons and would never guess a
+# screen-reader add-on had started recording where they go. It writes only when a
+# marker file exists, which nobody creates by accident. The check is cached for
+# the session, so creating or deleting the marker takes effect at the next NVDA
+# restart.
 _CAPTURE_LOG_MAX_BYTES = 2_000_000
 _CAPTURE_LOG_PATH_CACHE: Optional[str] = None
+_CAPTURE_MARKER_NAME = "TextMarksTheSpot-capture-enabled"
+_CAPTURE_ENABLED: Optional[bool] = None
 
 
 def _capture_log_path() -> Optional[str]:
@@ -299,9 +312,25 @@ def _capture_log_path() -> Optional[str]:
 	return _CAPTURE_LOG_PATH_CACHE
 
 
+def _capture_enabled() -> bool:
+	"""True only when the developer opt-in marker file is present next to the
+	capture log. Cached for the session; an unreadable APPDATA reads as OFF."""
+	global _CAPTURE_ENABLED
+	if _CAPTURE_ENABLED is not None:
+		return _CAPTURE_ENABLED
+	appdata = os.environ.get("APPDATA")
+	if not appdata:
+		_CAPTURE_ENABLED = False
+		return False
+	try:
+		_CAPTURE_ENABLED = os.path.exists(os.path.join(appdata, "nvda", _CAPTURE_MARKER_NAME))
+	except Exception:
+		_CAPTURE_ENABLED = False
+	return _CAPTURE_ENABLED
+
+
 def _append_capture(summary: "TreeSummary") -> None:
-	import logging
-	if not log.isEnabledFor(logging.DEBUG):
+	if not _capture_enabled():
 		return
 	path = _capture_log_path()
 	if path is None:

@@ -1,11 +1,19 @@
 # Golden-corpus regression test.
 #
-# tests/fixtures/capture_corpus.jsonl holds FAITHFUL page snapshots captured from
-# real browsing (see _append_capture in tree_summary.py): every field the
+# tests/fixtures/local/capture_corpus.jsonl holds FAITHFUL page snapshots captured
+# from real browsing (see _append_capture in tree_summary.py): every field the
 # classifier and landing finders actually read. Replaying a record reproduces the
 # add-on's real decision exactly, with no NVDA. This locks in the landings we've
-# verified on real pages this week, so a future classifier/landing change that
-# regresses one of them fails here instead of in a soak.
+# verified on real pages, so a future classifier/landing change that regresses one
+# of them fails here instead of in a soak.
+#
+# The corpus is DELIBERATELY NOT IN THE REPOSITORY (.gitignore covers
+# tests/fixtures/local/). It is a record of someone's real browsing: full URLs,
+# query strings and all, plus previews of the text on each page. That does not
+# belong in a public repo, and a data file shaped like a browsing log is an
+# invitation to paste more of one in. Keep it local; keep adding to it by hand
+# from pages worth pinning. Every case below skips itself when the file is
+# absent, so a fresh clone runs green with no corpus at all.
 #
 # Each case asserts a substring of the LANDED node's preview — readable and
 # stable against the frozen fixture. A known-bad landing is an xfail carrying the
@@ -19,10 +27,12 @@ import pytest
 
 from replay_captures import replay  # noqa: E402  (adds the addon dir to sys.path)
 
-_CORPUS = os.path.join(os.path.dirname(__file__), "fixtures", "capture_corpus.jsonl")
+_CORPUS = os.path.join(os.path.dirname(__file__), "fixtures", "local", "capture_corpus.jsonl")
 
 
 def _records():
+    if not os.path.exists(_CORPUS):
+        pytest.skip("no local capture corpus (tests/fixtures/local/) - see this file's header")
     with open(_CORPUS, encoding="utf-8") as fh:
         return [json.loads(line) for line in fh if line.strip()]
 

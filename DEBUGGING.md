@@ -209,8 +209,29 @@ The conditions that make it reliable:
 
 Pair this with the capture log + `tests/replay_captures.py`: a direct sweep banks
 faithful `captures.jsonl` records, and the replay reproduces every landing
-offline. That is how the 2026-07-21 corpus (and `tests/fixtures/capture_corpus.jsonl`)
-was built, and how the XDA author-bio mislanding was found without touching NVDA.
+offline. That is how the 2026-07-21 corpus was built, and how the XDA author-bio
+mislanding was found without touching NVDA.
+
+**The capture log is OFF unless you turn it on, and it never leaves the machine
+it was written on.** It records the FULL url of every page detected, query string
+and all, plus previews of the page text; one real day of it collected an invoice
+link, OAuth authorization codes, and an app path carrying a client secret. So it
+writes only when this marker file exists, and the check is cached at startup:
+
+```powershell
+New-Item -ItemType File "$env:APPDATA\nvda\TextMarksTheSpot-capture-enabled"
+# restart NVDA, then browse
+```
+
+Delete the marker and restart NVDA to stop. It was previously gated on NVDA's
+DEBUG log level, which was wrong: people run DEBUG for unrelated reasons and
+would never guess a screen-reader add-on had started recording where they go.
+
+The corpus that `tests/test_replay_corpus.py` replays lives at
+`tests/fixtures/local/capture_corpus.jsonl` and is **gitignored on purpose**. Do
+not commit it, do not paste the raw log into an issue, and do not bulk-copy it
+into the repo. Add cases by hand from public pages worth pinning. Without the
+file the test skips, so a fresh clone still runs green.
 
 ## Step 1: Logs before theories
 
