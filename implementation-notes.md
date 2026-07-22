@@ -2,6 +2,63 @@
 
 Newest entries at the top.
 
+## 2026-07-22 - v1.0.14 released, and both persistent logs became opt-in
+
+358 tests + 1 xfail, 20 sabotages caught. `scope-hardening` merged to `main`,
+tagged `v1.0.14`, CI published it. Store is untouched and still on 1.0.6.
+
+**What the release actually rests on.** 78 real page detections captured over 18
+hours on this build and replayed offline: ~60 landed on the correct opening
+line, one page moved keyboard focus and it was a genuine form, and both NVDA
+session logs held zero add-on exceptions. That replay is the reason a release
+could be justified without another soak day.
+
+**The privacy work, and why it was not tidiness.** Casey asked whether the
+public build would "generate a log of sites people go to". It would have. Both
+persistent logs record the FULL url of every page detected, query string and
+all, and the perf log outlives NVDA restarts, so it accrues for months. One real
+day of them banked a Square invoice link, CourtListener OAuth authorization
+codes, and a local app path carrying a `client_secret`. Both were gated on
+NVDA's DEBUG log level.
+
+**DEBUG is not consent.** That is the load-bearing sentence. People raise the
+log level for unrelated reasons and would never guess a screen-reader add-on had
+started recording where they go. The gate is now a marker file
+(`TextMarksTheSpot-diagnostics-enabled`) that nobody creates by accident,
+checked once per session so it cannot flip on mid-browse, failing OFF when the
+check itself raises. The session-log copy stays ungated deliberately: NVDA's own
+log, wiped on the second restart, and the only thing that makes a live
+`NVDA+F1` diagnosis possible.
+
+**Two process notes worth more than the diff.**
+
+1. *The first answer was incomplete and shipped anyway.* The capture log was
+   fixed and reported as done; the perf log, doing the same thing worse, was
+   found only because Casey asked a confirming question afterwards. When a
+   concern is "does X leak", enumerate every writer before answering, not the
+   one that prompted the question.
+2. *The sabotage harness had been quietly lying.* Multi-line anchors are written
+   with `\n`, git can return `tree_summary.py` with CRLF after a checkout, and
+   every multi-line anchor then reported "0 hits" - which reads like a stale
+   anchor rather than a dead check. FOUR existing sabotages were in that state.
+   Normalizing line endings for matching brought them back. A verification tool
+   that degrades to silence is worse than no tool.
+
+**The corpus left the repository.** `tests/fixtures/capture_corpus.jsonl` moved
+to gitignored `tests/fixtures/local/`; `test_replay_corpus.py` skips when it is
+absent so a fresh clone runs green. Its 13 records were public news pages with
+no tokens, so this was precedent, not exposure: a data file shaped like a
+browsing log invites the next session to paste a real one in. The two old
+commits still carry it and that is accepted - erasing published history needs a
+force-push plus a GitHub Support purge, which is the response to a leaked
+credential, not to thirteen news articles.
+
+`tests/test_no_capture_corpus_committed.py` now enforces the property rather
+than the path: it JSON-parses every tracked file and fails on any record
+carrying both `url` and `nodes`. Verified by re-adding the corpus under a
+different name in a different directory - .gitignore did not stop it, the test
+did.
+
 ## 2026-07-21 - headline-list (index/homepage) landing + URL-slug filter
 
 348 tests + 1 xfail. Casey's rule: a page that's a wall of headline articles
