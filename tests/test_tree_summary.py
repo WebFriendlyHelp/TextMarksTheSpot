@@ -82,3 +82,49 @@ def test_node_for_does_not_skip_link_role():
 	node = tree_summary._node_for(_Obj("LINK"), "Read more about this topic.")
 	assert node is not None
 	assert node.kind == "paragraph"
+
+
+def test_node_for_computes_the_disclosure_flag_over_full_text():
+	# PINS THE WIRING, not just the rule. The landing cascade reads
+	# MainNode.is_disclosure, and every cascade-level test can hand-set that
+	# flag - so deleting this computation would leave the whole suite green
+	# while the runtime silently stopped detecting disclosures. Twice already
+	# on this branch a safety input turned out to be deletable without a test
+	# noticing, so the chain gets tested, not the pieces.
+	#
+	# Full text, deliberately: the giveaway phrase sits past the 60-char
+	# preview cutoff, which is the entire reason this moved to walk time.
+	text = (
+		"Before we get to the recipe, a quick word from our team: this post "
+		"contains affiliate links."
+	)
+	assert len(text) > 60
+	node = tree_summary._node_for(None, text)
+	assert node.is_disclosure is True
+	# text_preview alone could never have reached the phrase.
+	assert "affiliate" not in node.text_preview
+
+
+def test_node_for_leaves_ordinary_prose_undisclosed():
+	node = tree_summary._node_for(
+		None,
+		"She originally appeared on the show in 1998 and has been a fixture since.",
+	)
+	assert node.is_disclosure is False
+
+
+def test_node_for_disclosure_flag_respects_the_length_guard():
+	# A long paragraph that mentions affiliate links is an article ABOUT
+	# affiliate marketing, not a disclosure. The guard can only be applied
+	# against the real length, which is what walk time has and the preview
+	# path did not.
+	long_text = (
+		"This post contains referral links, and that is precisely what we want "
+		"to talk about today, because the economics of creator compensation "
+		"have shifted enormously over the past decade and almost nobody outside "
+		"the industry understands how the money actually moves, who ends up "
+		"paying for it, or why the disclosure language you skim past reads the "
+		"way it does."
+	)
+	assert len(long_text) > 300
+	assert tree_summary._node_for(None, long_text).is_disclosure is False
