@@ -212,20 +212,29 @@ faithful `captures.jsonl` records, and the replay reproduces every landing
 offline. That is how the 2026-07-21 corpus was built, and how the XDA author-bio
 mislanding was found without touching NVDA.
 
-**The capture log is OFF unless you turn it on, and it never leaves the machine
-it was written on.** It records the FULL url of every page detected, query string
-and all, plus previews of the page text; one real day of it collected an invoice
-link, OAuth authorization codes, and an app path carrying a client secret. So it
-writes only when this marker file exists, and the check is cached at startup:
+**BOTH persistent logs are OFF unless you turn them on, and neither leaves the
+machine it was written on.** The capture log records the FULL url of every page
+detected, query string and all, plus previews of the page text. The perf log
+carries that same url on every line and outlives NVDA restarts, so it accrues
+for months. One real day of them collected an invoice link, OAuth authorization
+codes, and an app path carrying a client secret. Both write only when this
+marker file exists, and the check is cached at startup:
 
 ```powershell
-New-Item -ItemType File "$env:APPDATA\nvda\TextMarksTheSpot-capture-enabled"
+New-Item -ItemType File "$env:APPDATA\nvda\TextMarksTheSpot-diagnostics-enabled"
 # restart NVDA, then browse
 ```
 
-Delete the marker and restart NVDA to stop. It was previously gated on NVDA's
+Delete the marker and restart NVDA to stop. They were previously gated on NVDA's
 DEBUG log level, which was wrong: people run DEBUG for unrelated reasons and
 would never guess a screen-reader add-on had started recording where they go.
+
+Consequence to plan around: **asking a user for a perf log is now a two-step
+request** (create the marker, restart, reproduce). Say so up front, and tell them
+what the file contains and how to delete it, rather than having them discover a
+month-long list of their own browsing afterwards. The `[TMTS perf]` line still
+goes to NVDA's own session log unconditionally, which is enough for a live
+NVDA+F1 diagnosis and is wiped on the second restart.
 
 The corpus that `tests/test_replay_corpus.py` replays lives at
 `tests/fixtures/local/capture_corpus.jsonl` and is **gitignored on purpose**. Do

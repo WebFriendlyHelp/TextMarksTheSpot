@@ -249,12 +249,19 @@ def _append_perf_line(line: str) -> None:
 	# Append one timestamped line to the persistent perf log. Swallows all
 	# IO errors so a locked / unwritable log can never break detection.
 	#
-	# Only writes when NVDA's logging level is DEBUG. Users in normal
-	# operation should not accumulate a perf log file in their AppData;
-	# the file is for troubleshooting, and troubleshooting users set
-	# NVDA's log level explicitly to capture data.
-	import logging
-	if not log.isEnabledFor(logging.DEBUG):
+	# Behind the SAME opt-in marker as the capture log, and for the same
+	# reason: every line ends with url='...', the full address including its
+	# query string, and this file is PERSISTENT — it survives NVDA restarts
+	# and accumulates for months. DEBUG used to be the only gate, which meant
+	# anyone who raised NVDA's log level for an unrelated reason quietly built
+	# a months-long record of the pages they visit. Setting a log level is not
+	# consent to that.
+	#
+	# The session-log copy of this line is deliberately NOT gated: it lives in
+	# NVDA's own log, which the user asked for, and it is wiped on the second
+	# restart. Asking a user for a perf log now means asking them to create the
+	# marker file first, which is a fair trade for not collecting by default.
+	if not _diagnostics_enabled():
 		return
 	path = _perf_log_path()
 	if path is None:
@@ -297,8 +304,8 @@ def _append_perf_line(line: str) -> None:
 # restart.
 _CAPTURE_LOG_MAX_BYTES = 2_000_000
 _CAPTURE_LOG_PATH_CACHE: Optional[str] = None
-_CAPTURE_MARKER_NAME = "TextMarksTheSpot-capture-enabled"
-_CAPTURE_ENABLED: Optional[bool] = None
+_DIAG_MARKER_NAME = "TextMarksTheSpot-diagnostics-enabled"
+_DIAG_ENABLED: Optional[bool] = None
 
 
 def _capture_log_path() -> Optional[str]:
@@ -312,25 +319,25 @@ def _capture_log_path() -> Optional[str]:
 	return _CAPTURE_LOG_PATH_CACHE
 
 
-def _capture_enabled() -> bool:
+def _diagnostics_enabled() -> bool:
 	"""True only when the developer opt-in marker file is present next to the
 	capture log. Cached for the session; an unreadable APPDATA reads as OFF."""
-	global _CAPTURE_ENABLED
-	if _CAPTURE_ENABLED is not None:
-		return _CAPTURE_ENABLED
+	global _DIAG_ENABLED
+	if _DIAG_ENABLED is not None:
+		return _DIAG_ENABLED
 	appdata = os.environ.get("APPDATA")
 	if not appdata:
-		_CAPTURE_ENABLED = False
+		_DIAG_ENABLED = False
 		return False
 	try:
-		_CAPTURE_ENABLED = os.path.exists(os.path.join(appdata, "nvda", _CAPTURE_MARKER_NAME))
+		_DIAG_ENABLED = os.path.exists(os.path.join(appdata, "nvda", _DIAG_MARKER_NAME))
 	except Exception:
-		_CAPTURE_ENABLED = False
-	return _CAPTURE_ENABLED
+		_DIAG_ENABLED = False
+	return _DIAG_ENABLED
 
 
 def _append_capture(summary: "TreeSummary") -> None:
-	if not _capture_enabled():
+	if not _diagnostics_enabled():
 		return
 	path = _capture_log_path()
 	if path is None:
