@@ -128,6 +128,25 @@ SABOTAGES = [
 		"			seen.append(lm.strip().lower())",
 		"			seen.append(lm.lower())",
 	),
+	# --- Capture log opt-in. The gate is the only thing standing between a
+	# --- user and a silent record of every url they visit, tokens included.
+	(
+		"capture gate removed entirely",
+		"	if not _capture_enabled():\n		return",
+		"	pass",
+	),
+	(
+		"capture gate reverted to the DEBUG log level it used to use",
+		"	if not _capture_enabled():\n		return",
+		"	import logging\n"
+		"	if not log.isEnabledFor(logging.DEBUG):\n"
+		"		return",
+	),
+	(
+		"marker check fails open when APPDATA is unreadable",
+		"	except Exception:\n		_CAPTURE_ENABLED = False\n	return _CAPTURE_ENABLED",
+		"	except Exception:\n		_CAPTURE_ENABLED = True\n	return _CAPTURE_ENABLED",
+	),
 	(
 		"depleted net stops respecting chrome-scope exclusions",
 		'	elif scope_kind in ("chrome", "chrome-pos") and positional_drops == 0:',
@@ -149,7 +168,12 @@ def main():
 			return 1
 		print("baseline: green")
 
-		text = original.decode("utf-8")
+		# Anchors below are written with \n. Git can hand this file back with
+		# CRLF endings after a checkout, and every MULTI-LINE anchor then misses
+		# with "0 hits" - which reads like a stale anchor and quietly retires the
+		# check. Normalize for matching; the original bytes are restored either
+		# way in the finally.
+		text = original.decode("utf-8").replace("\r\n", "\n")
 		for name, find, replace in SABOTAGES:
 			if text.count(find) != 1:
 				failures.append(f"{name}: anchor not unique ({text.count(find)} hits)")
