@@ -128,24 +128,42 @@ SABOTAGES = [
 		"			seen.append(lm.strip().lower())",
 		"			seen.append(lm.lower())",
 	),
-	# --- Capture log opt-in. The gate is the only thing standing between a
-	# --- user and a silent record of every url they visit, tokens included.
+	# --- Diagnostic-log opt-in. Both logs record the FULL url of every page
+	# --- detected. The marker gate is the only thing standing between a user
+	# --- and a silent record of everywhere they go, tokens and all. Each log
+	# --- is sabotaged separately: they were gated at different times, and a
+	# --- test that only watches the capture log would not notice the perf log
+	# --- quietly going back to collecting by default.
 	(
 		"capture gate removed entirely",
-		"	if not _capture_enabled():\n		return",
-		"	pass",
+		"	if not _diagnostics_enabled():\n		return\n	path = _capture_log_path()",
+		"	path = _capture_log_path()",
 	),
 	(
 		"capture gate reverted to the DEBUG log level it used to use",
-		"	if not _capture_enabled():\n		return",
+		"	if not _diagnostics_enabled():\n		return\n	path = _capture_log_path()",
 		"	import logging\n"
 		"	if not log.isEnabledFor(logging.DEBUG):\n"
-		"		return",
+		"		return\n"
+		"	path = _capture_log_path()",
+	),
+	(
+		"perf-log gate removed entirely",
+		"	if not _diagnostics_enabled():\n		return\n	path = _perf_log_path()",
+		"	path = _perf_log_path()",
+	),
+	(
+		"perf-log gate reverted to the DEBUG log level it used to use",
+		"	if not _diagnostics_enabled():\n		return\n	path = _perf_log_path()",
+		"	import logging\n"
+		"	if not log.isEnabledFor(logging.DEBUG):\n"
+		"		return\n"
+		"	path = _perf_log_path()",
 	),
 	(
 		"marker check fails open when APPDATA is unreadable",
-		"	except Exception:\n		_CAPTURE_ENABLED = False\n	return _CAPTURE_ENABLED",
-		"	except Exception:\n		_CAPTURE_ENABLED = True\n	return _CAPTURE_ENABLED",
+		"	except Exception:\n		_DIAG_ENABLED = False\n	return _DIAG_ENABLED",
+		"	except Exception:\n		_DIAG_ENABLED = True\n	return _DIAG_ENABLED",
 	),
 	(
 		"depleted net stops respecting chrome-scope exclusions",
