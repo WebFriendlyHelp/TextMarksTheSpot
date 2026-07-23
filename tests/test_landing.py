@@ -1638,6 +1638,36 @@ def test_lede_after_title_stops_at_an_intervening_heading():
 	assert web.find_article_landing(_summary_with(nodes)) == 4
 
 
+def test_lede_after_title_declines_on_a_dek_above_the_byline_block():
+	# iinteractive.com/resources/blog/read-only (2026-07-22 report). The blog
+	# uses a magazine layout: headline, then a DEK (standfirst summary), then
+	# the author-meta block (name, date, read-time), then the body. The dek is
+	# sentence-ending prose sitting directly under the H1 with a short byline
+	# beneath it, so _find_title_lede_landing grabbed it exactly like the
+	# MacRumors lede -- but locked decision #7 says skip the dek and land on the
+	# first body paragraph. The read-time / date meta line between the dek and
+	# the body is the tell: the candidate sits ABOVE the meta block, so it is
+	# the dek, not the lede. The gate must decline and let the 395-char body
+	# (idx 6) win via the very-substantial rule.
+	nodes = [
+		_node("paragraph", 11, preview="Development"),                          # 0
+		_node("heading", 32, level=1,
+			preview="Read Only. Read Only. Read Only."),                        # 1
+		_node("paragraph", 149, ends_sentence=True,
+			preview="How working with a blind client on a Power Automate project "),  # 2 (dek)
+		_node("paragraph", 12, preview="Sharni Zaugg"),                         # 3
+		_node("paragraph", 8, preview="6/3/2026"),                              # 4
+		_node("paragraph", 10, preview="6 min read"),                           # 5
+		_node("paragraph", 395, ends_sentence=True,
+			preview="We recently had a client with detailed accessibility require"),  # 6 (body)
+		_node("paragraph", 25, ends_sentence=True,
+			preview="It took 18 hours of work."),                               # 7
+		_node("paragraph", 339, ends_sentence=True,
+			preview="The project was to build a purchasing approval workflow in M"),  # 8
+	]
+	assert web.find_article_landing(_summary_with(nodes)) == 6
+
+
 def test_z_scan_falls_back_to_notice_bar_on_short_content_pages():
 	# Zoom confirmation page: no paragraph anywhere clears the 50-char bar
 	# (the longest real line is 44 chars). Z from the top must land on that

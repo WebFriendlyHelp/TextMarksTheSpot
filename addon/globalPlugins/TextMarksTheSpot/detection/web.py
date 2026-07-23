@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import dataclasses as _dataclasses
+import re as _re
 from typing import Optional
 
 try:
@@ -316,6 +318,37 @@ def _find_lead_section_landing(nodes) -> Optional[int]:
 	return idx
 
 
+# Author-meta lines that a magazine/blog layout places BETWEEN a standfirst /
+# dek and the article body: a read-time ("6 min read") or a standalone date
+# ("6/3/2026", "June 3, 2026"). Their presence just after a title-lede
+# candidate proves the candidate sits ABOVE the meta block and is therefore the
+# dek, not the lede.
+_READING_TIME_RE = _re.compile(r"\b\d+\s*min(?:ute)?s?\s+read\b", _re.IGNORECASE)
+_NUMERIC_DATE_LINE_RE = _re.compile(r"^\s*\d{1,2}/\d{1,2}/\d{2,4}\s*$")
+
+
+def _looks_like_article_meta(node) -> bool:
+	"""True when a node is an author-meta line (read-time or a standalone date).
+
+	These mark the byline/meta block that a magazine or blog layout sits
+	between the dek and the body. Deliberately narrow: a read-time phrase, a
+	whole-line numeric date, or a short line that is just a "Month DD, YYYY"
+	date. Ordinary body prose does not match any of these, so a false positive
+	(which only makes the title-lede gate decline in favour of the body
+	cascade) is very unlikely.
+	"""
+	text = (node.text_preview or "").strip()
+	if not text:
+		return False
+	if _READING_TIME_RE.search(text):
+		return True
+	if _NUMERIC_DATE_LINE_RE.match(text):
+		return True
+	if getattr(node, "text_length", len(text)) <= 40 and _BYLINE_FULLDATE_RE.search(text):
+		return True
+	return False
+
+
 def _find_title_lede_landing(nodes) -> Optional[int]:
 	"""Land on the article's opening sentence when an embedded widget cuts it
 	off from the body.
@@ -388,6 +421,26 @@ def _find_title_lede_landing(nodes) -> Optional[int]:
 		):
 			# Guard 2: the ordinary cluster gate owns this shape.
 			return None
+		# Guard 4: a standfirst / dek sits ABOVE the author-meta block (byline,
+		# date, read-time); the real body begins AFTER it. When a read-time or
+		# date meta line follows this candidate before any substantial
+		# paragraph, the candidate is the dek, not the lede -- decline so the
+		# body cascade lands on the opening paragraph below the meta. Locked
+		# decision #7: skip the dek. iinteractive.com blog posts are the
+		# canonical case (headline, dek, "Sharni Zaugg", "6/3/2026", "6 min
+		# read", then the 395-char body). MacRumors is unaffected: its lede is
+		# followed by video-embed chrome, not a date/read-time meta line.
+		window = min(i + 1 + _TITLE_LEDE_LOOKAHEAD, len(nodes))
+		for k in range(i + 1, window):
+			peek = nodes[k]
+			if (
+				peek.kind == "paragraph"
+				and peek.text_length >= LANDING_MIN_PARAGRAPH_CHARS
+				and not _is_chrome_paragraph(peek)
+			):
+				break  # body reached before any meta line -- candidate is the lede
+			if _looks_like_article_meta(peek):
+				return None
 		return i
 	return None
 
@@ -439,8 +492,6 @@ def _looks_like_tag_list(text: str) -> bool:
 	return no_space_commas > spaced_commas
 
 
-import dataclasses as _dataclasses
-import re as _re
 _URL_ENCODED_TRIPLET_RE = _re.compile(r"%[0-9A-Fa-f]{2}")
 
 
