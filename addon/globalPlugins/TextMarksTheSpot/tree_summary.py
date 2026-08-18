@@ -713,10 +713,50 @@ def get_landing_textinfo(summary, index: int):
 # landing by text. Too short and we risk matching some unrelated fragment of
 # chrome earlier in the document; find() returns the FIRST hit, not the best
 # one. 20 chars of real paragraph text is effectively unique on a real page.
+#
+# This floor sits deliberately BELOW web.LANDING_MATCH_CHARS (24), which is the
+# width the caller's verifier compares. That ordering is load-bearing: the
+# verifier is STRICTER than the shortest needle we will search for, so a short
+# needle that hits the wrong paragraph is rejected before anything is spoken.
 _MIN_FIND_NEEDLE_CHARS = 20
 
+# Prefix widths tried, longest first, when a verifier is supplied. See
+# find_landing_by_text for why shortening is both necessary and safe.
+_FIND_NEEDLE_LADDER = (40, 30, 24)
 
-def find_landing_by_text(treeInterceptor, needle: str):
+
+def _needle_candidates(needle: str):
+	"""Descending-width prefixes of ``needle``, cut on word boundaries.
+
+	Longest first, deduped, nothing below the floor. When a candidate carries a
+	non-breaking space we also offer its plain-space form: NVDA's find() matches
+	literally, and the NBSPs news sites litter through their ledes are exactly
+	what a buffer rebuild is liable to re-emit as ordinary spaces.
+
+	Pure and NVDA-free so it can be unit-tested; see tests/test_find_needle.py.
+	"""
+	needle = (needle or "").strip()
+	seen = set()
+	out = []
+	for width in (len(needle),) + _FIND_NEEDLE_LADDER:
+		if width >= len(needle):
+			cand = needle
+		else:
+			# Cut back to a word boundary rather than mid-word. A mid-word cut
+			# still matches as a substring, but the boundary keeps the needle
+			# readable in the log line when we report which rung won.
+			cand = needle[:width].rsplit(" ", 1)[0]
+		cand = cand.strip()
+		if len(cand) < _MIN_FIND_NEEDLE_CHARS:
+			continue
+		for form in (cand, cand.replace("\xa0", " ")):
+			if form not in seen:
+				seen.add(form)
+				out.append(form)
+	return out
+
+
+def find_landing_by_text(treeInterceptor, needle: str, verify=None):
 	"""Re-locate a paragraph by its TEXT in the CURRENT buffer.
 
 	Why this exists (2026-07-14 soak):
@@ -735,6 +775,59 @@ def find_landing_by_text(treeInterceptor, needle: str):
 	"locates the given text and positions this TextInfo object at the start",
 	returning True/False. So we search the buffer as it exists NOW.
 
+	PROGRESSIVE SHORTENING (2026-08-18). The single full-width search this used
+	to do was strictly harder to satisfy than the check that judges its own
+	result, and that asymmetry was discarding recoverable landings:
+
+	  * WIDTH. The needle is the walk-time preview, up to 60 characters, and
+	    find() must match every one of them. The caller's verifier
+	    (web.landing_text_matches) compares only the first
+	    web.LANDING_MATCH_CHARS (24). So we demanded a 60-character match to
+	    recover a landing we would then accept on the strength of 24.
+	  * NORMALIZATION. find() is literal: OffsetsTextInfo.find does
+	    re.search(re.escape(text), ...) over the raw buffer text. The verifier
+	    collapses whitespace runs and NBSPs first. A lede whose NBSPs came back
+	    as ordinary spaces when NVDA rebuilt the buffer therefore failed the
+	    SEARCH while being something the CHECK would have accepted.
+
+	So we try descending prefixes, plus the plain-space form of any needle
+	carrying an NBSP, and hand each hit to ``verify``. Failure here is a silent
+	page, which is our worst outcome short of speaking the wrong paragraph.
+
+	WHAT MAKES SHORTENING SAFE is that a rung is only used when it is UNIQUE in
+	the document. find() returns the FIRST hit, not the best one, so the entire
+	danger of a shorter needle is that some OTHER paragraph matches it first --
+	and a needle occurring exactly once cannot have that problem. We already
+	hold the buffer text to decide which rungs are worth searching for at all,
+	so counting occurrences in it is free.
+
+	Do NOT weaken this back to a presence check on the theory that the caller's
+	verifier will catch a false hit. It will not, and this was measured rather
+	than assumed: web.landing_text_matches compares only the first 24 characters
+	after normalising, so a "related stories" teaser that repeats its own lede's
+	opening -- the Daily Mail box shape this project has been bitten by before --
+	is accepted as the lede. Four characters of margin between the search floor
+	(20) and the verification width (24) is not a safety property.
+
+	The verifier is still asked, second, and it catches a different failure the
+	uniqueness rule cannot see: a needle that IS unique but sits in the MIDDLE
+	of some other paragraph, because our chosen paragraph was absorbed or
+	requoted during the rebuild. Uniqueness proves there is one hit; the
+	verifier proves the hit is a paragraph that STARTS with what we chose.
+
+	Shortening is gated on a verifier being supplied, because with nothing to
+	perform that second check a shortened needle would trade a missed landing
+	for a wrong one, which is the wrong direction under guardrail 3. With no
+	verifier we do exactly what we always did, one full-width search.
+
+	Budget: find() re-fetches the whole remaining story text on every call
+	(OffsetsTextInfo.find -> _getTextRange over the rest of the document), so
+	the ladder is NOT run blind. The buffer text is pulled once and candidates
+	are tested against that copy with a plain substring search; only a candidate
+	already known to be present costs a real find(). That is two buffer fetches
+	rather than one per rung. This path runs only after drift has been detected,
+	once, and outside the walk's time budget.
+
 	Returns a TextInfo collapsed to the start of the match, or None.
 	"""
 	if not _NVDA_AVAILABLE or treeInterceptor is None:
@@ -744,11 +837,52 @@ def find_landing_by_text(treeInterceptor, needle: str):
 		# Too short to search for safely -- caller falls back to "no landing".
 		return None
 	try:
-		info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
-		if not info.find(needle):
-			return None
-		info.collapse()
-		return info
+		if verify is None:
+			info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
+			if not info.find(needle):
+				return None
+			info.collapse()
+			return info
+
+		# One copy of the buffer, used only to decide which rungs are worth a
+		# real find(). find() searches from _startOffset + 1, so mirror that
+		# with a start index of 1 rather than 0. If the copy can't be had we
+		# simply skip the filter and pay for the searches.
+		try:
+			haystack = treeInterceptor.makeTextInfo(textInfos.POSITION_ALL).text or ""
+		except Exception:
+			haystack = ""
+
+		for cand in _needle_candidates(needle):
+			# UNIQUE, not merely present. See the docstring: this is the check
+			# that makes a short needle safe, and a presence test is not a
+			# substitute for it. Counted over the whole haystack rather than
+			# from offset 1, which is deliberately the more conservative of the
+			# two: a rung that also matches at offset 0 is ambiguous to us even
+			# though find() could never return that hit.
+			if haystack and haystack.count(cand) != 1:
+				continue
+			info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
+			if not info.find(cand):
+				continue
+			info.collapse()
+			probe = info.copy()
+			probe.expand(textInfos.UNIT_PARAGRAPH)
+			try:
+				found_text = probe.text or ""
+			except Exception:
+				found_text = ""
+			if verify(found_text):
+				if cand != needle:
+					# Logged so the persistent perf log can say whether
+					# shortening is actually earning its place.
+					log.debug(
+						f"[TMTS find-shortened] recovered on a {len(cand)}-char "
+						f"needle after the full {len(needle)}-char one failed: "
+						f"{cand[:40]!r}"
+					)
+				return info
+		return None
 	except Exception:
 		log.exception("[TMTS] find_landing_by_text failed")
 		return None

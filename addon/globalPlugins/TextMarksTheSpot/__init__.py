@@ -863,7 +863,21 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				# way and lands stale again -- Serious Eats bailed, retried,
 				# and went silent. Re-anchoring on the text sidesteps the race
 				# entirely and costs one find() instead of a second walk.
-				recovered = ts_mod.find_landing_by_text(ti, landed_node.text_preview)
+				# The verifier is passed IN so the finder can try SHORTER needles
+				# than the full 60-char preview, which it needs to do because
+				# find() is literal while this check normalises, and because
+				# this check only compares 24 chars anyway. Inside the finder a
+				# rung is only used when it is UNIQUE in the document -- that,
+				# not this check, is what stops a short needle matching the
+				# wrong paragraph; a repeated lede opening passes this check
+				# happily. What this check adds is the case uniqueness cannot
+				# see: a unique hit sitting MID-paragraph. The outer check below
+				# is left in place as defence in depth.
+				recovered = ts_mod.find_landing_by_text(
+					ti,
+					landed_node.text_preview,
+					verify=lambda found: web_mod.landing_text_matches(found, landed_node),
+				)
 				recovered_info = None
 				if recovered is not None:
 					cand = recovered.copy()
