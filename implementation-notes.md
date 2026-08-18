@@ -2,6 +2,87 @@
 
 Newest entries at the top.
 
+## 2026-08-18 - the drift re-anchor tries shorter needles, gated on uniqueness
+
+374 tests + 1 xfail, 29 sabotages caught. Prompted by reading HomerView
+(JamalMazrui/HomerView), whose Shift+J does the same text-bridge trick we do and
+shortens its needle progressively where we did not.
+
+**The bug was an asymmetry, not a missing feature.** `find_landing_by_text` did
+ONE literal search at the full width of the 60-char walk-time preview, and that
+search was strictly harder to satisfy than `web.landing_text_matches`, the check
+that judges its own result. Two ways:
+
+- WIDTH. We demanded a 60-character match to recover a landing we would then
+  accept on the strength of 24 (`LANDING_MATCH_CHARS`).
+- NORMALIZATION. NVDA's `OffsetsTextInfo.find` is literal --
+  `re.search(re.escape(text), ...)` over the raw buffer, confirmed by
+  disassembling `textInfos/offsets.pyc` from the installed `library.zip`. The
+  verifier collapses whitespace runs and NBSPs first. So a lede whose NBSPs came
+  back as ordinary spaces when NVDA rebuilt the buffer failed the SEARCH while
+  being exactly what the CHECK would have accepted.
+
+Failure here is a silent page, our worst outcome short of speaking the wrong
+paragraph, so both were throwing away recoverable landings.
+
+**The first safety argument was wrong, and the sabotage check is what caught
+it.** The ladder was originally justified by "the verifier is stricter (24
+chars) than our shortest needle (20), so a false hit is rejected." The suite
+went green and the `hit accepted without asking the verifier` sabotage came back
+NOT CAUGHT. Measured directly afterwards: a teaser reading "The council voted on
+Tuesday, and here is what else you missed" IS accepted by `landing_text_matches`
+against a lede reading "The council voted on Tuesday to approve...", because
+they agree on all 24 compared characters. That is the Daily Mail teaser-box
+shape this project has already been bitten by. Four characters of margin is not
+a safety property.
+
+Worse, the test that "passed" did so by accident: the teaser sat at offset 0,
+which `find`'s `_startOffset + 1` start skips. Green, and testing nothing. Same
+hollow-probe failure as the `ordered=True` landmark probe recorded in CLAUDE.md,
+and it happened again within one session of reading that note.
+
+**What actually makes it safe: the rung must be UNIQUE in the document.**
+`find()` returns the FIRST hit, not the best one, so the entire danger of a
+shorter needle is that some other paragraph matches it first -- and a needle
+occurring exactly once cannot have that problem. We already hold the buffer text
+(see budget below), so `haystack.count(cand) != 1` is free. Do NOT weaken this
+back to a presence check on the theory that the verifier will catch a false hit;
+two sabotages pin that, one of them spelled exactly as the tempting
+simplification.
+
+The verifier is still asked, second, and it catches what uniqueness cannot see:
+a rung that IS unique but sits MID-paragraph, because our chosen lede was
+requoted inside a longer block during the rebuild. Uniqueness proves there is
+one hit; the verifier proves the hit is a paragraph that STARTS with what the
+classifier chose. Both have their own test and their own sabotage.
+
+**Budget, since `find()` is not cheap.** Every call re-fetches the whole
+remaining story text (`_getTextRange` over the rest of the document), so the
+ladder is not run blind: the buffer text is pulled ONCE via `POSITION_ALL` and
+the rungs are ruled in against that copy with a plain `str.count`; only a rung
+already known to be present and unique costs a real `find()`. Two buffer fetches
+rather than one per rung, and on a page where nothing matches, zero searches. The
+path runs only after drift has been detected, once, and outside the walk's 2 s
+budget. The unverified path takes no copy at all.
+
+**Shortening is gated on a verifier being passed in**, which is structural
+rather than conventional -- with nothing to perform the second check, shortening
+would trade a missed landing for a wrong one, the wrong direction under
+guardrail 3. `verify=None` behaves exactly as before: one full-width search.
+
+**Deliberately NOT done.** HomerView announces HOW it found the destination
+("Main content, by weighing the page" vs "No main landmark. First heading.") so
+an inferred landing is never mistaken for a declared one. Casey declined it: no
+extra chatter, on any path. The spoken paragraph stays the only success signal.
+
+**Unmeasured on purpose, and here is the feedback loop.** We know drift happens
+(7 of 42 landings in the 2026-07-14 soak) but not how often the re-find then
+failed, because the diagnostics were off. A `[TMTS find-shortened]` debug line
+now names the winning rung width whenever a shortened needle succeeds where the
+full one failed. If that line never appears in real browsing, this change is
+dead weight and should be reconsidered rather than kept on principle.
+
+
 ## 2026-07-22 - v1.0.14 released, and both persistent logs became opt-in
 
 358 tests + 1 xfail, 20 sabotages caught. `scope-hardening` merged to `main`,

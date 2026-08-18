@@ -165,6 +165,62 @@ SABOTAGES = [
 		"	except Exception:\n		_DIAG_ENABLED = False\n	return _DIAG_ENABLED",
 		"	except Exception:\n		_DIAG_ENABLED = True\n	return _DIAG_ENABLED",
 	),
+	# --- Re-anchoring a drifted landing by text. This is the last thing
+	# --- standing between a drifted capture and a silent page, and the
+	# --- shortening that recovers it is only safe because a STRICTER verifier
+	# --- judges every hit. Each half is sabotaged separately: a suite watching
+	# --- only the shortening would not notice the verifier being dropped, and
+	# --- dropping the verifier is what turns a missed landing into a wrong one.
+	(
+		"needle ladder removed, back to one full-width search",
+		"	for width in (len(needle),) + _FIND_NEEDLE_LADDER:",
+		"	for width in (len(needle),):",
+	),
+	(
+		"ladder present but every rung collapses to the full needle",
+		"			cand = needle[:width].rsplit(\" \", 1)[0]",
+		"			cand = needle",
+	),
+	(
+		"NBSP variant no longer offered",
+		'		for form in (cand, cand.replace("\\xa0", " ")):',
+		"		for form in (cand,):",
+	),
+	(
+		"hit accepted without asking the verifier",
+		"			if verify(found_text):",
+		"			if True:",
+	),
+	(
+		"shortening no longer gated on a verifier being supplied",
+		"		if verify is None:",
+		"		if False:",
+	),
+	(
+		"search floor raised above the verification width",
+		"_MIN_FIND_NEEDLE_CHARS = 20",
+		"_MIN_FIND_NEEDLE_CHARS = 30",
+	),
+	(
+		"ladder run blind, every rung paying for a real find()",
+		"			if haystack and haystack.count(cand) != 1:",
+		"			if False:",
+	),
+	(
+		# The whole safety argument for shortening. A presence test looks like
+		# a harmless simplification of this line and is the actual bug: find()
+		# returns the FIRST hit, and the caller's verifier compares only 24
+		# normalised characters, so a teaser repeating its lede's opening is
+		# accepted as the lede.
+		"uniqueness weakened to mere presence",
+		"			if haystack and haystack.count(cand) != 1:",
+		"			if haystack and haystack.find(cand, 1) < 0:",
+	),
+	(
+		"uniqueness weakened to at-least-one",
+		"			if haystack and haystack.count(cand) != 1:",
+		"			if haystack and haystack.count(cand) < 1:",
+	),
 	(
 		"depleted net stops respecting chrome-scope exclusions",
 		'	elif scope_kind in ("chrome", "chrome-pos") and positional_drops == 0:',
