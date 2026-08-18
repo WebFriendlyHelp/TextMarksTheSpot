@@ -126,3 +126,75 @@ def test_perf_log_enabled_writes_the_line(monkeypatch, tmp_path):
 	log_path = os.path.join(nvda_dir, "TextMarksTheSpot-perf.log")
 	assert os.path.exists(log_path)
 	assert "example.com/private/page" in open(log_path, encoding="utf-8").read()
+
+
+# ---------------------------------------------------------------------------
+# The suite must not write into the DEVELOPER'S OWN logs either.
+#
+# Added 2026-08-18 after it happened. The gate is a marker file under
+# %APPDATA%\nvda, and a developer collecting real data necessarily HAS that
+# marker -- so on exactly the machine where the logs matter, the suite was
+# writing to them. `_log_landmark_probe` calls `_append_perf_line`, and several
+# tests drive the landmark scan directly, so one sabotage_check.py run put 1022
+# synthetic probe lines into a real perf log holding 4 real ones.
+#
+# The perf log self-rotates at 1 MB keeping one generation, so this does not
+# merely add noise: enough test runs DESTROY the real browsing data the log was
+# turned on to collect, and nothing looks wrong while it happens. conftest.py
+# repoints APPDATA at an empty temp directory at import time; these pin it.
+# ---------------------------------------------------------------------------
+
+def test_appdata_is_redirected_away_from_the_real_one():
+	real = os.path.expanduser("~")
+	appdata = os.environ.get("APPDATA", "")
+	assert appdata, "conftest should have set APPDATA for the test session"
+	assert "tmts-test-appdata" in appdata, (
+		f"APPDATA is {appdata!r}; the suite is pointed at a real profile and "
+		"will write into the user's own diagnostic logs"
+	)
+	assert not appdata.startswith(os.path.join(real, "AppData", "Roaming")), appdata
+
+
+def test_diagnostics_are_off_by_default_under_the_test_appdata():
+	# The consequence that actually matters: with no marker in the redirected
+	# APPDATA, every writer is inert no matter what any individual test does.
+	tree_summary._DIAG_ENABLED = None
+	try:
+		assert tree_summary._diagnostics_enabled() is False
+	finally:
+		tree_summary._DIAG_ENABLED = None
+
+
+def _snapshot(root):
+	"""Every file under `root`, with its size. Names alone are not enough: the
+	leak APPENDS to a perf log that already exists, so a directory listing is
+	unchanged by it and a test watching only names stays green through the very
+	bug it was written for. That happened to the first version of this test."""
+	out = {}
+	for dirpath, _dirnames, filenames in os.walk(root):
+		for name in filenames:
+			full = os.path.join(dirpath, name)
+			try:
+				out[full] = os.path.getsize(full)
+			except OSError:
+				pass
+	return out
+
+
+def test_the_landmark_probe_writes_nothing_by_default():
+	# The specific writer that leaked. It is reached from the landmark scan,
+	# which plenty of tests drive, so it is the one most likely to leak again.
+	tree_summary._DIAG_ENABLED = None
+	tree_summary._PERF_LOG_PATH_CACHE = None
+	try:
+		root = os.path.join(os.environ["APPDATA"], "nvda")
+		before = _snapshot(root)
+		tree_summary._log_landmark_probe(["navigation", "banner"], True, 0, "exhausted")
+		after = _snapshot(root)
+		assert before == after, (
+			"the landmark probe wrote to a real diagnostic log during the test "
+			f"run: {[k for k in after if after.get(k) != before.get(k)]}"
+		)
+	finally:
+		tree_summary._DIAG_ENABLED = None
+		tree_summary._PERF_LOG_PATH_CACHE = None

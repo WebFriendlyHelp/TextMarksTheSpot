@@ -2,6 +2,48 @@
 
 Newest entries at the top.
 
+## 2026-08-18 - the test suite was writing into the developer's own perf log
+
+Found by turning the diagnostics back on and looking at what arrived: 1026 lines
+in five minutes, of which FOUR were real. The other 1022 were
+`[TMTS landmark-probe]` lines emitted by the test suite.
+
+**The mechanism, and why it is a design fault rather than an accident.** Both
+persistent logs are gated on a marker file under `%APPDATA%\nvda`. That gate
+works exactly as intended for users. But a developer collecting real data
+necessarily HAS the marker -- that is the entire point of creating it -- so on
+precisely the machine where the logs matter, `_append_perf_line` is live during
+`pytest`. `_log_landmark_probe` calls it, and `tests/test_chrome_scope.py` and
+`tests/test_walk_wiring.py` drive the landmark scan directly. One
+`sabotage_check.py` run is 30-odd full suite passes, so a single verification
+run buried the real signal 250:1.
+
+**The part that would have gone unnoticed.** The perf log SELF-ROTATES at 1 MB
+and keeps one generation. At the rate the suite fills it, a few verification
+runs would silently discard the real browsing data the log had been turned on to
+collect, and nothing would look wrong while it happened. The capture log was
+spared only because `_append_capture` is reached from `build_tree_summary`, which
+no test drives end to end -- that is luck, not design.
+
+**Fix: `tests/conftest.py` repoints `APPDATA` at an empty temp directory at
+import time**, before any test module can `import tree_summary`. No marker lives
+there, so `_diagnostics_enabled()` answers False for the whole run and every
+writer is inert. `test_diagnostic_optin.py` still exercises the real gate,
+because its function-scoped `monkeypatch.setenv` applies after this and wins.
+
+Three tests pin it, and all three were confirmed to FAIL with the conftest line
+removed. The third one initially did NOT: it compared directory LISTINGS, and
+the leak appends to a perf log that already exists, so the listing is unchanged
+by the very bug the test was written for. It now compares file SIZES. Same
+lesson as the needle safety test earlier the same day and the landmark ordering
+probe before that -- a check that cannot come back negative is not a check.
+
+**Casey's log was cleaned**: 1023 probe lines stripped, 10 real lines kept, and
+the original preserved as `TextMarksTheSpot-perf.log.polluted-backup` beside it.
+The probe line is documented as disposable and its `ordered=` field is
+explicitly not to be cited as evidence, so nothing of value was in them.
+
+
 ## 2026-08-18 - the drift re-anchor tries shorter needles, gated on uniqueness
 
 374 tests + 1 xfail, 29 sabotages caught. Prompted by reading HomerView
