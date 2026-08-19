@@ -198,3 +198,89 @@ def test_the_landmark_probe_writes_nothing_by_default():
 	finally:
 		tree_summary._DIAG_ENABLED = None
 		tree_summary._PERF_LOG_PATH_CACHE = None
+
+
+# ---------------------------------------------------------------------------
+# The SESSION log is gated too (2026-08-18).
+#
+# The persistent logs were gated in July, which closed the real hazard: a
+# structured, timestamped, one-line-per-page record of full urls that survives
+# restarts and accrues for months. What was left ungated was the copy that goes
+# to NVDA's own session log via log.debug, carrying the same urls plus 60-char
+# previews of the paragraphs on the page.
+#
+# Measured before changing anything: NVDA's own default log level is INFO and it
+# logs spoken text via log.io at the IO level, so at the default none of this
+# was ever written. It only appeared once a user raised the level, at which
+# point NVDA is itself logging every phrase it speaks. We were never the
+# dominant source of page content in such a log -- but we were the tidiest, one
+# clean greppable url= per page load, which is the shape a browsing record
+# actually takes. Casey's call: his machine logs, nobody else's.
+#
+# Every log.debug now goes through tree_summary.dlog. log.info (3 lifecycle
+# lines) and log.exception (15, all static strings) stay ungated on purpose --
+# they say nothing about where anyone has been, and they are what makes a crash
+# report from a stranger worth having.
+# ---------------------------------------------------------------------------
+
+def test_gated_debug_is_silent_without_the_marker(monkeypatch, tmp_path):
+	_reset(monkeypatch, tmp_path)
+	seen = []
+	monkeypatch.setattr(tree_summary.log, "debug", lambda *a, **k: seen.append(a))
+	tree_summary.dlog.debug("[TMTS perf] url='https://example.com/private?token=abc'")
+	assert seen == [], f"a url reached the session log without opt-in: {seen}"
+
+
+def test_gated_debug_speaks_once_the_marker_exists(monkeypatch, tmp_path):
+	# The other direction. A gate that is always closed would pass the test
+	# above while making the add-on undiagnosable, so pin that opting in works.
+	nvda_dir = _reset(monkeypatch, tmp_path)
+	_opt_in(nvda_dir)
+	seen = []
+	monkeypatch.setattr(tree_summary.log, "debug", lambda *a, **k: seen.append(a))
+	tree_summary.dlog.debug("[TMTS perf] url='https://example.com/'")
+	assert len(seen) == 1, "opting in did not re-enable diagnostic logging"
+
+
+def test_no_ungated_debug_call_survives_in_the_addon():
+	# The audit that makes the one-rule design worth having. "Gate the sensitive
+	# lines" would need correct judgement at every future call site; "no bare
+	# log.debug anywhere" is checkable, so check it. The single permitted
+	# occurrence is the one inside _GatedDebugLog itself.
+	import pathlib
+
+	root = pathlib.Path(__file__).resolve().parent.parent
+	plugin = root / "addon" / "globalPlugins" / "TextMarksTheSpot"
+	offenders = []
+	for path in sorted(plugin.rglob("*.py")):
+		for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+			stripped = line.strip()
+			if stripped.startswith("#"):
+				continue
+			if "log.debug(" in line and "dlog.debug(" not in line:
+				if "log.debug(*args, **kwargs)" in line:
+					continue  # the gated helper's own call
+				offenders.append(f"{path.name}:{i}: {stripped[:70]}")
+	assert not offenders, (
+		"ungated log.debug calls can put a user's urls and page text into "
+		"NVDA's log:\n" + "\n".join(offenders)
+	)
+
+
+def test_lifecycle_and_crash_logging_stay_ungated():
+	# Deliberately NOT gated, and worth pinning so a later privacy sweep does
+	# not quietly take them too. These carry no url and no page text, and they
+	# are the only thing that makes a bug report from someone who never opted in
+	# worth anything.
+	import pathlib
+
+	root = pathlib.Path(__file__).resolve().parent.parent
+	plugin = root / "addon" / "globalPlugins" / "TextMarksTheSpot"
+	info_calls = 0
+	for path in plugin.rglob("*.py"):
+		text = path.read_text(encoding="utf-8")
+		info_calls += text.count("log.info(")
+		# An f-string on an exception line would mean interpolated content on an
+		# ungated path, which is the one way these could start leaking.
+		assert 'log.exception(f"' not in text, f"{path.name} interpolates into an ungated log"
+	assert info_calls >= 3, "the lifecycle log lines went missing"

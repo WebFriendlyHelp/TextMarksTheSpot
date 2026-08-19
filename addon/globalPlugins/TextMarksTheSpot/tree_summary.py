@@ -336,6 +336,48 @@ def _diagnostics_enabled() -> bool:
 	return _DIAG_ENABLED
 
 
+class _GatedDebugLog:
+	"""`log.debug` that stays silent unless diagnostics were opted into.
+
+	WHY EVERY DEBUG LINE, not just the ones with a url in them. The add-on's
+	debug output carries two kinds of identifying material -- the full url of
+	every page detected, and up to 60-char previews of the paragraphs on it --
+	and it is spread over 40-odd call sites in two files. A rule of "gate the
+	sensitive ones" is a rule someone has to apply correctly at every new call
+	site forever, and the cost of one miss is a user's browsing in a log file.
+	"Diagnostics are off unless you asked for them" is one rule, it needs no
+	judgement at the call site, and it is auditable by grepping for `dlog.debug(`
+	and finding none.
+
+	What deliberately stays UNGATED: `log.info` (three lifecycle lines -- module
+	imported, plugin loaded, terminate) and `log.exception` (fifteen, all static
+	strings, no interpolation). Those carry nothing about where the user has
+	been, and they are what makes a crash report from a stranger useful.
+
+	NVDA context, measured rather than assumed (2026-08-18): NVDA's own default
+	log level is INFO, and it logs spoken text via `log.io` at the IO level, so
+	at the default NOTHING here would have been written anyway. This matters at
+	DEBUG, where NVDA is already logging every phrase it speaks. We are not the
+	dominant source of page content in such a log -- but we were the tidiest,
+	one clean greppable `url=` per page load, and that is the shape a browsing
+	record actually takes.
+
+	Note the f-strings at the call sites are still BUILT before this is called;
+	Python evaluates the argument first. That cost is unchanged by this class --
+	it was already paid on every log level before -- so this is not a perf
+	regression. Reducing it would mean guarding each call site with an `if`,
+	which is the error-prone thing this class exists to avoid.
+	"""
+
+	def debug(self, *args, **kwargs):
+		if _diagnostics_enabled():
+			log.debug(*args, **kwargs)
+
+
+# The gated logger every diagnostic line in this add-on goes through.
+dlog = _GatedDebugLog()
+
+
 def _append_capture(summary: "TreeSummary") -> None:
 	if not _diagnostics_enabled():
 		return
@@ -515,7 +557,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		if remaining <= 0:
 			break
 		if time.monotonic() > counts_deadline:
-			log.debug(
+			dlog.debug(
 				f"[TMTS count-budget] interactive count stopped at type "
 				f"'{t}' (running={running})"
 			)
@@ -675,7 +717,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		f"{' '.join(_cph_parts)} "
 		f"scope={scope_kind} counts_trunc={counts_truncated[0]} url={summary.url!r}"
 	)
-	log.debug(counts_phase_line)
+	dlog.debug(counts_phase_line)
 	if counts_truncated[0] or counts_total >= _COUNTS_PHASE_LOG_THRESHOLD_SEC:
 		_append_perf_line(counts_phase_line)
 
@@ -692,7 +734,7 @@ def build_tree_summary(treeInterceptor) -> TreeSummary:
 		f"article={summary.article_count} forms={summary.form_input_count} "
 		f"interactive={summary.interactive_control_count} url={summary.url!r}"
 	)
-	log.debug(perf_line)
+	dlog.debug(perf_line)
 	_append_perf_line(perf_line)
 	_append_capture(summary)
 	return summary
@@ -889,7 +931,7 @@ def find_landing_by_text(treeInterceptor, needle: str, verify=None):
 						f"needle after the full {len(needle)}-char one failed: "
 						f"{cand[:40]!r}"
 					)
-					log.debug(line)
+					dlog.debug(line)
 					_append_perf_line(line)
 				return info
 		return None
@@ -1522,7 +1564,7 @@ def _log_landmark_probe(types: list, ordered: bool, no_range: int, stopped: str)
 		f"[TMTS landmark-probe] n={len(types)} ordered={ordered} "
 		f"no_range={no_range} stopped={stopped} types={','.join(types[:12])}"
 	)
-	log.debug(line)
+	dlog.debug(line)
 	_append_perf_line(line)
 
 
@@ -1755,7 +1797,7 @@ def _find_main_landmark(treeInterceptor) -> "LandmarkScan":
 				# <main> would degrade the page to chrome scope for zero
 				# time saved. The check only guards fetching the NEXT item.
 				if scanned >= _FIND_MAIN_SCAN_LIMIT or time.monotonic() > deadline:
-					log.debug(
+					dlog.debug(
 						f"[TMTS count-budget] landmark scan stopped after "
 						f"{scanned} item(s) — treating page as having no <main>"
 					)
@@ -1870,7 +1912,7 @@ def _single_article_scope_range(treeInterceptor, deadline: Optional[float] = Non
 			return None
 		rng = found.copy()
 		try:
-			log.debug(f"[TMTS scope] article range chars={len(rng.text or '')}")
+			dlog.debug(f"[TMTS scope] article range chars={len(rng.text or '')}")
 		except Exception:
 			pass
 		return rng
@@ -2269,7 +2311,7 @@ def _count_form_inputs(treeInterceptor, scope_range, main_obj, scope_cache: dict
 		# count-sensitive intent (FORM via article trust, NOTICE/KEY_RESULT
 		# via counts_truncated).
 		if time.monotonic() > deadline:
-			log.debug(
+			dlog.debug(
 				f"[TMTS count-budget] form-input count stopped after {i} of "
 				f"{len(_FORM_INPUT_TYPES)} types (total={total})"
 			)
@@ -3111,14 +3153,14 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 		f"field={field_hits} field_drops={field_drops} "
 		f"field_backend={'y' if fields_carry_landmarks else 'n'}"
 	)
-	log.debug(phase_line)
+	dlog.debug(phase_line)
 	if truncated or walk_total >= _WALK_PHASE_LOG_THRESHOLD_SEC:
 		# Lands immediately BEFORE the [TMTS perf] line for the same
 		# detection, which is what ties it to a URL.
 		_append_perf_line(phase_line)
 
 	if truncated:
-		log.debug(
+		dlog.debug(
 			f"[TMTS walk-truncated] stopped at raw_seen={raw_seen} "
 			f"(node cap {WALK_NODE_LIMIT}, time budget {WALK_TIME_BUDGET_SEC}s) — "
 			f"landing will be chosen from the document so far"
@@ -3127,7 +3169,7 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 		truncated_out[0] = truncated
 
 	if dropped_after_start:
-		log.debug(
+		dlog.debug(
 			f"[TMTS walk-drops] {len(dropped_after_start)} chunk(s) dropped by the "
 			f"scope filter after the scoped region started: {dropped_after_start}"
 		)
@@ -3140,7 +3182,7 @@ def _walk_main_nodes(treeInterceptor, main_obj, cache: dict, positions_out: list
 	# WHY the walk failed: did it visit no chunks at all, did it visit
 	# chunks but they had no obj/text, or did everything filter out?
 	if not result:
-		log.debug(
+		dlog.debug(
 			f"[TMTS walk-empty] raw_seen={raw_seen} objs_resolved={objs_resolved} "
 			f"raw_with_text={raw_with_text} main_obj_set={main_obj is not None}"
 		)

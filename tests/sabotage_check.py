@@ -221,6 +221,20 @@ SABOTAGES = [
 		"			if haystack and haystack.count(cand) != 1:",
 		"			if haystack and haystack.count(cand) < 1:",
 	),
+	# --- Session-log gate. The persistent logs were gated in July; this is the
+	# --- copy that goes to NVDA's own log, carrying the same urls plus 60-char
+	# --- previews of the page. Gated 2026-08-18 so the add-on cannot become a
+	# --- browsing record on anyone's machine but the one that opted in.
+	(
+		"gated debug logger left permanently open",
+		"		if _diagnostics_enabled():\n			log.debug(*args, **kwargs)",
+		"		if True:\n			log.debug(*args, **kwargs)",
+	),
+	(
+		"gate inverted so opting OUT is what enables logging",
+		"		if _diagnostics_enabled():\n			log.debug(*args, **kwargs)",
+		"		if not _diagnostics_enabled():\n			log.debug(*args, **kwargs)",
+	),
 	(
 		"depleted net stops respecting chrome-scope exclusions",
 		'	elif scope_kind in ("chrome", "chrome-pos") and positional_drops == 0:',
