@@ -2,6 +2,53 @@
 
 Newest entries at the top.
 
+## 2026-08-18 - the session-log copy is gated too; the add-on is no one's browsing record
+
+Casey: "I'd like my system to log pages but no one else's." The persistent logs
+already did that (gated July). This closes the last ungated path, the copy that
+goes to NVDA's own session log via `log.debug`, carrying the same urls plus
+60-char previews of the paragraphs on the page.
+
+**Measured before deciding, because the earlier decision was defensible.**
+CLAUDE.md recorded that the session-log copy stays ungated ON PURPOSE. Two facts
+from NVDA's own bytecode reversed it:
+
+- NVDA's default `loggingLevel` is `INFO` (`config/configSpec.pyc`), and it logs
+  spoken text via `log.io` at the IO level (`speech/speech.pyc`). So at NVDA's
+  default NOTHING of ours was ever written. The ungated copy only appeared for
+  someone who had raised their log level, which is exactly the "a debug log
+  level is not consent" case already on record here.
+- At that level NVDA is itself logging every phrase it speaks, so we were never
+  the dominant source of page content. But we were much the tidiest: one clean
+  greppable `url=` per page load. Volume was never the risk. STRUCTURE and
+  PERSISTENCE are what make something a browsing record, and a `[TMTS perf]`
+  grep is a browsing record in a way 130 lines of speech noise is not.
+
+**Every `log.debug` now goes through `tree_summary.dlog`,** not just the ones
+with a url in them. "Gate the sensitive lines" needs correct judgement at every
+future call site and one miss puts a stranger's browsing in a file; "no bare
+`log.debug` anywhere" is auditable, and a test audits it. 45 call sites moved
+across two files, mechanically rather than by hand for exactly that reason.
+
+**Still ungated on purpose:** three `log.info` lifecycle lines and fifteen
+`log.exception` calls, all static strings, no interpolation. They carry nothing
+about where anyone has been and they are the only thing that makes a crash
+report from someone who never opted in worth having. A test pins that they stay,
+so a later privacy sweep does not quietly take them too.
+
+**Cost, accepted:** a live `NVDA+F1` diagnosis now needs the marker as well, so
+"create the marker, restart, reproduce" covers all three logs rather than two.
+
+Four tests, and each was confirmed to fail against the specific regression:
+gate held open, gate inverted, a single call site reverted to bare `log.debug`,
+and the lifecycle lines removed. The first two are in `sabotage_check.py` (29 to
+31 sabotages); the call-site audit cannot live there because sabotage_check only
+edits `tree_summary.py`, so it was verified by hand against `__init__.py`.
+
+CLAUDE.md updated in the same commit rather than left to go stale, since it
+documented the opposite rule and a future session would have trusted it.
+
+
 ## 2026-08-18 - the test suite was writing into the developer's own perf log
 
 Found by turning the diagnostics back on and looking at what arrived: 1026 lines

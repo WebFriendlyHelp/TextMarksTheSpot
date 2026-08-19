@@ -40,6 +40,8 @@ from . import classifier as cls_mod
 from . import config as cfg_mod
 from . import feedback as fb_mod
 from . import tree_summary as ts_mod
+# Diagnostic logging is opt-in; see tree_summary._GatedDebugLog.
+from .tree_summary import dlog
 from .detection import web as web_mod
 
 
@@ -254,7 +256,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		super().terminate()
 
 	def event_documentLoadComplete(self, obj, nextHandler):
-		log.debug(f"[TMTS event] documentLoadComplete obj={obj!r}")
+		dlog.debug(f"[TMTS event] documentLoadComplete obj={obj!r}")
 		try:
 			self._maybe_fire(obj)
 		finally:
@@ -301,7 +303,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		except TypeError:
 			# Not weak-referenceable. Rather than take a strong reference (which is
 			# the leak we are fixing), forget it -- the URL gate still debounces.
-			log.debug("[TMTS] TI is not weak-referenceable; not remembering it")
+			dlog.debug("[TMTS] TI is not weak-referenceable; not remembering it")
 			self._last_ti_ref = None
 
 	def _maybe_fire(self, obj, bypass_exclusion=False):
@@ -337,7 +339,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	def _schedule_ready_poll(self, obj, bypass_exclusion, attempt):
 		self._cancel_pending_ready_poll()
-		log.debug(f"[TMTS] ti not ready — readiness poll attempt {attempt}/{self._READY_POLL_MAX_ATTEMPTS}")
+		dlog.debug(f"[TMTS] ti not ready — readiness poll attempt {attempt}/{self._READY_POLL_MAX_ATTEMPTS}")
 		try:
 			self._pending_ready_poll = wx.CallLater(
 				self._READY_POLL_MS,
@@ -367,7 +369,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ti = getattr(obj, "treeInterceptor", None)
 		except Exception:
 			# Object died under us (user navigated away). Nothing to do.
-			log.debug("[TMTS] readiness poll: object gone — abandon")
+			dlog.debug("[TMTS] readiness poll: object gone — abandon")
 			return
 		if ti is not None and getattr(ti, "isReady", False):
 			# Now that a TI exists we can see the URL, so this is where we enforce
@@ -378,22 +380,22 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# hijacking the user's cursor in their inbox is exactly the kind of
 			# "act when unsure" the guardrails forbid.
 			if not _is_web_document(ti):
-				log.debug("[TMTS] readiness poll: not a web document (scheme) — abandon")
+				dlog.debug("[TMTS] readiness poll: not a web document (scheme) — abandon")
 				return
-			log.debug(f"[TMTS] readiness poll: ready after {attempt} attempt(s) — proceeding")
+			dlog.debug(f"[TMTS] readiness poll: ready after {attempt} attempt(s) — proceeding")
 			self._maybe_fire_ti(ti, bypass_exclusion=bypass_exclusion)
 			return
 		if attempt >= self._READY_POLL_MAX_ATTEMPTS:
 			# Give up silently. We never played a tone, so from the user's
 			# side nothing happened — same as before this poll existed. Z
 			# remains the manual escape hatch.
-			log.debug(f"[TMTS] readiness poll: still not ready after {attempt} attempts — giving up")
+			dlog.debug(f"[TMTS] readiness poll: still not ready after {attempt} attempts — giving up")
 			return
 		self._schedule_ready_poll(obj, bypass_exclusion, attempt + 1)
 
 	def _maybe_fire_ti(self, ti, bypass_exclusion=False):
 		if ti is None or not getattr(ti, "isReady", False):
-			log.debug(f"[TMTS] _maybe_fire_ti: ti not ready ({ti!r})")
+			dlog.debug(f"[TMTS] _maybe_fire_ti: ti not ready ({ti!r})")
 			return
 		# A ready TI means this cycle is live; any readiness poll still
 		# pending from an earlier event is now stale.
@@ -415,7 +417,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			url = ""
 		hostname = _hostname_from_url(url)
 		if not bypass_exclusion and hostname and cfg_mod.is_site_disabled(hostname):
-			log.debug(f"[TMTS] _maybe_fire_ti: site {hostname!r} is on exclusion list — skip")
+			dlog.debug(f"[TMTS] _maybe_fire_ti: site {hostname!r} is on exclusion list — skip")
 			return
 		# SAME DOCUMENT = same TreeInterceptor AND same URL.
 		#
@@ -448,12 +450,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# not a regression -- the old identity gate skipped it too -- and Z covers
 		# it. Fixing it needs a document-generation signal NVDA does not expose.
 		if ti is self._last_ti() and url and url == self._last_url:
-			log.debug("[TMTS] _maybe_fire_ti: same TI AND same URL — skip")
+			dlog.debug("[TMTS] _maybe_fire_ti: same TI AND same URL — skip")
 			return
 		if ti is self._last_ti() and not url:
 			# No URL to compare (Gecko returns None on COMError). Fall back to the
 			# old identity-only behaviour rather than firing blind.
-			log.debug("[TMTS] _maybe_fire_ti: same TI, no URL available — skip")
+			dlog.debug("[TMTS] _maybe_fire_ti: same TI, no URL available — skip")
 			return
 		# URL + cooldown catches the SPA-ish case where NVDA gives us a
 		# fresh TI for what is actually still the same logical page load
@@ -466,7 +468,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			and url == self._last_url
 			and elapsed < self._REFIRE_COOLDOWN_SEC
 		):
-			log.debug(f"[TMTS] _maybe_fire_ti: cooldown blocking url={url!r} elapsed={elapsed:.2f}s")
+			dlog.debug(f"[TMTS] _maybe_fire_ti: cooldown blocking url={url!r} elapsed={elapsed:.2f}s")
 			self._set_last_ti(ti)
 			return
 		# Post-landing suppression: we already landed on this URL recently.
@@ -479,7 +481,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			and url == self._last_landed_url
 			and landed_elapsed < self._LANDED_SUPPRESS_SEC
 		):
-			log.debug(
+			dlog.debug(
 				f"[TMTS] _maybe_fire_ti: already landed on url={url!r} "
 				f"{landed_elapsed:.1f}s ago — suppressing re-detection"
 			)
@@ -487,7 +489,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._last_url = url
 			self._last_fire_time = now
 			return
-		log.debug(f"[TMTS] _maybe_fire_ti: PROCEEDING url={url!r} elapsed={elapsed:.2f}s ti_changed={ti is not self._last_ti()}")
+		dlog.debug(f"[TMTS] _maybe_fire_ti: PROCEEDING url={url!r} elapsed={elapsed:.2f}s ti_changed={ti is not self._last_ti()}")
 		# This is an ACCEPTED navigation, and only now may we cancel the previous
 		# page's pending hydration retry. Doing it earlier (above the gates) meant
 		# a duplicate or iframe documentLoadComplete killed the real page's retry
@@ -512,7 +514,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# would otherwise catch this too, but only AFTER we'd already played
 		# the working tone, which is exactly what was firing on DDG.
 		if ts_mod.is_focus_editable():
-			log.debug(f"[TMTS] _maybe_fire_ti: focus editable — skip")
+			dlog.debug(f"[TMTS] _maybe_fire_ti: focus editable — skip")
 			return
 		# Restored-position gate: when the user comes BACK to a page they
 		# already visited this session and the browse cursor is not at the
@@ -533,7 +535,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			and (url_seen_before or has_anchor)
 			and self._caret_is_mid_page(ti)
 		):
-			log.debug(
+			dlog.debug(
 				f"[TMTS] _maybe_fire_ti: caret mid-page on "
 				f"{'revisited' if url_seen_before else 'anchored'} url — skip"
 			)
@@ -624,7 +626,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			caret_at_schedule = ti.makeTextInfo(textInfos.POSITION_CARET)
 		except Exception:
 			caret_at_schedule = None
-		log.debug(
+		dlog.debug(
 			f"[TMTS] scheduling retry (attempt {attempt}) in {delay_ms}ms "
 			f"for url={expected_url!r}"
 		)
@@ -655,14 +657,14 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Runs on the wx main thread after the scheduled delay.
 		self._pending_retry = None
 		if not getattr(ti, "isReady", False):
-			log.debug("[TMTS] retry: TI no longer ready — abandon")
+			dlog.debug("[TMTS] retry: TI no longer ready — abandon")
 			return
 		try:
 			current_url = str(getattr(ti, "documentConstantIdentifier", "") or "")
 		except Exception:
 			current_url = ""
 		if current_url != expected_url:
-			log.debug(f"[TMTS] retry: url changed (was {expected_url!r}, now {current_url!r}) — abandon")
+			dlog.debug(f"[TMTS] retry: url changed (was {expected_url!r}, now {current_url!r}) — abandon")
 			return
 		# If the user started reading during the wait (caret moved from
 		# where it was when the retry was scheduled), the retry must not
@@ -676,9 +678,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			except Exception:
 				moved = False
 			if moved:
-				log.debug("[TMTS] retry: caret moved during wait — abandon")
+				dlog.debug("[TMTS] retry: caret moved during wait — abandon")
 				return
-		log.debug(f"[TMTS] retry: firing (attempt {attempt})")
+		dlog.debug(f"[TMTS] retry: firing (attempt {attempt})")
 		try:
 			self._run_detection(ti, attempt=attempt)
 		except Exception:
@@ -756,7 +758,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				except Exception:
 					log.exception("[TMTS] FORM ui.message failed")
 			focus_set = ts_mod.set_focus_on_first_form_input(ti)
-			log.debug(
+			dlog.debug(
 				f"[TMTS] FORM: title={title_text!r} focus_set={focus_set} "
 				f"url={summary.url!r} retry={is_retry}"
 			)
@@ -781,7 +783,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		elif result.intent == cls_mod.Intent.KEY_RESULT:
 			idx = web_mod.find_key_result_landing(summary)
 		else:
-			log.debug(
+			dlog.debug(
 				f"[TMTS] no-action: {result.intent.value}({result.confidence:.2f}) "
 				f"main={summary.has_main_landmark} nodes={len(summary.main_nodes)} "
 				f"art={summary.article_count} form={summary.form_input_count} "
@@ -795,7 +797,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				fb_mod.not_found()
 			return False
 		if idx is None:
-			log.debug(
+			dlog.debug(
 				f"[TMTS] {result.intent.value} but no landing index "
 				f"main={summary.has_main_landmark} nodes={len(summary.main_nodes)} "
 				f"first_nodes={[(n.kind, n.text_length, n.text_preview[:40]) for n in summary.main_nodes[:6]]} "
@@ -806,7 +808,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			return False
 		landing_info = ts_mod.get_landing_textinfo(summary, idx)
 		if landing_info is None:
-			log.debug(
+			dlog.debug(
 				f"[TMTS] {result.intent.value} idx={idx} but no textinfo found "
 				f"main={summary.has_main_landmark} nodes={len(summary.main_nodes)} "
 				f"url={summary.url!r} retry={is_retry}"
@@ -893,7 +895,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 						recovered_info = recovered
 						speech_info = cand
 				if recovered_info is None:
-					log.debug(
+					dlog.debug(
 						f"[TMTS stale-landing] captured position drifted and text "
 						f"re-find failed — NOT speaking. "
 						f"chose={landed_node.text_preview[:60]!r} "
@@ -915,7 +917,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					if is_final:
 						fb_mod.not_found()
 					return False
-				log.debug(
+				dlog.debug(
 					f"[TMTS stale-recovered] offset drifted; re-anchored by text. "
 					f"chose={landed_node.text_preview[:60]!r} "
 					f"stale_buffer_had={web_mod.normalize_for_match(actual_text)[:40]!r} "
@@ -968,7 +970,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				for i, n in enumerate(summary.main_nodes)
 				if n.kind == "heading"
 			]
-			log.debug(
+			dlog.debug(
 				f"[TMTS] moved caret to idx={idx} kind={landed_node.kind} "
 				f"intent={result.intent.value}({result.confidence:.2f}) "
 				f"len={landed_node.text_length} preview={landed_node.text_preview[:60]!r} "
@@ -1114,7 +1116,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					# a mis-computed current_idx or content chunked below
 					# the substantial bar, and without this line the log
 					# says nothing about which.
-					log.debug(
+					dlog.debug(
 						f"[TMTS] Z: no landing below current_idx={current_idx} "
 						f"nodes={[(i, n.kind, n.text_length, n.text_preview[:30]) for i, n in enumerate(summary.main_nodes)]} "
 						f"url={summary.url!r}"
@@ -1136,7 +1138,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				speech_info.expand(textInfos.UNIT_PARAGRAPH)
 				speech.speakTextInfo(speech_info, reason=controlTypes.OutputReason.CARET)
 				landed_node = summary.main_nodes[next_idx]
-				log.debug(
+				dlog.debug(
 					f"[TMTS] Z scan-from-caret to idx={next_idx} kind={landed_node.kind} "
 					f"len={landed_node.text_length} preview={landed_node.text_preview[:60]!r} "
 					f"current_idx={current_idx} url={summary.url!r}"
@@ -1204,7 +1206,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._last_fire_time = 0.0
 			self._last_landed_url = None
 			self._last_landed_time = 0.0
-			log.debug(f"[TMTS] Shift+Z: no saved landing for url={url!r} — running on-demand detection")
+			dlog.debug(f"[TMTS] Shift+Z: no saved landing for url={url!r} — running on-demand detection")
 			self._maybe_fire(focus, bypass_exclusion=True)
 			return
 		fb_mod.working()
@@ -1214,7 +1216,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			speech_info = self._last_initial_landing_info.copy()
 			speech_info.expand(textInfos.UNIT_PARAGRAPH)
 			speech.speakTextInfo(speech_info, reason=controlTypes.OutputReason.CARET)
-			log.debug(f"[TMTS] Shift+Z return-to-landing on url={url!r}")
+			dlog.debug(f"[TMTS] Shift+Z return-to-landing on url={url!r}")
 		except Exception:
 			log.exception("[TMTS] Shift+Z failed")
 			# Translators: spoken when the saved landing position could not
