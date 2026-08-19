@@ -900,6 +900,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 						f"buffer_now={web_mod.normalize_for_match(actual_text)[:60]!r} "
 						f"idx={idx} url={summary.url!r} retry={is_retry}"
 					)
+					# The DENOMINATOR, persistent. `[TMTS find-shortened]` on
+					# its own cannot answer whether shortening earns its place:
+					# an absence of it could mean shortening never helps, or it
+					# could mean drift stopped happening at all, and those call
+					# for opposite decisions. This line and its recovered twin
+					# make drift countable. Deliberately carries NO page text —
+					# the debug line above has that, and this one is going to a
+					# file that accrues for months.
+					ts_mod._append_perf_line(
+						f"[TMTS drift] outcome=failed retry={is_retry} url={summary.url!r}"
+					)
 					# Reading the WRONG paragraph is worse than reading none.
 					if is_final:
 						fb_mod.not_found()
@@ -909,6 +920,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					f"chose={landed_node.text_preview[:60]!r} "
 					f"stale_buffer_had={web_mod.normalize_for_match(actual_text)[:40]!r} "
 					f"idx={idx} url={summary.url!r}"
+				)
+				# See the failed branch above: this is the other half of the
+				# denominator. A `find-shortened` line always sits immediately
+				# before one of these, so the two together say how often
+				# shortening was what did the rescuing.
+				ts_mod._append_perf_line(
+					f"[TMTS drift] outcome=recovered retry={is_retry} url={summary.url!r}"
 				)
 				landing_info = recovered_info
 			# Move the browse-mode caret to the landing position. We use
