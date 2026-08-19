@@ -874,13 +874,23 @@ def find_landing_by_text(treeInterceptor, needle: str, verify=None):
 				found_text = ""
 			if verify(found_text):
 				if cand != needle:
-					# Logged so the persistent perf log can say whether
-					# shortening is actually earning its place.
-					log.debug(
+					# PERSISTENT, not just log.debug. This line is the ONLY
+					# evidence that shortening earns its place, and a
+					# debug-only line is evidence of nothing: NVDA ships with
+					# loggingLevel OFF, so log.debug goes nowhere unless the
+					# user has separately raised the level, and the session log
+					# is wiped on the second NVDA restart even when they have.
+					# Measuring a rare event that way cannot work. The marker
+					# gate still applies, so this stays silent for anyone who
+					# did not opt in, and it carries no page text beyond the
+					# needle already being searched for.
+					line = (
 						f"[TMTS find-shortened] recovered on a {len(cand)}-char "
 						f"needle after the full {len(needle)}-char one failed: "
 						f"{cand[:40]!r}"
 					)
+					log.debug(line)
+					_append_perf_line(line)
 				return info
 		return None
 	except Exception:
