@@ -1267,7 +1267,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				gui.mainFrame,
 				prompt,
 				# Translators: dialog title for the site-exclusion confirm.
-				_("Text Marks the Spot — Site Exclusion"),
+				_("Text Marks the Spot: Site Exclusion"),
 				style=wx.YES_NO | wx.ICON_QUESTION,
 			) as dialog:
 				result = dialog.ShowModal()
