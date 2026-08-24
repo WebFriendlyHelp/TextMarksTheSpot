@@ -98,7 +98,7 @@ Everything runs locally. No network calls, no telemetry, no data collection.
 
 ## Compatibility
 
-NVDA 2024.1 or newer. Last tested with NVDA 2026.2.0. Pure Python, no native libraries. Works in 32-bit and 64-bit NVDA.
+NVDA 2024.1 or newer, including NVDA 2026.2. Pure Python, no native libraries, so it runs on the 32-bit NVDA builds up to 2025.3 and the 64-bit builds from 2026.1 onward.
 
 ## License
 
