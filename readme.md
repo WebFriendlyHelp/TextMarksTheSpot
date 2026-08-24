@@ -94,7 +94,13 @@ For questions, ideas, or general feedback, use [the Discussions tab](https://git
 
 ## Privacy
 
-Everything runs locally. No network calls, no telemetry, no data collection.
+Everything runs locally. No network calls, no telemetry, nothing sent anywhere.
+
+The add-on also keeps no record of the pages you visit. It can write a technical log to help track down a page that lands in the wrong place, and that log is off unless you switch it on yourself. Nothing is written until you do.
+
+To switch it on, create an empty file named TextMarksTheSpot-diagnostics-enabled in your NVDA user configuration folder, then restart NVDA. The folder is the one holding your nvda.ini, reachable from the Start menu as "Explore NVDA user configuration directory". To switch it back off, delete that file and restart NVDA.
+
+While it is on, the add-on writes two files into that same folder: TextMarksTheSpot-perf.log, which records timing and the address of each page it looked at, and TextMarksTheSpot-captures.jsonl, which additionally records short previews of the page text so a bad landing can be reproduced. Both stay on your machine, both are safe to delete at any time, and both stop growing the moment you remove the marker file.
 
 ## Compatibility
 

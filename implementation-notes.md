@@ -2,6 +2,73 @@
 
 Newest entries at the top.
 
+## 2026-08-24 - v1.0.15 shipped, the store caught up, and one local build file
+
+Three things, none of them a code change to the detection path.
+
+**NVDA 2026.2 rc1: verified compatible, nothing changed.** The question was
+whether the add-on needed updating for it. It did not, and the checking is the
+deliverable here because SPEC.md carried a stale answer. 2026.1 was the
+API-breaking release (64-bit only, Python 3.13, `versionInfo.version_*` moved to
+`buildVersion`, which broke about fifteen store add-ons); 2026.2's "changes for
+developers" declares no break at all. Every NVDA symbol this add-on touches was
+checked against BOTH releases' removal lists and all survive.
+
+Two 2026.1 fixes DO land on the UNIT_PARAGRAPH walk and are worth knowing about:
+`TextInfo.collapse()` no longer advances to the next paragraph in some cases,
+and `OffsetTextInfo.move()` now reaches document end. The first is upstream's fix
+for the exact bug the walk's forward-progress guard was written for in July. The
+guard tolerates both, because it expands at the collapsed end and forces a move
+only when `compareEndPoints` shows no advance, so the collapse fix just makes the
+guard fire less often and the move fix costs at most one extra terminating
+iteration before `move()` returns falsy.
+
+SPEC.md's Compatibility bullet claimed "we hook `event_treeInterceptor_gainFocus`
+rather than subclassing". That was false when written and SPEC.md corrects it in
+three other places. Fixed, with a note saying so, because a load-bearing handoff
+document that contradicts itself is worse than one that is merely incomplete.
+
+**build.ps1: one add-on file, always the newest.** The root had accumulated a
+versioned build and an unversioned one, byte-identical, differing only in name.
+Casey installs by launching the file, so two candidates is how stale code gets
+installed silently, which then reads as "that fix didn't work". The wrapper runs
+`python -m SCons` (bare `scons` on this machine can resolve to a stale 3.9 shim),
+MOVES the output onto the unversioned name, and sweeps versioned leftovers.
+
+The SCons target is deliberately NOT renamed. `release.yml` runs plain `scons`
+and verifies the versioned filename against the pushed tag, so renaming it would
+break releases. The cost of the move is that SCons rebuilds every run, since its
+target is always missing. That is the intent, not a defect: the single file is
+never stale.
+
+**The store submission, and a note that was wrong.** v1.0.15 published through
+CI, and the NV Access submission merged as PR 11069, closing a gap where the
+store had served 1.0.6 since June and users had missed eight releases.
+
+Two things learned that are worth not re-deriving. Submission is a SIX-FIELD
+ISSUE FORM, not a hand-written JSON: their tooling downloads the add-on, reads
+the manifest, hashes it, scans it, and generates the PR. So `buildVars.py` is the
+single source of truth for everything except the download URL, source URL,
+publisher, channel, and license. And `gh issue create` is the wrong tool, because
+the template's `autoSubmissionFromIssue` label cannot be applied by a submitter
+without write access, and without that label the bot never fires. Prefill the
+form by query param and open it in the browser.
+
+The second thing is a process point. A saved note asserted that
+`lastTestedNVDAVersion` must not exceed NVDA's stable GA, and blamed that for the
+failed 1.0.7 submission in June. It read as fact and was a hypothesis. The
+validator source says the test is whether the version carries `experimental:
+true` in `transform/nvdaAPIVersions.json`, not whether it has reached GA. 2026.2.0
+is flagged non-experimental, so the stable-channel submission passed with 2026.2
+still at rc1. Acting on the note would have meant needlessly downgrading the
+manifest and rebuilding. Reading the source took two minutes.
+
+**Also in this release:** the site-exclusion dialog title uses a colon instead of
+an em dash, readme.md documents the diagnostics opt-in marker under Privacy
+(the changelog says it too, but a changelog scrolls away and the readme is what
+the store shows), and readme.md and SPEC.md both state the 32-bit/64-bit split
+at 2025.3/2026.1 rather than claiming both flatly.
+
 ## 2026-08-18 - the session-log copy is gated too; the add-on is no one's browsing record
 
 Casey: "I'd like my system to log pages but no one else's." The persistent logs

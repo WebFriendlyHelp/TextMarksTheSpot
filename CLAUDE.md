@@ -131,10 +131,10 @@ From the project root (PowerShell):
 
 ```powershell
 # Build locally. THIS is the local build command, not bare `scons`.
-.uild.ps1
+.\build.ps1
 
 # Build and launch it so NVDA installs it
-.uild.ps1 -Install
+.\build.ps1 -Install
 
 # Clean build artifacts (addon/manifest.ini, addon/doc/en/readme.{md,html}, addon/doc/style.css, the .nvda-addon)
 scons -c
