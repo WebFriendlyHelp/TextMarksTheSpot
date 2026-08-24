@@ -23,26 +23,20 @@ addon_info = AddonInfo(
 	# Translators: Long description to be shown for this add-on on add-on information from add-on store
 	addon_description=_("""Get to the actual content on a web page without working so hard to find it. Hands off. Let the page load, listen for the short beeps, and you're at the start of the article. NVDA reads the first paragraph. Press Z to skim forward, Shift+Z to jump back to the start, NVDA+Z to turn the add-on off on a specific site. Runs locally, no network calls."""),
 	# version
-	addon_version="1.0.14",
+	addon_version="1.0.15",
 	# Brief changelog for this version
 	# Translators: what's new content for the add-on version to be shown in the add-on store
-	addon_changelog=_("""Fewer landings in the site menu, and pages that are nothing but headlines land on the first one.
+	addon_changelog=_("""The add-on no longer keeps any record of the pages you visit.
 
-The cursor stops wandering into the menu and the footer. On a page that never marks where its main content begins, the add-on has to work out for itself which text belongs to the page and which belongs to the menus and footers around it. A shortcut inside that step could hand one paragraph another paragraph's answer, and once enough paragraphs got the wrong answer the add-on gave up and read the whole page, menu and footer included. That is fixed, and those pages are quicker now as well.
+Nothing about your browsing is written down unless you ask for it. The add-on kept a diagnostic log with a line for every page it looked at, carrying the full web address, query string and all. Two of those files were put behind a switch in the last release. The copy that went into NVDA's own log was not, and it showed up for anyone who had turned their NVDA logging level up, which people do for all sorts of unrelated reasons. All three are now silent unless you deliberately create a file named TextMarksTheSpot-diagnostics-enabled in your NVDA user configuration folder. Create nothing and the add-on records nothing about where you have been, anywhere. If you want to clear out what is already there, the files are TextMarksTheSpot-perf.log and TextMarksTheSpot-captures.jsonl in that same folder, and deleting them is safe.
 
-Your keyboard focus no longer lands in the site's search box. On a form page with no marked main region, the step that puts you in the first field could pick the first field anywhere on the page, which is usually the search box up in the header. It now leaves the site's own menus and header alone.
+Fewer pages that go quiet after finding the right paragraph. Some pages rebuild themselves while the add-on is still reading them, which moves the paragraph it had settled on. It handles that by searching for the paragraph again by its wording, and that search was fussier than the check that approves the result, so it was throwing away landings it would have been happy with. It now tries progressively shorter pieces of the wording, and copes with the invisible spacing characters some sites put between words. A piece is only used when it appears exactly once on the page, so a teaser box that repeats the story's opening line cannot capture the landing.
 
-Pages that are nothing but headlines land on the first headline. A news home page or a link roundup has no article to find, so the cursor used to come down somewhere in the middle of the list. Real articles are untouched: a page with a genuine body of text still lands on its opening line.
+Magazine-style posts land on the story instead of the summary line. A layout that runs headline, then a one-line summary, then the author and date and "6 min read", then the article, used to land you on the summary line. The tell is where the author block sits: a summary comes above it, the story below. The add-on now reads past the summary to the first real paragraph. Stories that open with one short sentence and no author block, like MacRumors, still land on that sentence.
 
-More of the publisher's boilerplate gets skipped. The cursor now passes over the "opinions expressed by contributors are their own" disclaimer, dated bylines, newsletter pitches that end "straight to your inbox", breadcrumb trails, and the web address some sites print above each headline.
+Tested with NVDA 2026.2. Nothing needed changing for it. The add-on still runs on NVDA 2024.1 and newer, on both the 32-bit builds up to 2025.3 and the 64-bit builds from 2026.1 on.
 
-A short opening line above a video is no longer skipped. On MacRumors, a story that opened with one short sentence and then a video player landed you on "Subscribe to the MacRumors YouTube channel for more videos." A sentence sitting directly under the page's own headline is now treated as the opening line, however short it is.
-
-Survey pages are treated as forms. The WebAIM screen reader survey used to land you in the middle of the questions, on whichever question happened to be longest, and its thank-you page landed on the breadcrumb trail. The questions page is now handled as the form it is, and the thank-you page lands on the message.
-
-Fewer of the two low beeps when nothing was actually wrong. If NVDA had not finished building the page yet, the add-on could announce that it found nothing at a page it never really got to look at. It waits instead.
-
-Known gaps: on some articles the cursor lands on the author's biography instead of the story; recipe sites can still land on a marketing line or a reader's review; the Verge and TechCrunch home pages lead with a large featured story and land on a headline further down the list; single-field sign-in pages that ask for your email first still get no landing (the two low beeps); and script-drawn result widgets like the fast.com speed test are still not detected."""),
+Known gaps, unchanged from 1.0.14: on some articles the cursor lands on the author's biography instead of the story; recipe sites can still land on a marketing line or a reader's review; the Verge and TechCrunch home pages lead with a large featured story and land on a headline further down the list; single-field sign-in pages that ask for your email first still get no landing (the two low beeps); and script-drawn result widgets like the fast.com speed test are still not detected."""),
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support
