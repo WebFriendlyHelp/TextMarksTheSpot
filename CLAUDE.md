@@ -129,9 +129,12 @@ Install once on a fresh dev machine:
 
 From the project root (PowerShell):
 
-```
-# Build the .nvda-addon
-scons
+```powershell
+# Build locally. THIS is the local build command, not bare `scons`.
+.uild.ps1
+
+# Build and launch it so NVDA installs it
+.uild.ps1 -Install
 
 # Clean build artifacts (addon/manifest.ini, addon/doc/en/readme.{md,html}, addon/doc/style.css, the .nvda-addon)
 scons -c
@@ -140,7 +143,17 @@ scons -c
 scons pot
 ```
 
-Output: `TextMarksTheSpot-<version>.nvda-addon` at the project root, named from `buildVars.py:addon_info["addon_version"]`.
+`build.ps1` runs SCons and then MOVES the output onto the single unversioned
+name, sweeping any versioned leftovers, so the project root holds **exactly one**
+`TextMarksTheSpot.nvda-addon` and it is always the newest build. Two files side
+by side is how a stale build gets installed by mistake, and the installed copy
+was always the unversioned one anyway.
+
+Bare `scons` still works and still emits `TextMarksTheSpot-<version>.nvda-addon`,
+named from `buildVars.py:addon_info["addon_version"]`. Do not rename that SCons
+target: `.github/workflows/release.yml` verifies the versioned filename against
+the pushed tag, and CI runs plain `scons`. Use bare `scons` locally only when you
+specifically want to inspect the versioned artifact, and delete it afterwards.
 
 **Note**: scons might fail to install in your default Python; if so, the `scons.exe` from `python -m pip install --user scons` lives in `C:\Users\<you>\AppData\Roaming\Python\Python313\Scripts\`. Make sure that directory is on PATH or call it by full path.
 
