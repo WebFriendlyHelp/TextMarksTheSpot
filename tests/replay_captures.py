@@ -2,8 +2,8 @@
 """Replay captured page snapshots through the classifier + landing finders.
 
 The add-on writes one JSON record per detection to
-`%APPDATA%\\nvda\\TextMarksTheSpot-captures.jsonl` (see `_append_capture` in
-tree_summary.py). Each record carries the FULL node list with every field the
+`%APPDATA%\\nvda\\TextMarksTheSpot-captures.jsonl` (see `_appendCapture` in
+treeSummary.py). Each record carries the FULL node list with every field the
 classifier and landing finders actually read — kind, level, length, 60-char
 preview, and the four walk-time flags. Those finders never look at anything
 else, so replaying a record reproduces the add-on's real decision EXACTLY,
@@ -38,54 +38,54 @@ import classifier as cls  # noqa: E402
 from detection import web  # noqa: E402
 
 # classify() intent -> the landing finder the trigger dispatches to
-# (mirrors _handle_result in __init__.py). Intents with no browse-cursor
+# (mirrors _handleResult in __init__.py). Intents with no browse-cursor
 # landing (SILENT_FOCUS_HONORED, APP, VIDEO, UNKNOWN) map to None.
 _LANDING_FINDERS = {
-    cls.Intent.ARTICLE: web.find_article_landing,
-    cls.Intent.NOTICE: web.find_notice_landing,
-    cls.Intent.LIST: web.find_list_landing,
-    cls.Intent.FORM: web.find_form_landing,
-    cls.Intent.KEY_RESULT: getattr(web, "find_key_result_landing", None),
+    cls.Intent.ARTICLE: web.findArticleLanding,
+    cls.Intent.NOTICE: web.findNoticeLanding,
+    cls.Intent.LIST: web.findListLanding,
+    cls.Intent.FORM: web.findFormLanding,
+    cls.Intent.KEY_RESULT: getattr(web, "findKeyResultLanding", None),
 }
 
 
-def _default_capture_path() -> str:
+def _defaultCapturePath() -> str:
     appdata = os.environ.get("APPDATA", "")
     return os.path.join(appdata, "nvda", "TextMarksTheSpot-captures.jsonl")
 
 
-def _node_from_row(row: list) -> cls.MainNode:
-    # [kind, level, length, preview, is_caption, is_boilerplate, is_disclosure, ends_sentence]
-    kind, level, length, preview, is_cap, is_boiler, is_disc, ends = row
+def _nodeFromRow(row: list) -> cls.MainNode:
+    # [kind, level, length, preview, isCaption, isBoilerplate, isDisclosure, endsSentence]
+    kind, level, length, preview, isCap, isBoiler, isDisc, ends = row
     return cls.MainNode(
-        kind=kind, level=level, text_length=length, text_preview=preview or "",
-        is_caption=is_cap, is_boilerplate=is_boiler, is_disclosure=is_disc,
-        ends_sentence=ends,
+        kind=kind, level=level, textLength=length, textPreview=preview or "",
+        isCaption=isCap, isBoilerplate=isBoiler, isDisclosure=isDisc,
+        endsSentence=ends,
     )
 
 
-def summary_from_record(rec: dict) -> cls.TreeSummary:
+def summaryFromRecord(rec: dict) -> cls.TreeSummary:
     return cls.TreeSummary(
         url=rec.get("url", ""),
-        has_main_landmark=rec.get("has_main", False),
-        article_count=rec.get("article", 0),
-        positionally_scoped=rec.get("positionally_scoped", False),
-        form_input_count=rec.get("forms", 0),
-        interactive_control_count=rec.get("interactive", 0),
-        counts_truncated=rec.get("counts_trunc", False),
-        main_nodes=[_node_from_row(r) for r in rec.get("nodes", [])],
+        hasMainLandmark=rec.get("has_main", False),
+        articleCount=rec.get("article", 0),
+        positionallyScoped=rec.get("positionally_scoped", False),
+        formInputCount=rec.get("forms", 0),
+        interactiveControlCount=rec.get("interactive", 0),
+        countsTruncated=rec.get("counts_trunc", False),
+        mainNodes=[_nodeFromRow(r) for r in rec.get("nodes", [])],
     )
 
 
 def replay(rec: dict) -> dict:
     """Return {url, intent, confidence, landing_idx, landing_preview}."""
-    tree = summary_from_record(rec)
+    tree = summaryFromRecord(rec)
     result = cls.classify(tree)
     finder = _LANDING_FINDERS.get(result.intent)
     idx = finder(tree) if finder is not None else None
     preview = None
-    if idx is not None and 0 <= idx < len(tree.main_nodes):
-        preview = tree.main_nodes[idx].text_preview
+    if idx is not None and 0 <= idx < len(tree.mainNodes):
+        preview = tree.mainNodes[idx].textPreview
     return {
         "url": rec.get("url", ""),
         "intent": result.intent.name,
@@ -102,12 +102,12 @@ def main(argv: list) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-    path = _default_capture_path()
-    url_filter = None
+    path = _defaultCapturePath()
+    urlFilter = None
     args = list(argv)
     if "--url" in args:
         i = args.index("--url")
-        url_filter = args[i + 1] if i + 1 < len(args) else None
+        urlFilter = args[i + 1] if i + 1 < len(args) else None
         del args[i:i + 2]
     if args:
         path = args[0]
@@ -127,7 +127,7 @@ def main(argv: list) -> int:
                 rec = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if url_filter and url_filter not in rec.get("url", ""):
+            if urlFilter and urlFilter not in rec.get("url", ""):
                 continue
             out = replay(rec)
             rows += 1

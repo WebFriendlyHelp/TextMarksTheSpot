@@ -62,35 +62,35 @@ SEQUENCES = {
 # Per-document state. Keyed by document identity (URL for web, messageId for
 # email). Stores the current step index. Cleared on document change.
 
-_state = {}  # doc_id -> step_index
+_state = {}  # docId -> step_index
 
 
 # ---------------------------------------------------------------------------
 # Public API
 
-def advance(doc_id, page_type, treeInterceptor):
+def advance(docId, pageType, treeInterceptor):
 	"""
 	Advance the Z sequence one step for this document.
 
 	Returns one of:
 	  - (position, announcement_text)  on a successful step
 	  - ("end", "No more next-likely actions on this page")  at sequence end
-	  - None  if page_type is unknown — caller should fall back to re-trigger
+	  - None  if pageType is unknown — caller should fall back to re-trigger
 	"""
-	# TODO: look up SEQUENCES[page_type]
+	# TODO: look up SEQUENCES[pageType]
 	# TODO: get/init step_index from _state
 	# TODO: if step_index >= len(steps): return ("end", ...)
-	# TODO: dispatch to the finder, return (position, _announcement_for(key))
+	# TODO: dispatch to the finder, return (position, _announcementFor(key))
 	# TODO: increment step_index and store back
 	pass
 
 
-def reset(doc_id):
+def reset(docId):
 	"""Clear sequence state for a document — call on document change."""
-	_state.pop(doc_id, None)
+	_state.pop(docId, None)
 
 
-def clear_all():
+def clearAll():
 	"""Clear all sequence state — call on add-on terminate."""
 	_state.clear()
 
@@ -99,7 +99,7 @@ def clear_all():
 # Announcement strings — translatable.
 # Keys match the second element of the sequence step descriptors above.
 
-def _announcement_for(key):
+def _announcementFor(key):
 	# TODO: return the right translatable string per key.
 	# Examples (each wrapped in _() with a Translators: comment):
 	#   "section"     → "Jumped to next section"

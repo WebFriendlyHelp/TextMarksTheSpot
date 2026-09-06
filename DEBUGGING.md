@@ -72,8 +72,8 @@ otherwise.
 CHECK: count the trigger outcomes.
 
 ```powershell
-Select-String "_maybe_fire_ti:" $env:TEMP
-vda.log | Group-Object { $_.Line -replace '.*_maybe_fire_ti: ([a-zA-Z ]+).*','$1' } | Sort-Object Count -Descending
+Select-String "_maybeFireTi:" $env:TEMP
+vda.log | Group-Object { $_.Line -replace '.*_maybeFireTi: ([a-zA-Z ]+).*','$1' } | Sort-Object Count -Descending
 ```
 
 `PROCEEDING` = detection ran. Everything else is a skip, and a large skip count on
@@ -89,7 +89,7 @@ the next one. Testing the same page across browsers inside two minutes is VOID,
 and the only thing that says so is the decision trace:
 
 ```
-[TMTS] _maybe_fire_ti: already landed on url='...' 22.4s ago — suppressing re-detection
+[TMTS] _maybeFireTi: already landed on url='...' 22.4s ago — suppressing re-detection
 ```
 
 Vary the URL per browser, or wait two minutes. And note the two OTHER ways a
@@ -248,8 +248,8 @@ Two logs, different lifetimes:
 
 - Persistent perf log: `%APPDATA%\nvda\TextMarksTheSpot-perf.log`.
   Append-only, ISO-timestamped, survives restarts, self-rotates at 1 MB.
-  One line per detection: timing phases, `raw_seen` (chunks NVDA yielded),
-  `main_nodes` (chunks kept), `scope=` (which scoping strategy ran),
+  One line per detection: timing phases, `rawSeen` (chunks NVDA yielded),
+  `mainNodes` (chunks kept), `scope=` (which scoping strategy ran),
   `article=/forms=/interactive=` counts, URL. Only written when NVDA's log
   level is DEBUG (Casey's normally is, during soak periods).
 - Session log: `%TEMP%\nvda.log` (live view: NVDA+F1). Rotates to
@@ -258,7 +258,7 @@ Two logs, different lifetimes:
 
 Search the session log for `TMTS` + the hostname. The lines that matter:
 
-- `_maybe_fire_ti: PROCEEDING url=...` — detection ran. If instead you see
+- `_maybeFireTi: PROCEEDING url=...` — detection ran. If instead you see
   a gate line (`same TI`, `cooldown`, `already landed ... suppressing`,
   `focus editable`, `caret mid-page on revisited/anchored url`), detection
   was deliberately skipped; decide whether the GATE is the bug (that was
@@ -276,7 +276,7 @@ Search the session log for `TMTS` + the hostname. The lines that matter:
 - `Z scan-from-caret to idx=...` — what Z picked and from where.
 
 Replaying the cascade by hand: with `substantial` + `headings` you can walk
-`find_article_landing`'s gates (very-substantial >= 200 wins; cluster of two
+`findArticleLanding`'s gates (very-substantial >= 200 wins; cluster of two
 >= 50s wins; hero >= 100 + heading in lookahead, only after a heading was
 seen; prose-run; largest fallback + directory redirect). The landed idx tells
 you which gate fired. If the landed idx makes no sense for ARTICLE, check the
@@ -325,7 +325,7 @@ sighted user sees and in what order:
 - 60-char preview trap: any signal at the END of a line (terminal
   punctuation, trailing photo credits, "All rights reserved") must be
   computed at walk time over the full text and stored as a MainNode flag
-  (`is_caption`, `is_boilerplate`, `ends_sentence`). Preview-only checks
+  (`isCaption`, `isBoilerplate`, `endsSentence`). Preview-only checks
   silently fail on lines over 60 chars.
 - Locked decisions are not up for renegotiation while fixing: the add-on
   binds Z and nothing else; alt-tab/tab-switch stays quiet (do NOT hook

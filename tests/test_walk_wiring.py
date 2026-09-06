@@ -3,10 +3,10 @@
 # WHY THIS FILE EXISTS. Three times on this branch a safety input was found
 # DELETABLE with the whole suite still green. Every case had the same shape:
 # the RULE was tested as a pure function, and the WIRING that feeds the rule
-# lived inside `_walk_main_nodes`, which needs NVDA, so nothing covered it.
+# lived inside `_walkMainNodes`, which needs NVDA, so nothing covered it.
 # The tests hand-built the very inputs the wiring was supposed to produce.
 #
-# `_walk_main_nodes` does not actually need NVDA. It needs a treeInterceptor
+# `_walkMainNodes` does not actually need NVDA. It needs a treeInterceptor
 # with `makeTextInfo`, and a `textInfos` module with two constants. Both are
 # duck-typed, so the real walk runs here against a fake document and the
 # wiring is covered by construction rather than by assertion about inputs
@@ -19,7 +19,7 @@
 
 import pytest
 
-import tree_summary as ts
+import treeSummary as ts
 
 
 # --------------------------------------------------------------------------
@@ -59,8 +59,8 @@ def control(role, level=None):
 
 
 class FakeObj:
-	"""Stand-in for an NVDAObject. `landmark` drives _in_scope, `role` drives
-	_node_for. `parent` is the chain the identity filter climbs."""
+	"""Stand-in for an NVDAObject. `landmark` drives _inScope, `role` drives
+	_nodeFor. `parent` is the chain the identity filter climbs."""
 
 	def __init__(self, role="PARAGRAPH", landmark=None, parent=None):
 		self.role = type("Role", (), {"name": role})()
@@ -90,7 +90,7 @@ class FakeInfo:
 		self.end = end
 
 	# -- chunk resolution --
-	def _chunk_at_start(self):
+	def _chunkAtStart(self):
 		for c in self.doc:
 			if c.start <= self.start < c.end:
 				return c
@@ -107,7 +107,7 @@ class FakeInfo:
 			self.end = self.start
 
 	def expand(self, unit):
-		c = self._chunk_at_start()
+		c = self._chunkAtStart()
 		if c is None:
 			raise RuntimeError("off the end of the document")
 		self.start, self.end = c.start, c.end
@@ -126,18 +126,18 @@ class FakeInfo:
 
 	@property
 	def text(self):
-		c = self._chunk_at_start()
+		c = self._chunkAtStart()
 		return c.text if c else ""
 
 	def getTextWithFields(self, formatConfig=None):
-		c = self._chunk_at_start()
+		c = self._chunkAtStart()
 		if c is None or c.fields is None:
 			return []
 		return list(c.fields) + [c.text]
 
 	@property
 	def NVDAObjectAtStart(self):
-		c = self._chunk_at_start()
+		c = self._chunkAtStart()
 		# Every resolution is recorded, so a test can assert that a
 		# positionally-scoped page fetched NO objects at all. That assertion
 		# is the only thing standing between "lazy" and "lazy in the comments
@@ -159,12 +159,12 @@ class FakeTI:
 
 
 @pytest.fixture(autouse=True)
-def _fake_textinfos(monkeypatch):
+def _fakeTextinfos(monkeypatch):
 	monkeypatch.setattr(ts, "textInfos", _FakeTextInfos, raising=False)
 	FakeInfo.fetches = []
 
 
-def build_doc(specs):
+def buildDoc(specs):
 	"""specs: list of (text, obj) or (text, obj, fields). Offsets contiguous."""
 	doc = []
 	pos = 0
@@ -178,22 +178,22 @@ def build_doc(specs):
 
 
 def walk(doc, **kw):
-	"""Run the real walk, returning (nodes, all_nodes, positional_drops)."""
-	all_nodes = []
+	"""Run the real walk, returning (nodes, allNodes, positionalDrops)."""
+	allNodes = []
 	positions = []
-	all_positions = []
+	allPositions = []
 	positional = [0]
-	nodes = ts._walk_main_nodes(
+	nodes = ts._walkMainNodes(
 		FakeTI(doc),
-		kw.pop("main_obj", None),
+		kw.pop("mainObj", None),
 		{},
 		positions,
-		all_nodes_out=all_nodes,
-		all_positions_out=all_positions,
-		positional_out=positional,
+		allNodesOut=allNodes,
+		allPositionsOut=allPositions,
+		positionalOut=positional,
 		**kw,
 	)
-	return nodes, all_nodes, positional[0]
+	return nodes, allNodes, positional[0]
 
 
 def para(text, landmark=None):
@@ -212,7 +212,7 @@ def para(text, landmark=None):
 	)
 
 
-def para_no_fields(text, landmark=None):
+def paraNoFields(text, landmark=None):
 	"""A chunk the buffer emitted NO control field for. The probe never saw
 	one, but 'never seen on 8 pages' is not 'cannot happen', so the fallback
 	has to exist and has to be covered."""
@@ -228,7 +228,7 @@ def rng(start, end):
 # 1. The objectless-chunk rejection on chrome-pos
 # --------------------------------------------------------------------------
 #
-# SABOTAGE THIS CATCHES: in _chunk_scope's exclude_ranges branch, change the
+# SABOTAGE THIS CATCHES: in _chunkScope's excludeRanges branch, change the
 # `obj is None` arm from `return False, _SCOPE_IDENTITY` to return True (the
 # fail-open default every other path in the module uses).
 #
@@ -237,85 +237,85 @@ def rng(start, end):
 # class where that filter cannot run at all. Fail-open means a navigation menu
 # past the trust boundary reads as article text.
 
-def test_objectless_chunk_past_trust_boundary_is_rejected():
+def test_objectlessChunkPastTrustBoundaryIsRejected():
 	# Two chunks. The first is inside an emitted chrome range and has an
 	# object; the second sits PAST the trust boundary with NO object, so
 	# positional cannot decide and identity cannot run.
-	doc = build_doc([
+	doc = buildDoc([
 		para("navigation home about contact", landmark="navigation"),
 		("orphan text with no accessible object at all", None),
 	])
-	nodes, all_nodes, drops = walk(
+	nodes, allNodes, drops = walk(
 		doc,
-		exclude_ranges=[rng(0, 29)],
-		trust_boundary=rng(0, 0),
-		untrusted_ranges=[],
+		excludeRanges=[rng(0, 29)],
+		trustBoundary=rng(0, 0),
+		untrustedRanges=[],
 	)
-	texts = [n.text_preview for n in nodes]
+	texts = [n.textPreview for n in nodes]
 	assert not any("orphan" in t for t in texts), (
 		"an objectless chunk that neither filter could decide was admitted as "
 		"content; that is the fail-open the tri-state exists to prevent"
 	)
-	# It must still reach all_nodes so the depleted-scope net can recover it.
-	assert any("orphan" in n.text_preview for n in all_nodes)
+	# It must still reach allNodes so the depleted-scope net can recover it.
+	assert any("orphan" in n.textPreview for n in allNodes)
 
 
 # --------------------------------------------------------------------------
-# 2. The positional_drops tally
+# 2. The positionalDrops tally
 # --------------------------------------------------------------------------
 #
-# SABOTAGE THIS CATCHES: delete the `positional_hits`/`positional_drops`
-# derivation in _walk_main_nodes (the `if scope_decision in (...)` block), or
-# stop passing `positional_out` back out.
+# SABOTAGE THIS CATCHES: delete the `positionalHits`/`positionalDrops`
+# derivation in _walkMainNodes (the `if scopeDecision in (...)` block), or
+# stop passing `positionalOut` back out.
 #
-# positional_drops is a SAFETY INPUT, not a diagnostic: _scope_looks_depleted
-# keys on `positional_drops == 0` to decide whether a chrome-pos page whose
+# positionalDrops is a SAFETY INPUT, not a diagnostic: _scopeLooksDepleted
+# keys on `positionalDrops == 0` to decide whether a chrome-pos page whose
 # exclusions actually worked may be widened back open. Zeroing it silently
 # switches the depleted-scope net off on exactly the pages it protects.
 
-def test_positional_drops_counts_chrome_exclusions():
+def test_positionalDropsCountsChromeExclusions():
 	# Note the trust boundary is the start of the LAST landmark placed, and
-	# _starts_before compares STRICTLY — so a chunk sitting exactly at the
+	# _startsBefore compares STRICTLY — so a chunk sitting exactly at the
 	# boundary defers to identity by design. Both chrome chunks here are
 	# strictly before it, which is what makes them positional decisions.
-	doc = build_doc([
+	doc = buildDoc([
 		para("site navigation links across the top", landmark="navigation"),
 		para("The real article begins here and runs on for a while."),
 		para("footer legal text down at the bottom", landmark="contentinfo"),
 		para("a trailing complementary region", landmark="complementary"),
 	])
 	nav, foot, last = doc[0], doc[2], doc[3]
-	nodes, all_nodes, drops = walk(
+	nodes, allNodes, drops = walk(
 		doc,
-		exclude_ranges=[
+		excludeRanges=[
 			rng(nav.start, nav.end),
 			rng(foot.start, foot.end),
 			rng(last.start, last.end),
 		],
-		trust_boundary=rng(last.start, last.end),
-		untrusted_ranges=[],
+		trustBoundary=rng(last.start, last.end),
+		untrustedRanges=[],
 	)
 	assert drops == 2, (
 		f"expected both chrome chunks counted as positional drops, got {drops}; "
 		"the depleted-scope net reads this number"
 	)
-	assert [n.text_preview for n in nodes] == [
+	assert [n.textPreview for n in nodes] == [
 		"The real article begins here and runs on for a while."
 	]
 
 
-def test_positional_drops_is_zero_when_nothing_was_excluded():
+def test_positionalDropsIsZeroWhenNothingWasExcluded():
 	# The other half of the predicate: a page where positional decided
 	# everything IN must report zero, so the net can widen it.
-	doc = build_doc([
+	doc = buildDoc([
 		para("The real article begins here and runs on for a while."),
 		para("A second substantial paragraph of genuine body copy."),
 	])
-	nodes, all_nodes, drops = walk(
+	nodes, allNodes, drops = walk(
 		doc,
-		exclude_ranges=[rng(9000, 9001)],
-		trust_boundary=rng(9000, 9001),
-		untrusted_ranges=[],
+		excludeRanges=[rng(9000, 9001)],
+		trustBoundary=rng(9000, 9001),
+		untrustedRanges=[],
 	)
 	assert drops == 0
 	assert len(nodes) == 2
@@ -325,69 +325,69 @@ def test_positional_drops_is_zero_when_nothing_was_excluded():
 # 3. Scope decisions reach the node list (the walk actually consults them)
 # --------------------------------------------------------------------------
 #
-# SABOTAGE THIS CATCHES: making _walk_main_nodes ignore `in_scope` and append
+# SABOTAGE THIS CATCHES: making _walkMainNodes ignore `inScope` and append
 # every node to `result`. Every landing test hands the cascade a node list
 # directly, so none of them notice that the filter stopped being applied.
 
-def test_out_of_scope_chunks_are_kept_out_of_main_nodes():
-	doc = build_doc([
+def test_outOfScopeChunksAreKeptOutOfMainNodes():
+	doc = buildDoc([
 		para("inside the article body, a substantial sentence here."),
 		para("outside it entirely, chrome text that must not land."),
 	])
 	inside = doc[0]
-	nodes, all_nodes, _ = walk(doc, scope_range=rng(inside.start, inside.end))
-	assert [n.text_preview for n in nodes] == [
+	nodes, allNodes, _ = walk(doc, scopeRange=rng(inside.start, inside.end))
+	assert [n.textPreview for n in nodes] == [
 		"inside the article body, a substantial sentence here."
 	]
-	assert len(all_nodes) == 2, "both chunks must still reach all_nodes"
+	assert len(allNodes) == 2, "both chunks must still reach allNodes"
 
 
 # --------------------------------------------------------------------------
 # 4. Walk-time flags are computed over the FULL text, not the 60-char preview
 # --------------------------------------------------------------------------
 #
-# SABOTAGE THIS CATCHES: dropping the walk-time computation of is_boilerplate /
-# is_caption / ends_sentence in _node_for and leaving the cascade's preview
+# SABOTAGE THIS CATCHES: dropping the walk-time computation of isBoilerplate /
+# isCaption / endsSentence in _nodeFor and leaving the cascade's preview
 # fallback to cope. Every cascade test can hand-set these flags, which is
 # precisely the trap the disclosure flag nearly repeated.
 
-def test_boilerplate_flag_is_computed_past_the_preview_cutoff():
+def test_boilerplateFlagIsComputedPastThePreviewCutoff():
 	tail = (
 		"This page and everything on it belongs to the publisher and may not "
 		"be reproduced. Copyright 2026. All rights reserved."
 	)
 	assert len(tail) > 60 and "rights reserved" not in tail[:60]
-	doc = build_doc([para(tail)])
+	doc = buildDoc([para(tail)])
 	nodes, _, _ = walk(doc)
-	assert nodes[0].is_boilerplate, (
+	assert nodes[0].isBoilerplate, (
 		"the boilerplate marker sits past char 60, so a preview-only check "
 		"cannot see it; this flag must be computed over the full chunk text"
 	)
 
 
-def test_ends_sentence_flag_is_computed_past_the_preview_cutoff():
-	long_sentence = (
+def test_endsSentenceFlagIsComputedPastThePreviewCutoff():
+	longSentence = (
 		"The council met on Tuesday to consider the proposal, which had been "
 		"delayed twice already."
 	)
-	assert len(long_sentence) > 60
-	doc = build_doc([para(long_sentence), para("Fragment with no stop")])
+	assert len(longSentence) > 60
+	doc = buildDoc([para(longSentence), para("Fragment with no stop")])
 	nodes, _, _ = walk(doc)
-	assert nodes[0].ends_sentence
-	assert not nodes[1].ends_sentence
+	assert nodes[0].endsSentence
+	assert not nodes[1].endsSentence
 
 
 # --------------------------------------------------------------------------
 # 5. The focus-move filter is actually applied
 # --------------------------------------------------------------------------
 #
-# SABOTAGE THIS CATCHES: deleting the `if not _in_main(item): continue` guard
-# in set_focus_on_first_form_input, or having it call anything other than the
+# SABOTAGE THIS CATCHES: deleting the `if not _inMain(item): continue` guard
+# in setFocusOnFirstFormInput, or having it call anything other than the
 # walk's own scope decision.
 #
 # This is the highest-stakes wiring in the module: it is the ONE path that
-# calls setFocus(). _form_field_in_scope is pure and covered, but until now
-# nothing checked that set_focus_on_first_form_input consults it — which is
+# calls setFocus(). _formFieldInScope is pure and covered, but until now
+# nothing checked that setFocusOnFirstFormInput consults it — which is
 # exactly the failure it has already had twice (the Zoom header language
 # picker, then the no-<main> header search box).
 
@@ -408,20 +408,20 @@ def test_ends_sentence_flag_is_computed_past_the_preview_cutoff():
 # int() conversion on the string level; skipping empty-text chunks before the
 # heading check (which deletes image-only headings).
 
-def test_role_comes_from_the_innermost_control_field():
+def test_roleComesFromTheInnermostControlField():
 	# A heading wrapping a link. Outermost-wins would call this a DOCUMENT and
 	# heading-first would call it a heading. NEITHER probe run observed this
 	# shape, so innermost is not chosen on counts — it is chosen because it
 	# matches NVDA's own container resolution in getEnclosingContainerRange.
-	# See _role_level_from_fields.
-	role, level, had = ts._role_level_from_fields([
+	# See _roleLevelFromFields.
+	role, level, had = ts._roleLevelFromFields([
 		control("DOCUMENT"), control("HEADING", 2), control("LINK"),
 	])
 	assert (role, level, had) == ("LINK", 0, True)
 
 
-def test_heading_level_is_converted_from_the_string_gecko_emits():
-	role, level, had = ts._role_level_from_fields([
+def test_headingLevelIsConvertedFromTheStringGeckoEmits():
+	role, level, had = ts._roleLevelFromFields([
 		control("DOCUMENT"), control("HEADING", 3),
 	])
 	assert role == "HEADING"
@@ -431,7 +431,7 @@ def test_heading_level_is_converted_from_the_string_gecko_emits():
 	)
 
 
-def test_only_the_leading_control_run_counts():
+def test_onlyTheLeadingControlRunCounts():
 	# The shape that broke the first version, and that the probe could not see:
 	# a paragraph with an inline graphic partway through. getTextWithFields
 	# interleaves TEXT with the control commands, so a whole-stream scan keeps
@@ -449,16 +449,16 @@ def test_only_the_leading_control_run_counts():
 		" more text",
 		FakeFieldCommand("controlEnd"),
 	]
-	role, level, had = ts._role_level_from_fields(stream)
+	role, level, had = ts._roleLevelFromFields(stream)
 	assert (role, had) == ("PARAGRAPH", True), (
 		"a trailing inline control won the role; a paragraph containing an "
 		"image would be classified GRAPHIC and skipped as content"
 	)
 
 
-def test_inline_control_paragraph_survives_the_walk():
+def test_inlineControlParagraphSurvivesTheWalk():
 	# The same defect, driven through the real walk rather than the helper.
-	doc = build_doc([(
+	doc = buildDoc([(
 		"A real body paragraph with an inline image in the middle of it.",
 		FakeObj("PARAGRAPH"),
 		[
@@ -468,23 +468,23 @@ def test_inline_control_paragraph_survives_the_walk():
 			" in the middle of it.", FakeFieldCommand("controlEnd"),
 		],
 	)])
-	nodes, _, _ = walk(doc, scope_range=rng(0, 10_000))
+	nodes, _, _ = walk(doc, scopeRange=rng(0, 10_000))
 	assert [n.kind for n in nodes] == ["paragraph"], (
 		"the paragraph was dropped because an inline graphic won the role"
 	)
 
 
-def test_unnamed_innermost_role_does_not_inherit_an_ancestor():
+def test_unnamedInnermostRoleDoesNotInheritAnAncestor():
 	# A BUTTON whose role fails to resolve must NOT inherit DOCUMENT and be
 	# admitted as a paragraph. No usable role at the innermost position means
 	# no evidence, so the caller pays for an object and gets the truth.
 	class Roleless:
 		pass
 	stream = [control("DOCUMENT"), FakeFieldCommand("controlStart", {"role": Roleless()})]
-	assert ts._role_level_from_fields(stream) == (None, 0, False)
+	assert ts._roleLevelFromFields(stream) == (None, 0, False)
 
 
-def test_heading_with_unreadable_level_defers_to_the_object():
+def test_headingWithUnreadableLevelDefersToTheObject():
 	# level feeds heading-cluster comparisons in the classifier, so a wrong 0
 	# can merge distinct levels and change LIST classification. An unreadable
 	# level is not level zero.
@@ -492,12 +492,12 @@ def test_heading_with_unreadable_level_defers_to_the_object():
 		field = {"role": FakeRole("HEADING")}
 		if bad is not None:
 			field["level"] = bad
-		assert ts._role_level_from_fields([FakeFieldCommand("controlStart", field)]) == (None, 0, False), (
+		assert ts._roleLevelFromFields([FakeFieldCommand("controlStart", field)]) == (None, 0, False), (
 			f"heading with level={bad!r} was accepted as level 0"
 		)
 
 
-def test_object_fetch_failure_is_not_swallowed_into_none():
+def test_objectFetchFailureIsNotSwallowedIntoNone():
 	# An exception from NVDAObjectAtStart must NOT be memoised as None. Two
 	# identity branches read `obj is None` as IN scope, so swallowing it admits
 	# an unverified navigation chunk as content — fail-OPEN on the safety path.
@@ -513,29 +513,29 @@ def test_object_fetch_failure_is_not_swallowed_into_none():
 		def makeTextInfo(self, position):
 			return Exploding(self.doc, 0, 0)
 
-	doc = build_doc([para_no_fields("navigation menu text that must not be admitted")])
-	nodes = ts._walk_main_nodes(ExplodingTI(doc), None, {}, [], all_nodes_out=[])
+	doc = buildDoc([paraNoFields("navigation menu text that must not be admitted")])
+	nodes = ts._walkMainNodes(ExplodingTI(doc), None, {}, [], allNodesOut=[])
 	assert nodes == [], (
 		"a COM failure produced a content node; the old eager fetch let the "
 		"exception stop the walk and that must not have changed"
 	)
 
 
-def test_no_control_field_reports_no_evidence():
-	role, level, had = ts._role_level_from_fields([])
+def test_noControlFieldReportsNoEvidence():
+	role, level, had = ts._roleLevelFromFields([])
 	assert (role, level, had) == (None, 0, False)
-	assert ts._role_level_from_fields(None) == (None, 0, False)
+	assert ts._roleLevelFromFields(None) == (None, 0, False)
 
 
-def test_walk_takes_the_role_from_fields_without_touching_the_object():
+def test_walkTakesTheRoleFromFieldsWithoutTouchingTheObject():
 	# A positionally-scoped page: the scope decision needs no object and the
 	# role now comes from the field stack, so the walk must resolve ZERO
 	# objects. This is the entire performance claim, stated as an assertion.
-	doc = build_doc([
+	doc = buildDoc([
 		("Chapter One", FakeObj("HEADING"), [control("DOCUMENT"), control("HEADING", 1)]),
 		para("A substantial opening paragraph that runs on for a while here."),
 	])
-	nodes, _, _ = walk(doc, scope_range=rng(0, 10_000))
+	nodes, _, _ = walk(doc, scopeRange=rng(0, 10_000))
 	assert [n.kind for n in nodes] == ["heading", "paragraph"]
 	assert nodes[0].level == 1
 	assert FakeInfo.fetches == [], (
@@ -545,9 +545,9 @@ def test_walk_takes_the_role_from_fields_without_touching_the_object():
 	)
 
 
-def test_walk_falls_back_to_the_object_when_there_is_no_control_field():
-	doc = build_doc([para_no_fields("Some text with no control field at all.")])
-	nodes, _, _ = walk(doc, scope_range=rng(0, 10_000))
+def test_walkFallsBackToTheObjectWhenThereIsNoControlField():
+	doc = buildDoc([paraNoFields("Some text with no control field at all.")])
+	nodes, _, _ = walk(doc, scopeRange=rng(0, 10_000))
 	assert [n.kind for n in nodes] == ["paragraph"]
 	assert FakeInfo.fetches, (
 		"with no control field there is no role evidence, so the object MUST "
@@ -556,22 +556,22 @@ def test_walk_falls_back_to_the_object_when_there_is_no_control_field():
 	)
 
 
-def test_image_only_heading_survives_the_field_stack_path():
+def test_imageOnlyHeadingSurvivesTheFieldStackPath():
 	# An <h1> wrapping a logo <img>: heading role, empty text. This node drives
-	# seen_heading, the hero gate, the prose-run gate and find_list_landing, so
+	# seenHeading, the hero gate, the prose-run gate and findListLanding, so
 	# an empty-text shortcut ahead of the role check would silently remove it.
-	doc = build_doc([
+	doc = buildDoc([
 		("", FakeObj("HEADING"), [control("DOCUMENT"), control("HEADING", 1)]),
 		para("Body copy following the image-only masthead heading here."),
 	])
-	nodes, _, _ = walk(doc, scope_range=rng(0, 10_000))
+	nodes, _, _ = walk(doc, scopeRange=rng(0, 10_000))
 	assert [n.kind for n in nodes] == ["heading", "paragraph"]
 
 
-def test_identity_scoped_page_still_resolves_objects():
+def test_identityScopedPageStillResolvesObjects():
 	# The other half of "lazy, not removed": on an identity-scoped page the
 	# object is the only evidence there is, and it must still be fetched.
-	doc = build_doc([para("Body copy on a page with no usable scope range.")])
+	doc = buildDoc([para("Body copy on a page with no usable scope range.")])
 	nodes, _, _ = walk(doc)
 	assert FakeInfo.fetches, (
 		"identity scoping has no positional answer; removing the object fetch "
@@ -592,31 +592,31 @@ class FocusTI:
 	def __init__(self, items):
 		self.items = items
 
-	def _iterNodesByType(self, item_type):
-		if item_type != "edit":
+	def _iterNodesByType(self, itemType):
+		if itemType != "edit":
 			return iter(())
 		return iter(self.items)
 
 
-def test_focus_move_skips_a_field_inside_chrome(monkeypatch):
+def test_focusMoveSkipsAFieldInsideChrome(monkeypatch):
 	# A header search box inside an emitted <nav>, then the real form field
 	# below it. Document order alone would take the search box.
 	search = FocusItem("header-search", 0, 10, landmark="navigation")
 	real = FocusItem("real-form-field", 100, 110)
 	scan = ts.LandmarkScan(
-		main_obj=None,
-		main_range=None,
-		chrome_ranges=[rng(0, 50)],
-		other_ranges=[],
-		trust_boundary=rng(0, 50),
+		mainObj=None,
+		mainRange=None,
+		chromeRanges=[rng(0, 50)],
+		otherRanges=[],
+		trustBoundary=rng(0, 50),
 		seen=1,
 		exhausted=True,
 	)
 	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
-	monkeypatch.setattr(ts, "_find_main_landmark", lambda ti: scan)
+	monkeypatch.setattr(ts, "_findMainLandmark", lambda ti: scan)
 
 	ti = FocusTI([search, real])
-	assert ts.set_focus_on_first_form_input(ti) is True
+	assert ts.setFocusOnFirstFormInput(ti) is True
 	assert search.obj.focused == [], (
 		"focus was moved into a field inside a chrome landmark; this is the "
 		"path that calls setFocus(), so this is a blind user's caret landing "
@@ -629,10 +629,10 @@ def test_focus_move_skips_a_field_inside_chrome(monkeypatch):
 # The focus gate must refuse a field it could not PLACE, not just one it
 # placed inside chrome. Added 2026-07-18.
 #
-# set_focus_on_first_form_input calls setFocus(). Its docstring has claimed
+# setFocusOnFirstFormInput calls setFocus(). Its docstring has claimed
 # "Fails CLOSED throughout" since it was written, and it did not: its identity
-# fallback went through _in_scope, which turned an undecided parent walk into
-# `main_obj is None` — True on every page without a <main>. So one failed COM
+# fallback went through _inScope, which turned an undecided parent walk into
+# `mainObj is None` — True on every page without a <main>. So one failed COM
 # dereference was enough to make an unplaceable field read as proven content.
 #
 # Driven through the real entry point with a fake quick-nav iterator, because
@@ -661,28 +661,28 @@ class UnplaceableItem:
 		self.obj = UnplaceableObj(name)
 
 
-def _no_main_scan():
-	# A lone top nav: trust_boundary lands at offset 0, so NOTHING is before
+def _noMainScan():
+	# A lone top nav: trustBoundary lands at offset 0, so NOTHING is before
 	# it and every field falls through to the identity filter. This is the
 	# commonest no-<main> page shape, which is what makes the fallback's
 	# behaviour load-bearing rather than academic.
 	return ts.LandmarkScan(
-		main_obj=None,
-		main_range=None,
-		chrome_ranges=[rng(0, 50)],
-		other_ranges=[],
-		trust_boundary=rng(0, 50),
+		mainObj=None,
+		mainRange=None,
+		chromeRanges=[rng(0, 50)],
+		otherRanges=[],
+		trustBoundary=rng(0, 50),
 		seen=1,
 		exhausted=True,
 	)
 
 
-def test_focus_move_refuses_a_field_whose_ancestry_cannot_be_walked(monkeypatch):
+def test_focusMoveRefusesAFieldWhoseAncestryCannotBeWalked(monkeypatch):
 	unplaceable = UnplaceableItem("unplaceable", 100, 110)
 	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
-	monkeypatch.setattr(ts, "_find_main_landmark", lambda ti: _no_main_scan())
+	monkeypatch.setattr(ts, "_findMainLandmark", lambda ti: _noMainScan())
 
-	moved = ts.set_focus_on_first_form_input(FocusTI([unplaceable]))
+	moved = ts.setFocusOnFirstFormInput(FocusTI([unplaceable]))
 
 	assert moved is False, (
 		"focus was moved to a field we could not place. 'Could not prove this "
@@ -692,26 +692,26 @@ def test_focus_move_refuses_a_field_whose_ancestry_cannot_be_walked(monkeypatch)
 	assert unplaceable.obj.focused == []
 
 
-def test_focus_move_still_takes_a_field_it_CAN_place(monkeypatch):
+def test_focusMoveStillTakesAFieldItCANPlace(monkeypatch):
 	# The other direction, so the fix cannot be "return False more often".
 	# A walkable chain with no chrome on it is a real answer and must still
 	# win the focus.
 	placeable = FocusItem("real-form-field", 100, 110)
 	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
-	monkeypatch.setattr(ts, "_find_main_landmark", lambda ti: _no_main_scan())
+	monkeypatch.setattr(ts, "_findMainLandmark", lambda ti: _noMainScan())
 
-	assert ts.set_focus_on_first_form_input(FocusTI([placeable])) is True
+	assert ts.setFocusOnFirstFormInput(FocusTI([placeable])) is True
 	assert placeable.obj.focused == ["real-form-field"]
 
 
-def test_focus_move_skips_the_unplaceable_and_takes_the_next_real_field(monkeypatch):
+def test_focusMoveSkipsTheUnplaceableAndTakesTheNextRealField(monkeypatch):
 	# Document order puts the unplaceable field first. Refusing it must not
 	# abandon the form — the user still gets the field we can vouch for.
 	items = [UnplaceableItem("unplaceable", 100, 110), FocusItem("real", 200, 210)]
 	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
-	monkeypatch.setattr(ts, "_find_main_landmark", lambda ti: _no_main_scan())
+	monkeypatch.setattr(ts, "_findMainLandmark", lambda ti: _noMainScan())
 
-	assert ts.set_focus_on_first_form_input(FocusTI(items)) is True
+	assert ts.setFocusOnFirstFormInput(FocusTI(items)) is True
 	assert items[0].obj.focused == []
 	assert items[1].obj.focused == ["real"]
 
@@ -725,32 +725,32 @@ class UnplaceableNoRangeItem:
 		self.obj = UnplaceableObj(name)
 
 
-def test_focus_move_refuses_an_unplaceable_field_under_a_positional_scope(monkeypatch):
-	# The OTHER identity fallback in _form_field_in_scope: a positional scope
+def test_focusMoveRefusesAnUnplaceableFieldUnderAPositionalScope(monkeypatch):
+	# The OTHER identity fallback in _formFieldInScope: a positional scope
 	# is in force but the field exposes no range. It is easy to assume that
-	# branch is safe because main-pos pages have a main_obj, so the old
+	# branch is safe because main-pos pages have a mainObj, so the old
 	# boolean default resolved to False. But `article` scope is positional
-	# with NO <main> — main_obj is None — so the default was True there, and
+	# with NO <main> — mainObj is None — so the default was True there, and
 	# an unplaceable field read as content on the setFocus() path.
 	scan = ts.LandmarkScan(
-		main_obj=None,
-		main_range=None,
-		chrome_ranges=[],
-		other_ranges=[],
-		trust_boundary=None,
+		mainObj=None,
+		mainRange=None,
+		chromeRanges=[],
+		otherRanges=[],
+		trustBoundary=None,
 		seen=0,
 		exhausted=True,
 	)
 	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
-	monkeypatch.setattr(ts, "_find_main_landmark", lambda ti: scan)
+	monkeypatch.setattr(ts, "_findMainLandmark", lambda ti: scan)
 	# Force the positional branch with an article-shaped scope: a range, and
-	# no main_obj behind it.
+	# no mainObj behind it.
 	monkeypatch.setattr(
-		ts, "_select_scope", lambda lm: ("article", rng(0, 1000), None, None, None),
+		ts, "_selectScope", lambda lm: ("article", rng(0, 1000), None, None, None),
 	)
 
 	item = UnplaceableNoRangeItem("unplaceable-no-range")
-	assert ts.set_focus_on_first_form_input(FocusTI([item])) is False
+	assert ts.setFocusOnFirstFormInput(FocusTI([item])) is False
 	assert item.obj.focused == []
 
 
@@ -774,7 +774,7 @@ class GeckoLikeInfo(FakeInfo):
 	"""A TextInfo whose MRO carries the Gecko class NAME, which is what the
 	backend gate keys on.
 
-	Named rather than imported because tree_summary must stay importable
+	Named rather than imported because treeSummary must stay importable
 	outside NVDA. Chromium passes the real gate the same way: by inheritance
 	from Gecko's virtual-buffer TextInfo."""
 
@@ -797,70 +797,70 @@ class SupportedTI(FakeTI):
 		return SupportedInfo(self.doc, 0, 0)
 
 
-def lm(text, landmark_key, obj_landmark=None):
+def lm(text, landmarkKey, objLandmark=None):
 	"""A chunk whose FIELD STACK carries a landmark, independent of what the
-	object's parent chain would say. obj_landmark is deliberately separate so a
+	object's parent chain would say. objLandmark is deliberately separate so a
 	test can prove WHICH mechanism answered."""
-	field = {"role": FakeRole("PARAGRAPH"), "landmark": landmark_key}
+	field = {"role": FakeRole("PARAGRAPH"), "landmark": landmarkKey}
 	return (
 		text,
-		FakeObj("PARAGRAPH", landmark=obj_landmark),
+		FakeObj("PARAGRAPH", landmark=objLandmark),
 		[FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
 		 FakeFieldCommand("controlStart", field)],
 	)
 
 
-def walk_supported(doc, **kw):
-	all_nodes, positions, all_positions, positional = [], [], [], [0]
-	nodes = ts._walk_main_nodes(
-		SupportedTI(doc), kw.pop("main_obj", None), {}, positions,
-		all_nodes_out=all_nodes, all_positions_out=all_positions,
-		positional_out=positional, **kw,
+def walkSupported(doc, **kw):
+	allNodes, positions, allPositions, positional = [], [], [], [0]
+	nodes = ts._walkMainNodes(
+		SupportedTI(doc), kw.pop("mainObj", None), {}, positions,
+		allNodesOut=allNodes, allPositionsOut=allPositions,
+		positionalOut=positional, **kw,
 	)
-	return nodes, all_nodes, positional[0]
+	return nodes, allNodes, positional[0]
 
 
-def test_field_stack_drops_a_nav_chunk_without_touching_com():
-	"""SABOTAGE: delete the field_verdict branch in _chunk_scope's chrome path.
+def test_fieldStackDropsANavChunkWithoutTouchingCom():
+	"""SABOTAGE: delete the fieldVerdict branch in _chunkScope's chrome path.
 
 	The nav chunk is dropped by its FIELD landmark alone -- its object carries
 	no landmark, so the parent chain would have ADMITTED it. That asymmetry is
 	what proves the field stack answered."""
-	doc = build_doc([
+	doc = buildDoc([
 		lm("Home Products Support About Contact", "navigation"),
 		para("A genuine article paragraph with enough text to be a real node."),
 	])
-	nodes, _all, drops = walk_supported(doc)
-	texts = [n.text_preview for n in nodes]
+	nodes, _all, drops = walkSupported(doc)
+	texts = [n.textPreview for n in nodes]
 	assert not any("Home Products" in t for t in texts), "nav must be excluded"
 	assert any("genuine article" in t for t in texts)
 	assert drops >= 1, "a field exclusion must count as a positional drop"
 
 
-def test_field_stack_accepts_content_without_resolving_an_object():
+def test_fieldStackAcceptsContentWithoutResolvingAnObject():
 	"""SABOTAGE: delete the definitive-NOT_IN_CHROME accept.
 
 	A valid leading run with no landmark is POSITIVE evidence of "no chrome
 	ancestor at this offset" (getTextInRange emits the complete ancestor
 	chain), so it must be accepted with NO object fetch. If the accept is
 	removed the walk falls through to the parent chain and fetches."""
-	doc = build_doc([
+	doc = buildDoc([
 		para("A perfectly ordinary paragraph sitting outside every landmark."),
 	])
-	nodes, _all, _d = walk_supported(doc)
+	nodes, _all, _d = walkSupported(doc)
 	assert len(nodes) == 1
 	assert FakeInfo.fetches == [], f"paid for COM anyway: {FakeInfo.fetches}"
 
 
-def test_unsupported_backend_never_uses_the_field_verdict():
-	"""SABOTAGE: delete the _fields_carry_landmarks gate in the walk.
+def test_unsupportedBackendNeverUsesTheFieldVerdict():
+	"""SABOTAGE: delete the _fieldsCarryLandmarks gate in the walk.
 
 	THE FAIL-OPEN THIS CLOSES. field['landmark'] is written by the BACKEND's
 	normalizer; WebKit's does not write it at all. On such a backend every
 	chunk would report "no landmark" and all chrome would be admitted. The
 	plain FakeTI is not Gecko-derived, so the nav chunk must be decided by the
 	parent chain -- which here means an object fetch actually happens."""
-	doc = build_doc([
+	doc = buildDoc([
 		lm("Home Products Support About Contact", "navigation"),
 		para("A genuine article paragraph with enough text to be a real node."),
 	])
@@ -868,38 +868,38 @@ def test_unsupported_backend_never_uses_the_field_verdict():
 	assert FakeInfo.fetches, "unsupported backend must fall back to the object"
 
 
-def test_main_id_keeps_the_identity_filter():
+def test_mainIdKeepsTheIdentityFilter():
 	"""CONDITION 4. The field stack answers "inside ANY marked chrome
 	landmark"; main-id asks "inside THE <main> we found", which is an IDENTITY
-	question. That equivalence is unprobed, so a page WITH a main_obj must
+	question. That equivalence is unprobed, so a page WITH a mainObj must
 	still consult the parent chain even on a supported backend."""
 	main = FakeObj("SECTION", landmark="main")
-	doc = build_doc([
+	doc = buildDoc([
 		("Body text living under the main landmark object here.",
 		 FakeObj("PARAGRAPH", parent=main),
 		 [control("DOCUMENT"), control("PARAGRAPH")]),
 	])
-	walk_supported(doc, main_obj=main)
+	walkSupported(doc, mainObj=main)
 	assert FakeInfo.fetches, "main-id must not be answered by the field stack"
 
 
-def test_malformed_field_stack_falls_back_rather_than_admitting():
+def test_malformedFieldStackFallsBackRatherThanAdmitting():
 	"""A stack we cannot parse is NO EVIDENCE, never a content verdict."""
 	broken = ("Some text of reasonable length for a real node here.",
 	          FakeObj("PARAGRAPH"),
 	          [FakeFieldCommand("controlStart", "not-a-dict")])
-	doc = build_doc([broken])
-	walk_supported(doc)
+	doc = buildDoc([broken])
+	walkSupported(doc)
 	assert FakeInfo.fetches, "malformed stack must fall back to the object"
 
 
-def test_no_leading_control_run_is_unknown_not_content():
-	"""SABOTAGE: delete the `saw_control` guard in _landmark_scope_from_fields.
+def test_noLeadingControlRunIsUnknownNotContent():
+	"""SABOTAGE: delete the `sawControl` guard in _landmarkScopeFromFields.
 
 	FOUND BY THE SABOTAGE CHECK, 2026-07-19 -- the first version of the
 	malformed-stack test above did NOT cover this. It passed a controlStart
 	whose field was not dict-like, which raises and returns via the exception
-	handler; the `saw_control` branch is a different path entirely and was
+	handler; the `sawControl` branch is a different path entirely and was
 	uncovered.
 
 	THE DISTINCTION THAT MATTERS. An empty landmark set means "no chrome
@@ -912,14 +912,14 @@ def test_no_leading_control_run_is_unknown_not_content():
 	assertion has to be on the SCOPE outcome, so the object here carries a nav
 	landmark that only the identity filter can see.
 	"""
-	doc = build_doc([
+	doc = buildDoc([
 		("Home Products Support About Contact Careers Press",
 		 FakeObj("PARAGRAPH", landmark="navigation"),
 		 []),  # non-empty stream, but no leading controlStart
 		para("A genuine article paragraph with enough text to be a real node."),
 	])
-	nodes, _all, _d = walk_supported(doc)
-	texts = [n.text_preview for n in nodes]
+	nodes, _all, _d = walkSupported(doc)
+	texts = [n.textPreview for n in nodes]
 	assert not any("Home Products" in t for t in texts), (
 		"a chunk with no leading control run must fall through to the identity "
 		"filter, which drops it as navigation -- not be admitted as content"
@@ -933,13 +933,13 @@ def test_no_leading_control_run_is_unknown_not_content():
 # instance of this branch's signature failure, and the reason this file exists.
 # --------------------------------------------------------------------------
 
-def test_chrome_pos_consults_the_field_stack_before_paying_for_com():
-	"""SABOTAGE: delete the field_verdict return inside the exclude_ranges
-	branch of _chunk_scope.
+def test_chromePosConsultsTheFieldStackBeforePayingForCom():
+	"""SABOTAGE: delete the fieldVerdict return inside the excludeRanges
+	branch of _chunkScope.
 
-	WIRED BUT UNTESTED until now. Every exclude_ranges test used the plain
-	FakeTI, where the backend gate forces field_verdict to None, and every
-	supported-backend test omitted exclude_ranges -- so the two were never
+	WIRED BUT UNTESTED until now. Every excludeRanges test used the plain
+	FakeTI, where the backend gate forces fieldVerdict to None, and every
+	supported-backend test omitted excludeRanges -- so the two were never
 	exercised together and the whole branch could be deleted green.
 
 	It is not cosmetic. Inside an untrusted range the field stack is the ONLY
@@ -947,22 +947,22 @@ def test_chrome_pos_consults_the_field_stack_before_paying_for_com():
 	have silently omitted; without it those chunks go back to the identity
 	filter the bounded-trust design was built to distrust.
 
-	The nav chunk here sits PAST the trust boundary, so _chrome_pos_verdict
+	The nav chunk here sits PAST the trust boundary, so _chromePosVerdict
 	declines and the field stack is the thing that must answer. Its OBJECT
 	carries no landmark, so the identity filter would have admitted it -- that
 	asymmetry is what proves which mechanism decided.
 	"""
-	doc = build_doc([
+	doc = buildDoc([
 		para("Article body text that runs on for a good long while here."),
 		lm("Home About Contact Careers Press Investors", "navigation"),
 	])
-	nodes, all_nodes, drops = walk_supported(
+	nodes, allNodes, drops = walkSupported(
 		doc,
-		exclude_ranges=[],
-		trust_boundary=rng(0, 0),   # nothing is strictly before this
-		untrusted_ranges=[],
+		excludeRanges=[],
+		trustBoundary=rng(0, 0),   # nothing is strictly before this
+		untrustedRanges=[],
 	)
-	texts = [n.text_preview for n in nodes]
+	texts = [n.textPreview for n in nodes]
 	assert not any("Home About" in t for t in texts), (
 		"chrome-pos ignored the field stack and fell through to identity, "
 		"which admits this chunk because its object has no landmark"
@@ -973,9 +973,9 @@ def test_chrome_pos_consults_the_field_stack_before_paying_for_com():
 	)
 
 
-def test_innermost_landmark_wins_over_an_outer_one():
+def test_innermostLandmarkWinsOverAnOuterOne():
 	"""SABOTAGE: change `reversed(seen)` to `seen` in
-	_landmark_scope_from_fields.
+	_landmarkScopeFromFields.
 
 	The docstring calls INNERMOST WINS the property that makes the field stack
 	agree with the parent chain, which stops at the FIRST landmark it meets
@@ -996,14 +996,14 @@ def test_innermost_landmark_wins_over_an_outer_one():
 			FakeFieldCommand("controlStart", {"role": FakeRole("PARAGRAPH")}),
 		],
 	)
-	nodes, _all, _d = walk_supported(build_doc([nested]))
-	assert any("Real content" in n.text_preview for n in nodes), (
+	nodes, _all, _d = walkSupported(buildDoc([nested]))
+	assert any("Real content" in n.textPreview for n in nodes), (
 		"the innermost landmark is <main>, so this is content; reading the "
 		"OUTERMOST landmark instead calls it banner and drops it"
 	)
 
 
-def test_innermost_chrome_wins_over_an_outer_main():
+def test_innermostChromeWinsOverAnOuterMain():
 	"""The mirror, so the rule is pinned in BOTH directions.
 
 	SABOTAGE: delete the `lm == "main"` early return. That mutation also left
@@ -1023,8 +1023,8 @@ def test_innermost_chrome_wins_over_an_outer_main():
 		],
 	)
 	body = para("A genuine article paragraph with enough text to be a node.")
-	nodes, _all, drops = walk_supported(build_doc([nested, body]))
-	texts = [n.text_preview for n in nodes]
+	nodes, _all, drops = walkSupported(buildDoc([nested, body]))
+	texts = [n.textPreview for n in nodes]
 	assert not any("Home About" in t for t in texts), (
 		"a navigation nested inside <main> is still navigation; the innermost "
 		"landmark decides"
@@ -1033,8 +1033,8 @@ def test_innermost_chrome_wins_over_an_outer_main():
 	assert drops >= 1
 
 
-def test_backend_gate_requires_the_module_not_just_the_name():
-	"""SABOTAGE: drop the __module__ check from _fields_carry_landmarks.
+def test_backendGateRequiresTheModuleNotJustTheName():
+	"""SABOTAGE: drop the __module__ check from _fieldsCarryLandmarks.
 
 	A name-only match would trust ANY third-party backend that happened to
 	define a class called Gecko_ia2_TextInfo, and being wrongly trusted here
@@ -1042,13 +1042,13 @@ def test_backend_gate_requires_the_module_not_just_the_name():
 	installed NVDA; this closes the hole rather than fixing a live bug.
 	"""
 	impostor = type("Gecko_ia2_TextInfo", (FakeInfo,), {"__module__": "evil.addon"})
-	assert ts._fields_carry_landmarks(impostor([], 0, 0)) is False
+	assert ts._fieldsCarryLandmarks(impostor([], 0, 0)) is False
 	genuine = Gecko_ia2_TextInfo([], 0, 0)
-	assert ts._fields_carry_landmarks(genuine) is True
+	assert ts._fieldsCarryLandmarks(genuine) is True
 
 
-def test_malformed_landmark_value_is_unknown_not_content():
-	"""SABOTAGE: restore `str(lm).lower()` in _landmark_scope_from_fields.
+def test_malformedLandmarkValueIsUnknownNotContent():
+	"""SABOTAGE: restore `str(lm).lower()` in _landmarkScopeFromFields.
 
 	A non-string landmark used to be COERCED into a name -- landmark=123
 	became "123", matched no chrome type, fell through the loop and returned
@@ -1057,19 +1057,19 @@ def test_malformed_landmark_value_is_unknown_not_content():
 	means UNKNOWN. Asserted on the pure function because the walk would mask
 	it: the object fallback happens to give the same answer here.
 	"""
-	def stack(landmark_value):
+	def stack(landmarkValue):
 		return [
 			FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
-			FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": landmark_value}),
+			FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": landmarkValue}),
 		]
 
 	for bad in (123, [], {}, object()):
-		assert ts._landmark_scope_from_fields(stack(bad)) is None, (
+		assert ts._landmarkScopeFromFields(stack(bad)) is None, (
 			f"landmark={bad!r} must read as UNKNOWN, not as a content verdict"
 		)
 
 
-def test_landmark_value_is_stripped_before_matching():
+def test_landmarkValueIsStrippedBeforeMatching():
 	"""SABOTAGE: remove the .strip() on the landmark value.
 
 	" navigation " is a navigation landmark. Without the strip it matched
@@ -1079,4 +1079,4 @@ def test_landmark_value_is_stripped_before_matching():
 		FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
 		FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": "  NAVIGATION  "}),
 	]
-	assert ts._landmark_scope_from_fields(stack) is False
+	assert ts._landmarkScopeFromFields(stack) is False

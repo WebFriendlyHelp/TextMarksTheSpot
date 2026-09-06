@@ -2,7 +2,7 @@
 # Test harness for the article landing strategy.
 #
 # For every fixture the classifier labels as ARTICLE, this harness checks
-# that find_article_landing() returns the index a human reader would expect.
+# that findArticleLanding() returns the index a human reader would expect.
 # Non-article fixtures are skipped (the article strategy isn't called on
 # them; other intents have their own strategies — not built yet).
 #
@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "addon", "globa
 sys.path.insert(0, os.path.dirname(__file__))
 
 from classifier import Intent
-from detection.web import find_article_landing
+from detection.web import findArticleLanding
 from classifier_fixtures import (
 	WIKIPEDIA_MEMORIAL_DAY,
 	MAKEUSEOF_ARTICLE,
@@ -34,7 +34,7 @@ from classifier_fixtures import (
 )
 
 
-# Human-encoded ground truth: index into fixture.main_nodes where the cursor
+# Human-encoded ground truth: index into fixture.mainNodes where the cursor
 # should land for each ARTICLE fixture. Reviewed against the page content the
 # user named as the target.
 EXPECTED_LANDING = [
@@ -56,38 +56,38 @@ EXPECTED_LANDING = [
 
 
 def main() -> int:
-	pass_count = 0
-	fail_count = 0
+	passCount = 0
+	failCount = 0
 
 	print()
 	print("Article landing strategy report")
 	print("-" * 60)
-	for fixture, expected_index in EXPECTED_LANDING:
-		label, expected_intent, tree = fixture
-		if expected_intent != Intent.ARTICLE:
+	for fixture, expectedIndex in EXPECTED_LANDING:
+		label, expectedIntent, tree = fixture
+		if expectedIntent != Intent.ARTICLE:
 			print(f"[SKIP] {label} (not an article fixture)")
 			continue
 
-		got = find_article_landing(tree)
-		ok = (got == expected_index)
+		got = findArticleLanding(tree)
+		ok = (got == expectedIndex)
 		marker = "PASS" if ok else "FAIL"
 		print(f"[{marker}] {label}")
-		print(f"       expected landing index: {expected_index}")
+		print(f"       expected landing index: {expectedIndex}")
 		print(f"       got:                    {got}")
-		if got is not None and 0 <= got < len(tree.main_nodes):
-			n = tree.main_nodes[got]
-			preview = n.text_preview or ""
-			print(f"       landed on: {n.kind} (len={n.text_length}) {preview!r}")
+		if got is not None and 0 <= got < len(tree.mainNodes):
+			n = tree.mainNodes[got]
+			preview = n.textPreview or ""
+			print(f"       landed on: {n.kind} (len={n.textLength}) {preview!r}")
 		print()
 
 		if ok:
-			pass_count += 1
+			passCount += 1
 		else:
-			fail_count += 1
+			failCount += 1
 
 	print("-" * 60)
-	print(f"Total: {pass_count} pass, {fail_count} fail")
-	return 0 if fail_count == 0 else 1
+	print(f"Total: {passCount} pass, {failCount} fail")
+	return 0 if failCount == 0 else 1
 
 
 if __name__ == "__main__":

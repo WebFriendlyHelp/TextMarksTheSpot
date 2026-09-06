@@ -9,20 +9,20 @@ import classifier as cls
 
 
 def _node(kind, length, level=None, preview=""):
-	return cls.MainNode(kind=kind, level=level, text_length=length, text_preview=preview)
+	return cls.MainNode(kind=kind, level=level, textLength=length, textPreview=preview)
 
 
 def _summary(**overrides):
 	# Defaults: nothing on the page. Tests override the fields they care about.
 	defaults = dict(
 		url="",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[],
-		form_input_count=0,
-		interactive_control_count=0,
-		focused_control_is_editable=False,
-		notice_keyword_match=False,
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[],
+		formInputCount=0,
+		interactiveControlCount=0,
+		focusedControlIsEditable=False,
+		noticeKeywordMatch=False,
 	)
 	defaults.update(overrides)
 	return cls.TreeSummary(**defaults)
@@ -32,12 +32,12 @@ def _summary(**overrides):
 # Guardrail #6: focused editable control short-circuits everything.
 # ---------------------------------------------------------------------------
 
-def test_silent_focus_honored_overrides_all_other_signals():
+def test_silentFocusHonoredOverridesAllOtherSignals():
 	# Even with a clear article body cluster, focused-editable wins.
 	tree = _summary(
-		focused_control_is_editable=True,
-		main_nodes=[_node("paragraph", 200), _node("paragraph", 180), _node("paragraph", 220)],
-		article_count=1,
+		focusedControlIsEditable=True,
+		mainNodes=[_node("paragraph", 200), _node("paragraph", 180), _node("paragraph", 220)],
+		articleCount=1,
 	)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.SILENT_FOCUS_HONORED
@@ -48,65 +48,65 @@ def test_silent_focus_honored_overrides_all_other_signals():
 # FORM
 # ---------------------------------------------------------------------------
 
-def test_form_fires_with_enough_inputs_and_no_content_competition():
-	tree = _summary(form_input_count=5)
+def test_formFiresWithEnoughInputsAndNoContentCompetition():
+	tree = _summary(formInputCount=5)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.FORM
 
 
-def test_form_blocked_when_article_count_is_untrusted():
+def test_formBlockedWhenArticleCountIsUntrusted():
 	# A truncated article count (budget / scan cap / iterator exception) can
 	# be a zeroed UNDERCOUNT on a real news article, which would drop the
-	# has_editorial_content FORM block and let the page's scattered inputs
+	# hasEditorialContent FORM block and let the page's scattered inputs
 	# (newsletter, search, comments) classify it FORM — moving keyboard
 	# focus. Editorial content unknown → FORM must decline. (Neutral URL:
 	# neither a form hint nor an editorial hint, so this pins the
 	# article-trust gate alone.)
 	tree = _summary(
 		url="https://example.com/page/",
-		form_input_count=5,
-		article_count=0,
-		article_count_truncated=True,
+		formInputCount=5,
+		articleCount=0,
+		articleCountTruncated=True,
 	)
 	result = cls.classify(tree)
 	assert result.intent != cls.Intent.FORM
 
 
-def test_form_survives_untrusted_article_count_on_form_url():
+def test_formSurvivesUntrustedArticleCountOnFormUrl():
 	# The form-URL escape hatch outranks the editorial block, exactly as it
 	# does for a present <article> — a genuine /register page stays FORM
 	# even when the article count couldn't be trusted.
 	tree = _summary(
 		url="https://example.com/register/",
-		form_input_count=5,
-		article_count=0,
-		article_count_truncated=True,
+		formInputCount=5,
+		articleCount=0,
+		articleCountTruncated=True,
 	)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.FORM
 
 
-def test_form_blocked_by_substantial_hero():
+def test_formBlockedBySubstantialHero():
 	# Wordpress homepage pattern: contact form widgets + intro paragraph.
 	# With weak form signal (3 inputs, just at the threshold), hero blocks.
 	tree = _summary(
-		form_input_count=3,
-		main_nodes=[_node("paragraph", 400)],
+		formInputCount=3,
+		mainNodes=[_node("paragraph", 400)],
 	)
 	result = cls.classify(tree)
 	assert result.intent != cls.Intent.FORM
 
 
-def test_form_overrides_hero_when_input_count_is_strong():
+def test_formOverridesHeroWhenInputCountIsStrong():
 	# Regression: Pre-ETS Vendor Fair Google Form had 6+ form inputs
 	# (name, email, multiple region checkboxes) AND a lead run that
-	# accumulated hero_chars from label text. The old form_blocked rule
-	# (has_hero blocks unconditionally) wedged ARTICLE-hero to win and
+	# accumulated heroChars from label text. The old formBlocked rule
+	# (hasHero blocks unconditionally) wedged ARTICLE-hero to win and
 	# landed the user on a checkbox label. With STRONG_FORM_INPUT_COUNT
-	# override, form_input_count >= 5 makes FORM fire over the hero block.
+	# override, formInputCount >= 5 makes FORM fire over the hero block.
 	tree = _summary(
-		form_input_count=8,
-		main_nodes=[
+		formInputCount=8,
+		mainNodes=[
 			_node("heading", 60, level=1, preview="Form title"),
 			_node("paragraph", 86, preview="Label or description text"),
 			_node("paragraph", 60, preview="More label text"),
@@ -116,27 +116,27 @@ def test_form_overrides_hero_when_input_count_is_strong():
 	assert result.intent == cls.Intent.FORM
 
 
-def test_checkout_form_not_blocked_by_legal_boilerplate_cluster():
+def test_checkoutFormNotBlockedByLegalBoilerplateCluster():
 	# store.payproglobal.com/checkout?products[1][id]=69131 (2026-07-17): a
 	# 10-input checkout with zero headings and no <article>. Near the Submit
 	# button sit three adjacent 100+ char paragraphs: a trust-badge alt-text
 	# blob (237), the "By placing your order, you agree to our Terms and
-	# Conditions..." consent line (263 — flagged is_boilerplate at walk
+	# Conditions..." consent line (263 — flagged isBoilerplate at walk
 	# time), and a data-sharing note (127). The trio formed a fake strong
 	# body cluster that blocked FORM, classified the page ARTICLE at 0.70,
 	# and landed the user in the legalese. Flagged paragraphs must not count
 	# as article body.
 	consent = cls.MainNode(
-		kind="paragraph", text_length=263,
-		text_preview="By placing your order, you agree to our Terms and Condition",
-		is_boilerplate=True, ends_sentence=True,
+		kind="paragraph", textLength=263,
+		textPreview="By placing your order, you agree to our Terms and Condition",
+		isBoilerplate=True, endsSentence=True,
 	)
 	tree = _summary(
 		url="https://store.payproglobal.com/checkout?products[1][id]=69131",
-		has_main_landmark=False,
-		form_input_count=10,
-		interactive_control_count=11,
-		main_nodes=[
+		hasMainLandmark=False,
+		formInputCount=10,
+		interactiveControlCount=11,
+		mainNodes=[
 			_node("paragraph", 8, preview="xplorer²"),
 			_node("paragraph", 50, preview="exponential growth in file management productivity"),
 			_node("paragraph", 13, preview="You're Buying"),
@@ -154,16 +154,16 @@ def test_checkout_form_not_blocked_by_legal_boilerplate_cluster():
 	assert result.intent == cls.Intent.FORM
 
 
-def test_cluster_treats_flagged_nodes_as_transparent_not_breaking():
+def test_clusterTreatsFlaggedNodesAsTransparentNotBreaking():
 	# The fail-safe direction of the fix above: a long mid-article figure
 	# caption must NOT split a real article's body cluster — that cluster is
 	# what blocks FORM (and a FORM misfire moves keyboard focus) on news
 	# pages whose scattered widgets add up to a strong input count. Flagged
 	# nodes are transparent: they contribute nothing, but the run survives.
 	caption = cls.MainNode(
-		kind="paragraph", text_length=120,
-		text_preview="The mayor at the ribbon cutting. (Photo: Getty Images)",
-		is_caption=True,
+		kind="paragraph", textLength=120,
+		textPreview="The mayor at the ribbon cutting. (Photo: Getty Images)",
+		isCaption=True,
 	)
 	nodes = [
 		_node("paragraph", 200),
@@ -171,10 +171,10 @@ def test_cluster_treats_flagged_nodes_as_transparent_not_breaking():
 		caption,
 		_node("paragraph", 220),
 	]
-	assert cls._largest_paragraph_cluster(nodes) == (3, 600)
+	assert cls._largestParagraphCluster(nodes) == (3, 600)
 
 
-def test_signup_page_with_short_intro_stays_form_on_form_url():
+def test_signupPageWithShortIntroStaysFormOnFormUrl():
 	# starttesting.net/signup (2026-07-16): 3 real inputs (Name, Email,
 	# Password) meets FORM_INPUT_THRESHOLD but sits below
 	# STRONG_FORM_INPUT_COUNT, and the one-line intro "You can join an
@@ -185,9 +185,9 @@ def test_signup_page_with_short_intro_stays_form_on_form_url():
 	# the hatch, the /signup URL keeps it FORM.
 	tree = _summary(
 		url="https://starttesting.net/signup?utm_source=substack&utm_medium=email",
-		form_input_count=3,
-		interactive_control_count=8,
-		main_nodes=[
+		formInputCount=3,
+		interactiveControlCount=8,
+		mainNodes=[
 			_node("heading", 33, level=1, preview="Create your Start Testing account"),
 			_node("paragraph", 58, preview="You can join an existing organization or"),
 			_node("paragraph", 4, preview="Name"),
@@ -202,16 +202,16 @@ def test_signup_page_with_short_intro_stays_form_on_form_url():
 	assert result.intent == cls.Intent.FORM
 
 
-def test_login_page_with_two_inputs_is_form_on_auth_url():
+def test_loginPageWithTwoInputsIsFormOnAuthUrl():
 	# starttesting.net/login (2026-07-16): email + password is only 2 real
 	# inputs, below FORM_INPUT_THRESHOLD, so the page classified UNKNOWN and
 	# played the not-found beeps. An unambiguous auth URL (whole path
 	# segment /login) lowers the bar to AUTH_FORM_MIN_INPUTS.
 	tree = _summary(
 		url="https://starttesting.net/login?redirect=%2fhome&email=",
-		form_input_count=2,
-		interactive_control_count=6,
-		main_nodes=[
+		formInputCount=2,
+		interactiveControlCount=6,
+		mainNodes=[
 			_node("heading", 12, level=1, preview="Welcome back"),
 			_node("paragraph", 13, preview="Email address"),
 			_node("paragraph", 8, preview="Password"),
@@ -223,7 +223,7 @@ def test_login_page_with_two_inputs_is_form_on_auth_url():
 	assert result.intent == cls.Intent.FORM
 
 
-def test_two_inputs_need_a_whole_auth_segment_not_a_substring():
+def test_twoInputsNeedAWholeAuthSegmentNotASubstring():
 	# The lowered bar must not fire on a content URL that merely CONTAINS an
 	# auth word. /login-security-tips substring-matches the loose "/login"
 	# hint, but the strict segment matcher rejects it, so 2 inputs (search +
@@ -231,8 +231,8 @@ def test_two_inputs_need_a_whole_auth_segment_not_a_substring():
 	# FORM moves keyboard focus.
 	tree = _summary(
 		url="https://example.com/login-security-tips/",
-		form_input_count=2,
-		main_nodes=[
+		formInputCount=2,
+		mainNodes=[
 			_node("heading", 40, level=1),
 			_node("paragraph", 90, preview="Keeping your accounts safe starts with"),
 		],
@@ -241,25 +241,25 @@ def test_two_inputs_need_a_whole_auth_segment_not_a_substring():
 	assert result.intent != cls.Intent.FORM
 
 
-def test_one_input_on_auth_url_stays_below_the_bar():
+def test_oneInputOnAuthUrlStaysBelowTheBar():
 	# The floor is 2. A single input on an auth-looking URL is as likely a
 	# search box; staged email-first logins are a known accepted gap.
 	tree = _summary(
 		url="https://example.com/login",
-		form_input_count=1,
-		main_nodes=[_node("heading", 12, level=1, preview="Welcome back")],
+		formInputCount=1,
+		mainNodes=[_node("heading", 12, level=1, preview="Welcome back")],
 	)
 	result = cls.classify(tree)
 	assert result.intent != cls.Intent.FORM
 
 
-def test_auth_url_with_real_body_cluster_still_not_form():
+def test_authUrlWithRealBodyClusterStillNotForm():
 	# The body-cluster block is unconditional: a help-center article that
 	# happens to live under /login/ must keep its article landing.
 	tree = _summary(
 		url="https://example.com/login/troubleshooting",
-		form_input_count=2,
-		main_nodes=[
+		formInputCount=2,
+		mainNodes=[
 			_node("heading", 40, level=1),
 			_node("paragraph", 250),
 			_node("paragraph", 300),
@@ -270,15 +270,15 @@ def test_auth_url_with_real_body_cluster_still_not_form():
 	assert result.intent != cls.Intent.FORM
 
 
-def test_hero_still_blocks_weak_form_on_neutral_url():
+def test_heroStillBlocksWeakFormOnNeutralUrl():
 	# The mirror of the signup case: same weak form signal and hero, but a
 	# URL with no form hint. The hero block must still win — a WordPress
 	# homepage with an intro paragraph and a few sidebar widgets is not a
 	# form page.
 	tree = _summary(
 		url="https://example.com/",
-		form_input_count=3,
-		main_nodes=[
+		formInputCount=3,
+		mainNodes=[
 			_node("heading", 30, level=1),
 			_node("paragraph", 90, preview="Welcome to our site, where we write about"),
 		],
@@ -287,14 +287,14 @@ def test_hero_still_blocks_weak_form_on_neutral_url():
 	assert result.intent != cls.Intent.FORM
 
 
-def test_form_still_blocked_by_real_body_cluster_even_with_many_inputs():
+def test_formStillBlockedByRealBodyClusterEvenWithManyInputs():
 	# A real article with embedded survey widgets shouldn't get demoted to
-	# FORM just because the form_input_count is high. Real body cluster
+	# FORM just because the formInputCount is high. Real body cluster
 	# (multiple consecutive 100+ char paragraphs totaling ≥500 chars)
 	# remains an absolute FORM blocker.
 	tree = _summary(
-		form_input_count=10,
-		main_nodes=[
+		formInputCount=10,
+		mainNodes=[
 			_node("heading", 40, level=1),
 			_node("paragraph", 250),
 			_node("paragraph", 300),
@@ -309,10 +309,10 @@ def test_form_still_blocked_by_real_body_cluster_even_with_many_inputs():
 # ARTICLE
 # ---------------------------------------------------------------------------
 
-def test_article_with_article_element_and_body_cluster_is_high_confidence():
+def test_articleWithArticleElementAndBodyClusterIsHighConfidence():
 	tree = _summary(
-		article_count=1,
-		main_nodes=[
+		articleCount=1,
+		mainNodes=[
 			_node("heading", 30, level=1),
 			_node("paragraph", 200),
 			_node("paragraph", 180),
@@ -324,12 +324,12 @@ def test_article_with_article_element_and_body_cluster_is_high_confidence():
 	assert result.confidence >= 0.85
 
 
-def test_article_via_short_hero_fires_after_threshold_lowered():
+def test_articleViaShortHeroFiresAfterThresholdLowered():
 	# Regression: bestmidi.com/bg/ has a 60-char intro and no body cluster.
 	# With the old HERO_PARAGRAPH_MIN_CHARS=100 this returned UNKNOWN; the
 	# decoupled threshold of 50 now classifies it as ARTICLE via hero.
 	tree = _summary(
-		main_nodes=[
+		mainNodes=[
 			_node("paragraph", 60, preview="Text-based info and tools for X."),
 			_node("paragraph", 12),
 			_node("heading", 13, level=2),
@@ -343,13 +343,13 @@ def test_article_via_short_hero_fires_after_threshold_lowered():
 # LIST
 # ---------------------------------------------------------------------------
 
-def test_list_via_heading_cluster():
+def test_listViaHeadingCluster():
 	# 5 same-level headings interleaved with short list-item text.
 	nodes = []
 	for _ in range(5):
 		nodes.append(_node("heading", 30, level=2))
 		nodes.append(_node("paragraph", 50))
-	tree = _summary(main_nodes=nodes)
+	tree = _summary(mainNodes=nodes)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.LIST
 
@@ -358,8 +358,8 @@ def test_list_via_heading_cluster():
 # APP
 # ---------------------------------------------------------------------------
 
-def test_app_fires_with_many_controls_and_no_body_or_heading_cluster():
-	tree = _summary(interactive_control_count=15)
+def test_appFiresWithManyControlsAndNoBodyOrHeadingCluster():
+	tree = _summary(interactiveControlCount=15)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.APP
 
@@ -368,11 +368,11 @@ def test_app_fires_with_many_controls_and_no_body_or_heading_cluster():
 # NOTICE
 # ---------------------------------------------------------------------------
 
-def test_notice_with_keyword_match_is_high_confidence():
+def test_noticeWithKeywordMatchIsHighConfidence():
 	# Google Forms closed page shape — small, one heading, status sentence.
 	tree = _summary(
-		notice_keyword_match=True,
-		main_nodes=[
+		noticeKeywordMatch=True,
+		mainNodes=[
 			_node("heading", 28, level=1, preview="Web App Accessibility Survey"),
 			_node("paragraph", 130, preview="The form ... is no longer accepting responses"),
 			_node("paragraph", 50),
@@ -383,10 +383,10 @@ def test_notice_with_keyword_match_is_high_confidence():
 	assert result.confidence >= 0.85
 
 
-def test_notice_without_keyword_lower_confidence_but_still_fires():
+def test_noticeWithoutKeywordLowerConfidenceButStillFires():
 	# Small page with one heading and a short status sentence — no keyword.
 	tree = _summary(
-		main_nodes=[
+		mainNodes=[
 			_node("heading", 28, level=1),
 			_node("paragraph", 45),
 		],
@@ -395,10 +395,10 @@ def test_notice_without_keyword_lower_confidence_but_still_fires():
 	assert result.intent == cls.Intent.NOTICE
 
 
-def test_notice_does_not_fire_on_real_article_pages():
+def test_noticeDoesNotFireOnRealArticlePages():
 	# Real article with body cluster — ARTICLE must win, not NOTICE.
 	tree = _summary(
-		main_nodes=[
+		mainNodes=[
 			_node("heading", 40, level=1),
 			_node("paragraph", 250),
 			_node("paragraph", 300),
@@ -409,15 +409,15 @@ def test_notice_does_not_fire_on_real_article_pages():
 	assert result.intent == cls.Intent.ARTICLE
 
 
-def test_shape_only_notice_declines_when_counts_truncated():
+def test_shapeOnlyNoticeDeclinesWhenCountsTruncated():
 	# Same shape as the shape-only NOTICE above, but the counts phase hit
-	# its wall-clock budget — interactive_control_count may be a huge
+	# its wall-clock budget — interactiveControlCount may be a huge
 	# undercount (a busy page reading as 0 controls). Shape evidence IS
 	# small counts, so shape-only NOTICE must decline and leave the page
 	# to the 1500 ms retry, which will see honest counts.
 	tree = _summary(
-		counts_truncated=True,
-		main_nodes=[
+		countsTruncated=True,
+		mainNodes=[
 			_node("heading", 28, level=1),
 			_node("paragraph", 45),
 		],
@@ -426,14 +426,14 @@ def test_shape_only_notice_declines_when_counts_truncated():
 	assert result.intent != cls.Intent.NOTICE
 
 
-def test_keyword_notice_survives_counts_truncated():
+def test_keywordNoticeSurvivesCountsTruncated():
 	# The keyword path rests on real walked TEXT (status keyword), not on
 	# counts, so a truncated count phase must not silence a genuine
 	# "no longer accepting responses" page.
 	tree = _summary(
-		counts_truncated=True,
-		notice_keyword_match=True,
-		main_nodes=[
+		countsTruncated=True,
+		noticeKeywordMatch=True,
+		mainNodes=[
 			_node("heading", 28, level=1, preview="Web App Accessibility Survey"),
 			_node("paragraph", 130, preview="The form ... is no longer accepting responses"),
 			_node("paragraph", 50),
@@ -443,10 +443,10 @@ def test_keyword_notice_survives_counts_truncated():
 	assert result.intent == cls.Intent.NOTICE
 
 
-def test_notice_blocked_by_too_many_headings():
+def test_noticeBlockedByTooManyHeadings():
 	# Many headings = not a notice page.
 	tree = _summary(
-		main_nodes=[
+		mainNodes=[
 			_node("heading", 30, level=1),
 			_node("heading", 20, level=2),
 			_node("heading", 20, level=2),
@@ -454,7 +454,7 @@ def test_notice_blocked_by_too_many_headings():
 			_node("heading", 20, level=2),
 			_node("paragraph", 40),
 		],
-		notice_keyword_match=True,
+		noticeKeywordMatch=True,
 	)
 	result = cls.classify(tree)
 	assert result.intent != cls.Intent.NOTICE
@@ -464,11 +464,11 @@ def test_notice_blocked_by_too_many_headings():
 # KEY_RESULT — label + value [+ unit] widget pattern.
 # ---------------------------------------------------------------------------
 
-def test_key_result_fires_for_fast_com_style_speed_widget():
+def test_keyResultFiresForFastComStyleSpeedWidget():
 	# Pattern: short language-link chrome, then label / value / unit.
 	# No body cluster, no headings — pure widget page.
 	tree = _summary(
-		main_nodes=[
+		mainNodes=[
 			_node("paragraph", 8, preview="English"),
 			_node("paragraph", 9, preview="Español"),
 			_node("paragraph", 22, preview="Your Internet speed is"),  # label
@@ -480,7 +480,7 @@ def test_key_result_fires_for_fast_com_style_speed_widget():
 	assert result.intent == cls.Intent.KEY_RESULT
 
 
-def test_key_result_handles_caveat_between_value_and_unit():
+def test_keyResultHandlesCaveatBetweenValueAndUnit():
 	# fast.com renders a caveat paragraph between the value and the unit
 	# when the connection is unstable. As long as the unit appears within
 	# the lookahead window AND no PARAGRAPH_MIN_CHARS body paragraph stops
@@ -488,7 +488,7 @@ def test_key_result_handles_caveat_between_value_and_unit():
 	# 80 chars stays under PARAGRAPH_MIN_CHARS=100 so the lookahead can
 	# still reach "Mbps".
 	tree = _summary(
-		main_nodes=[
+		mainNodes=[
 			_node("paragraph", 22, preview="Your Internet speed is"),
 			_node("paragraph", 3, preview="170"),
 			_node("paragraph", 80, preview="* Your network is unstable. Estimate only."),
@@ -499,10 +499,10 @@ def test_key_result_handles_caveat_between_value_and_unit():
 	assert result.intent == cls.Intent.KEY_RESULT
 
 
-def test_key_result_fires_with_implicit_unit_in_value():
+def test_keyResultFiresWithImplicitUnitInValue():
 	# "85%" — the % IS the unit, no separate node needed.
 	tree = _summary(
-		main_nodes=[
+		mainNodes=[
 			_node("paragraph", 13, preview="Battery level"),
 			_node("paragraph", 3, preview="85%"),
 		],
@@ -511,13 +511,13 @@ def test_key_result_fires_with_implicit_unit_in_value():
 	assert result.intent == cls.Intent.KEY_RESULT
 
 
-def test_key_result_declines_when_counts_truncated():
+def test_keyResultDeclinesWhenCountsTruncated():
 	# KEY_RESULT's whole premise is "few controls, no form" — both gates
 	# lean on counts being real. A budget-truncated count phase can report
 	# 0 controls on a control-dense page, so KEY_RESULT must decline.
 	tree = _summary(
-		counts_truncated=True,
-		main_nodes=[
+		countsTruncated=True,
+		mainNodes=[
 			_node("paragraph", 22, preview="Your Internet speed is"),
 			_node("paragraph", 3, preview="170"),
 			_node("paragraph", 4, preview="Mbps"),
@@ -527,11 +527,11 @@ def test_key_result_declines_when_counts_truncated():
 	assert result.intent != cls.Intent.KEY_RESULT
 
 
-def test_key_result_does_not_fire_when_body_cluster_precedes():
+def test_keyResultDoesNotFireWhenBodyClusterPrecedes():
 	# Article with "Score: 5" mentioned inline AFTER a body paragraph.
 	# Body cluster wins (real article); KEY_RESULT skipped.
 	tree = _summary(
-		main_nodes=[
+		mainNodes=[
 			_node("paragraph", 250),  # body
 			_node("paragraph", 220),  # body
 			_node("paragraph", 12, preview="Final score"),
@@ -542,11 +542,11 @@ def test_key_result_does_not_fire_when_body_cluster_precedes():
 	assert result.intent != cls.Intent.KEY_RESULT
 
 
-def test_key_result_does_not_fire_without_unit_or_implicit_unit():
+def test_keyResultDoesNotFireWithoutUnitOrImplicitUnit():
 	# "Final score: 5" with no Mbps/min/% etc. after, and no $/%/° in
 	# value — pattern is ambiguous, do NOT fire.
 	tree = _summary(
-		main_nodes=[
+		mainNodes=[
 			_node("paragraph", 11, preview="Final score"),
 			_node("paragraph", 1, preview="5"),
 			_node("paragraph", 30, preview="That is the final tally for the game"),
@@ -556,12 +556,12 @@ def test_key_result_does_not_fire_without_unit_or_implicit_unit():
 	assert result.intent != cls.Intent.KEY_RESULT
 
 
-def test_key_result_does_not_fire_on_apps_with_many_controls():
+def test_keyResultDoesNotFireOnAppsWithManyControls():
 	# Dashboard with 15 controls — even if a label/value/unit triplet
 	# exists, KEY_RESULT must yield to APP / etc.
 	tree = _summary(
-		interactive_control_count=15,
-		main_nodes=[
+		interactiveControlCount=15,
+		mainNodes=[
 			_node("paragraph", 22, preview="Your Internet speed is"),
 			_node("paragraph", 3, preview="170"),
 			_node("paragraph", 4, preview="Mbps"),
@@ -571,12 +571,12 @@ def test_key_result_does_not_fire_on_apps_with_many_controls():
 	assert result.intent != cls.Intent.KEY_RESULT
 
 
-def test_key_result_does_not_fire_on_form_pages():
+def test_keyResultDoesNotFireOnFormPages():
 	# Pages with form inputs should fall through to FORM logic, not steal
 	# the user with a coincidental label/value/unit.
 	tree = _summary(
-		form_input_count=4,
-		main_nodes=[
+		formInputCount=4,
+		mainNodes=[
 			_node("paragraph", 22, preview="Your Internet speed is"),
 			_node("paragraph", 3, preview="170"),
 			_node("paragraph", 4, preview="Mbps"),
@@ -590,7 +590,7 @@ def test_key_result_does_not_fire_on_form_pages():
 # UNKNOWN
 # ---------------------------------------------------------------------------
 
-def test_unknown_when_no_signal():
+def test_unknownWhenNoSignal():
 	tree = _summary()
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.UNKNOWN
@@ -601,68 +601,68 @@ def test_unknown_when_no_signal():
 # Legal footer boilerplate vs hero (Zoom webinar registration regression)
 # ---------------------------------------------------------------------------
 
-def _boilerplate_node(length, preview=""):
+def _boilerplateNode(length, preview=""):
 	return cls.MainNode(
-		kind="paragraph", text_length=length, text_preview=preview, is_boilerplate=True,
+		kind="paragraph", textLength=length, textPreview=preview, isBoilerplate=True,
 	)
 
 
-def test_copyright_footer_alone_is_not_an_article_hero():
+def test_copyrightFooterAloneIsNotAnArticleHero():
 	# Pre-hydration Zoom webinar registration shell: the ONLY substantial
 	# paragraph is the footer copyright (flagged at walk time). It must not
 	# qualify as a hero, so the page must NOT classify as ARTICLE — leaving
 	# no landing and letting the caller's retry wait for hydration.
 	tree = _summary(
-		has_main_landmark=False,
-		interactive_control_count=8,
-		main_nodes=[
+		hasMainLandmark=False,
+		interactiveControlCount=8,
+		mainNodes=[
 			_node("paragraph", 20, preview="Skip to Main Content"),
 			_node("paragraph", 22, preview="Accessibility Overview"),
 			_node("paragraph", 7, preview="Support"),
-			_boilerplate_node(69, preview="Copyright ©2026 Zoom Video Communications, Inc. All rights"),
+			_boilerplateNode(69, preview="Copyright ©2026 Zoom Video Communications, Inc. All rights"),
 		],
 	)
 	result = cls.classify(tree)
 	assert result.intent != cls.Intent.ARTICLE
 
 
-def test_form_not_blocked_by_footer_copyright_pseudo_hero():
+def test_formNotBlockedByFooterCopyrightPseudoHero():
 	# A plain 3-input form page whose only 50+ char paragraph is the footer
 	# copyright. Before the boilerplate-aware hero computation, that line
-	# created has_hero=True and blocked FORM (weak form signal), leaving the
+	# created hasHero=True and blocked FORM (weak form signal), leaving the
 	# page unhandled. The copyright must not count as a hero.
 	tree = _summary(
-		form_input_count=3,
-		main_nodes=[
+		formInputCount=3,
+		mainNodes=[
 			_node("heading", 20, level=1, preview="Contact us"),
-			_boilerplate_node(69, preview="Copyright ©2026 Example Corp. All rights reserved."),
+			_boilerplateNode(69, preview="Copyright ©2026 Example Corp. All rights reserved."),
 		],
 	)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.FORM
 
 
-def test_hydrated_zoom_registration_classifies_as_form():
+def test_hydratedZoomRegistrationClassifiesAsForm():
 	# The REAL hydrated Zoom webinar registration page (measured 2026-07-06):
 	# H1 title (81 chars), one 1958-char description block, 7 form inputs,
 	# footer copyright. Strong form signal (>= 5 inputs) must win — the
 	# description hero does not block, and the copyright stays irrelevant.
 	tree = _summary(
 		url="https://us02web.zoom.us/webinar/register/WN_abc#/registration",
-		form_input_count=7,
-		interactive_control_count=12,
-		main_nodes=[
+		formInputCount=7,
+		interactiveControlCount=12,
+		mainNodes=[
 			_node("heading", 81, level=1, preview="AI as Assistive Technology: A Practical Stack for Entrepren"),
 			_node("heading", 20, level=2, preview="Webinar Registration"),
 			_node("paragraph", 1958, preview="Whether you're starting your business or scaling one, AI is"),
-			_boilerplate_node(69, preview="Copyright ©2026 Zoom Video Communications, Inc. All rights"),
+			_boilerplateNode(69, preview="Copyright ©2026 Zoom Video Communications, Inc. All rights"),
 		],
 	)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.FORM
 
 
-def test_zoom_registration_confirmation_classifies_as_notice():
+def test_zoomRegistrationConfirmationClassifiesAsNotice():
 	# The post-registration page (2026-07-06 debug log): 6 nodes, H1 "You
 	# have successfully registered" (32 chars), short paragraphs, ONE form
 	# field (the "Add to calendar" widget counts in NVDA's formField
@@ -671,10 +671,10 @@ def test_zoom_registration_confirmation_classifies_as_notice():
 	# beeps on a page that is the textbook NOTICE case.
 	tree = _summary(
 		url="https://us02web.zoom.us/rest/webinar/registrant/WN_abc/info?ac=approved",
-		form_input_count=1,
-		interactive_control_count=2,
-		notice_keyword_match=True,
-		main_nodes=[
+		formInputCount=1,
+		interactiveControlCount=2,
+		noticeKeywordMatch=True,
+		mainNodes=[
 			_node("heading", 32, level=1, preview="You have successfully registered"),
 			_node("paragraph", 44, preview="Please check the confirmation email sent to"),
 			_node("paragraph", 24, preview="he**@webfriendlyhelp.com"),
@@ -688,14 +688,14 @@ def test_zoom_registration_confirmation_classifies_as_notice():
 	assert result.confidence >= 0.85
 
 
-def test_shape_only_notice_still_requires_zero_form_fields():
+def test_shapeOnlyNoticeStillRequiresZeroFormFields():
 	# A small login-ish page (2 inputs, H1, short text, no status keyword)
 	# must NOT become a NOTICE just because the keyword path now tolerates
 	# form fields — the 0.65 shape-only path keeps the zero-fields gate.
 	tree = _summary(
-		form_input_count=2,
-		interactive_control_count=4,
-		main_nodes=[
+		formInputCount=2,
+		interactiveControlCount=4,
+		mainNodes=[
 			_node("heading", 7, level=1, preview="Sign in"),
 			_node("paragraph", 35, preview="Enter your username and password."),
 		],
@@ -708,7 +708,7 @@ def test_shape_only_notice_still_requires_zero_form_fields():
 # Massive-duo FORM block (armstrongeconomics newsletter-widget regression)
 # ---------------------------------------------------------------------------
 
-def test_blog_with_massive_paragraph_pair_is_not_form():
+def test_blogWithMassiveParagraphPairIsNotForm():
 	# Regression: armstrongeconomics.com war blog post (2026-07-06 soak).
 	# WordPress theme exposes NO <article> (so the editorial block was off)
 	# and a 6-input newsletter widget cleared the strong-form bar. The two
@@ -731,17 +731,17 @@ def test_blog_with_massive_paragraph_pair_is_not_form():
 	]
 	tree = _summary(
 		url="https://www.armstrongeconomics.com/world-news/war/zelensky-angers-allies/",
-		has_main_landmark=False,
-		article_count=0,
-		main_nodes=nodes,
-		form_input_count=6,
-		interactive_control_count=11,
+		hasMainLandmark=False,
+		articleCount=0,
+		mainNodes=nodes,
+		formInputCount=6,
+		interactiveControlCount=11,
 	)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.ARTICLE
 
 
-def test_register_url_with_massive_description_stays_form():
+def test_registerUrlWithMassiveDescriptionStaysForm():
 	# The escape hatch: a Zoom-style registration page whose rich
 	# description happens to chunk into two adjacent 200+ char paragraphs
 	# must STAY a form — the /register URL is the explicit signal.
@@ -752,17 +752,17 @@ def test_register_url_with_massive_description_stays_form():
 	]
 	tree = _summary(
 		url="https://us02web.zoom.us/webinar/register/WN_abc#/registration",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=nodes,
-		form_input_count=7,
-		interactive_control_count=9,
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=nodes,
+		formInputCount=7,
+		interactiveControlCount=9,
 	)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.FORM
 
 
-def test_massive_duo_requires_adjacency():
+def test_massiveDuoRequiresAdjacency():
 	# Two big paragraphs separated by a heading are sections, not a body
 	# duo — the helper itself must not fire.
 	nodes = [
@@ -770,15 +770,15 @@ def test_massive_duo_requires_adjacency():
 		_node("heading", 20, level=2),
 		_node("paragraph", 300),
 	]
-	assert cls._has_massive_paragraph_duo(nodes) is False
-	nodes_adjacent = [
+	assert cls._hasMassiveParagraphDuo(nodes) is False
+	nodesAdjacent = [
 		_node("paragraph", 300),
 		_node("paragraph", 300),
 	]
-	assert cls._has_massive_paragraph_duo(nodes_adjacent) is True
+	assert cls._hasMassiveParagraphDuo(nodesAdjacent) is True
 
 
-def test_editorial_url_blocks_form_on_podcast_page():
+def test_editorialUrlBlocksFormOnPodcastPage():
 	# Regression: thurrott.com podcast episode page (2026-07-06 soak).
 	# 10 form inputs (comment box, login, search, newsletter), no <article>
 	# exposed, episode description only 120 chars, long comment paragraphs
@@ -798,17 +798,17 @@ def test_editorial_url_blocks_form_on_podcast_page():
 	]
 	tree = _summary(
 		url="https://www.thurrott.com/podcasts/337378/first-ring-daily-1977-the-way-of-gpu",
-		has_main_landmark=False,
-		article_count=0,
-		main_nodes=nodes,
-		form_input_count=10,
-		interactive_control_count=11,
+		hasMainLandmark=False,
+		articleCount=0,
+		mainNodes=nodes,
+		formInputCount=10,
+		interactiveControlCount=11,
 	)
 	result = cls.classify(tree)
 	assert result.intent != cls.Intent.FORM
 
 
-def test_editorial_url_does_not_block_form_when_url_also_matches_form():
+def test_editorialUrlDoesNotBlockFormWhenUrlAlsoMatchesForm():
 	# /blog/contact matches both ARTICLE (/blog/) and FORM (/contact) —
 	# FORM must stay eligible.
 	nodes = [
@@ -817,11 +817,11 @@ def test_editorial_url_does_not_block_form_when_url_also_matches_form():
 	]
 	tree = _summary(
 		url="https://example.com/blog/contact",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=nodes,
-		form_input_count=5,
-		interactive_control_count=6,
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=nodes,
+		formInputCount=5,
+		interactiveControlCount=6,
 	)
 	result = cls.classify(tree)
 	assert result.intent == cls.Intent.FORM
@@ -830,7 +830,7 @@ def test_editorial_url_does_not_block_form_when_url_also_matches_form():
 # ---------------------------------------------------------------------------
 # Form-input counting: the count is now REAL INPUTS ONLY
 #
-# tree_summary used to fill form_input_count from NVDA's "formField" quick-nav
+# treeSummary used to fill formInputCount from NVDA's "formField" quick-nav
 # type, which counts BUTTONS as form fields. A control-dense CONTENT page
 # therefore maxed the counter (IMDb title pages and a TV station front page both
 # reported 10) and classified as FORM -- and the bare-form branch MOVED THE
@@ -841,7 +841,7 @@ def test_editorial_url_does_not_block_form_when_url_also_matches_form():
 # match. These tests pin BOTH sides of that boundary.
 # ---------------------------------------------------------------------------
 
-def test_content_page_with_one_search_box_is_not_a_form():
+def test_contentPageWithOneSearchBoxIsNotAForm():
 	# IMDb / a TV station front page: lots of buttons, ONE real search box, and
 	# a single substantial content paragraph. Must not be FORM -- FORM is the
 	# branch that hijacks the user's focus.
@@ -851,14 +851,14 @@ def test_content_page_with_one_search_box_is_not_a_form():
 		      preview="When a menace known as the Joker wreaks havoc and chaos on the"),
 	]
 	result = cls.classify(_summary(
-		main_nodes=nodes,
-		form_input_count=1,          # the search box, and nothing else
-		interactive_control_count=11,  # buttons galore -- must not matter
+		mainNodes=nodes,
+		formInputCount=1,          # the search box, and nothing else
+		interactiveControlCount=11,  # buttons galore -- must not matter
 	))
 	assert result.intent != cls.Intent.FORM
 
 
-def test_registration_form_with_four_real_inputs_is_a_form():
+def test_registrationFormWithFourRealInputsIsAForm():
 	# Wikipedia Special:CreateAccount -- username, password, confirm, email.
 	# Honest count is 4. With STRONG_FORM_INPUT_COUNT left at 5 this fell below
 	# the bar, the hero-paragraph gate blocked FORM, and a genuine registration
@@ -870,17 +870,17 @@ def test_registration_form_with_four_real_inputs_is_a_form():
 		      preview="Email is required to recover your account if you lose your pass"),
 	]
 	result = cls.classify(_summary(
-		main_nodes=nodes,
-		form_input_count=4,
-		interactive_control_count=11,
+		mainNodes=nodes,
+		formInputCount=4,
+		interactiveControlCount=11,
 	))
 	assert result.intent == cls.Intent.FORM
 
 
-def test_account_creation_url_is_a_form_url_not_an_article_url():
+def test_accountCreationUrlIsAFormUrlNotAnArticleUrl():
 	# Wikipedia's account-creation page redirects to
 	# auth.wikimedia.org/enwiki/wiki/Special:CreateAccount. That path contains
-	# "/wiki/", which matches the ARTICLE url hints, so has_editorial_url blocked
+	# "/wiki/", which matches the ARTICLE url hints, so hasEditorialUrl blocked
 	# FORM and a registration form classified as an encyclopedia article --
 	# landing the user on the help text BESIDE the form instead of in it.
 	nodes = [
@@ -890,14 +890,14 @@ def test_account_creation_url_is_a_form_url_not_an_article_url():
 	]
 	result = cls.classify(_summary(
 		url="https://auth.wikimedia.org/enwiki/wiki/Special:CreateAccount",
-		main_nodes=nodes,
-		form_input_count=4,
-		interactive_control_count=11,
+		mainNodes=nodes,
+		formInputCount=4,
+		interactiveControlCount=11,
 	))
 	assert result.intent == cls.Intent.FORM
 
 
-def test_wiki_article_url_still_reads_as_editorial():
+def test_wikiArticleUrlStillReadsAsEditorial():
 	# The guard above must not turn every /wiki/ page into a form. An ordinary
 	# encyclopedia article with a search box stays an ARTICLE.
 	nodes = [
@@ -908,20 +908,20 @@ def test_wiki_article_url_still_reads_as_editorial():
 	]
 	result = cls.classify(_summary(
 		url="https://en.wikipedia.org/wiki/Battle_of_Midway",
-		main_nodes=nodes,
-		form_input_count=1,
-		interactive_control_count=11,
+		mainNodes=nodes,
+		formInputCount=1,
+		interactiveControlCount=11,
 	))
 	assert result.intent != cls.Intent.FORM
 
 
-def test_survey_url_is_a_form_not_an_article():
+def test_surveyUrlIsAFormNotAnArticle():
 	# WebAIM Screen Reader User Survey #11 questions page (2026-07-20):
 	# webaim.org/projects/screenreadersurvey11/survey. NVDA reports article=1
 	# (the theme wraps the survey body in <article>) and 10 real form inputs.
-	# The single <article> tripped has_editorial_content and, with no form-URL
+	# The single <article> tripped hasEditorialContent and, with no form-URL
 	# hint, blocked FORM -- so the page fell to the ARTICLE hero fallback (0.75)
-	# and find_article_landing's largest-paragraph fallback landed the user on
+	# and findArticleLanding's largest-paragraph fallback landed the user on
 	# the LONGEST question label (Q13, 166 chars), mid-form. Every question is
 	# separated by its short answer options, so no <article>+body-cluster and
 	# no 3-in-a-row cluster ever forms to reach the right pick. The fix is the
@@ -948,20 +948,20 @@ def test_survey_url_is_a_form_not_an_article():
 	]
 	result = cls.classify(_summary(
 		url="https://webaim.org/projects/screenreadersurvey11/survey",
-		main_nodes=nodes,
-		article_count=1,
-		form_input_count=10,
-		interactive_control_count=11,
+		mainNodes=nodes,
+		articleCount=1,
+		formInputCount=10,
+		interactiveControlCount=11,
 	))
 	assert result.intent == cls.Intent.FORM
 
 
-def test_surveying_article_with_body_cluster_stays_editorial():
+def test_surveyingArticleWithBodyClusterStaysEditorial():
 	# Guard the /survey URL hint against its substring collision: a land-
 	# SURVEYING company's article at /surveying-services contains "/survey".
 	# The URL hint must only ever UNBLOCK a page that already looks like a
 	# form -- a real article body (3+ substantial adjacent paragraphs) must
-	# still block FORM via has_body_cluster_strong, which has no URL hatch.
+	# still block FORM via hasBodyClusterStrong, which has no URL hatch.
 	nodes = [
 		_node("heading", 24, level=1, preview="Boundary Surveying Services"),
 		_node("paragraph", 240, preview="A boundary survey establishes the legal property l"),
@@ -970,9 +970,9 @@ def test_surveying_article_with_body_cluster_stays_editorial():
 	]
 	result = cls.classify(_summary(
 		url="https://example.com/surveying-services",
-		main_nodes=nodes,
-		article_count=1,
-		form_input_count=4,
-		interactive_control_count=6,
+		mainNodes=nodes,
+		articleCount=1,
+		formInputCount=4,
+		interactiveControlCount=6,
 	))
 	assert result.intent != cls.Intent.FORM

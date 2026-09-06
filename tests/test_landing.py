@@ -1,6 +1,6 @@
 # Landing-finder tests.
 #
-# detection/web.py's find_article_landing / find_list_landing / find_notice_landing
+# detection/web.py's findArticleLanding / findListLanding / findNoticeLanding
 # are pure functions over a TreeSummary. These tests pin the behavior on the
 # page shapes we've encountered — especially the bestmidi.com regression
 # where the addon was landing on a footer line.
@@ -9,32 +9,32 @@ import classifier as cls
 from detection import web
 
 
-def _node(kind, length, level=None, preview="", ends_sentence=False, is_disclosure=False):
+def _node(kind, length, level=None, preview="", endsSentence=False, isDisclosure=False):
 	return cls.MainNode(
-		kind=kind, level=level, text_length=length, text_preview=preview,
-		ends_sentence=ends_sentence, is_disclosure=is_disclosure,
+		kind=kind, level=level, textLength=length, textPreview=preview,
+		endsSentence=endsSentence, isDisclosure=isDisclosure,
 	)
 
 
-def _summary_with(nodes):
-	return cls.TreeSummary(main_nodes=nodes)
+def _summaryWith(nodes):
+	return cls.TreeSummary(mainNodes=nodes)
 
 
 # ---------------------------------------------------------------------------
-# find_article_landing
+# findArticleLanding
 # ---------------------------------------------------------------------------
 
-def test_article_landing_picks_cluster_start():
+def test_articleLandingPicksClusterStart():
 	# Two substantial paragraphs in a row — first is the landing.
 	nodes = [
 		_node("paragraph", 150),
 		_node("paragraph", 200),
 		_node("paragraph", 180),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 0
+	assert web.findArticleLanding(_summaryWith(nodes)) == 0
 
 
-def test_article_landing_skips_photo_caption_before_lede():
+def test_articleLandingSkipsPhotoCaptionBeforeLede():
 	# Regression: fox21news.com article. The hero image's caption sits between
 	# the H1 and the opening line and clears the substantial bar, so it used to
 	# win the cluster gate and the cursor landed on the photo credit. The lede's
@@ -56,10 +56,10 @@ def test_article_landing_skips_photo_caption_before_lede():
 		_node("paragraph", len(lede), preview=lede),
 		_node("paragraph", len(body), preview=body),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_article_landing_skips_publisher_opinion_disclaimer():
+def test_articleLandingSkipsPublisherOpinionDisclaimer():
 	# RedState articles (2026-07-20, three of them, identical shape): H1, an
 	# author slug, a byline, then "The opinions expressed by contributors are
 	# their own and do not necessarily represent the views of RedState.com." —
@@ -82,46 +82,46 @@ def test_article_landing_skips_publisher_opinion_disclaimer():
 		_node("heading", 91, level=1, preview="F-16s Scrambled, Flares Deployed After Pilots Breach Airspace"),
 		_node("paragraph", 11, preview="rusty-weiss"),
 		_node("paragraph", 73, preview="By Rusty Weiss Rusty_Weiss ref_src=twsrc"),
-		_node("paragraph", len(disclaimer), ends_sentence=True, preview=disclaimer),
-		_node("paragraph", 427, ends_sentence=True, preview=share),
+		_node("paragraph", len(disclaimer), endsSentence=True, preview=disclaimer),
+		_node("paragraph", 427, endsSentence=True, preview=share),
 		_node("paragraph", 101, preview="A U.S. Air Force F-16 Fighting Falcon. (Credit: U."),
-		_node("paragraph", len(lede), ends_sentence=True, preview=lede),
+		_node("paragraph", len(lede), endsSentence=True, preview=lede),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 6
+	assert web.findArticleLanding(_summaryWith(nodes)) == 6
 
 
-def test_opinion_disclaimer_detected_and_prose_is_safe():
+def test_opinionDisclaimerDetectedAndProseIsSafe():
 	# The RedState disclaimer and a BBC-style variant match; prose containing
 	# only ONE half of the conjunction must not (both halves occur in ordinary
 	# sentences on their own).
-	assert web._looks_like_editorial_disclosure(
+	assert web._looksLikeEditorialDisclosure(
 		"The opinions expressed by contributors are their own and do not "
 		"necessarily represent the views of RedState.com.") is True
-	assert web._looks_like_editorial_disclosure(
+	assert web._looksLikeEditorialDisclosure(
 		"Views expressed in this article do not necessarily reflect those of "
 		"the BBC.") is True
-	assert web._looks_like_editorial_disclosure(
+	assert web._looksLikeEditorialDisclosure(
 		"The opinions expressed at the town hall were heated and divided.") is False
-	assert web._looks_like_editorial_disclosure(
+	assert web._looksLikeEditorialDisclosure(
 		"These lab results do not necessarily represent the broader population.") is False
 
 
-def test_newsletter_signup_promo_is_chrome_but_prose_is_safe():
+def test_newsletterSignupPromoIsChromeButProseIsSafe():
 	# Tom's Hardware front page landed on this newsletter CTA (2026-07-21); the
 	# "to your inbox" giveaway sits past the 60-char preview, so this is a
-	# walk-time is_disclosure flag over full text. Real prose is left alone.
-	assert web._looks_like_editorial_disclosure(
+	# walk-time isDisclosure flag over full text. Real prose is left alone.
+	assert web._looksLikeEditorialDisclosure(
 		"Get Tom's Hardware's best news and in-depth reviews, straight to your inbox.") is True
-	assert web._looks_like_editorial_disclosure(
+	assert web._looksLikeEditorialDisclosure(
 		"Sign up for our newsletter to get the latest deals and reviews.") is True
 	# Prose that merely mentions email / newsletters is NOT a signup CTA.
-	assert web._looks_like_editorial_disclosure(
+	assert web._looksLikeEditorialDisclosure(
 		"The startup builds a newsletter platform for independent writers.") is False
-	assert web._looks_like_editorial_disclosure(
+	assert web._looksLikeEditorialDisclosure(
 		"She opened her laptop and found the report waiting for her.") is False
 
 
-def test_article_landing_skips_dated_byline():
+def test_articleLandingSkipsDatedByline():
 	# Gateway Pundit (2026-07-21): "By Jenn Baker Jul. 20, 2026 7:40 pm" (with
 	# the article slug jammed onto the end) is the first substantial paragraph,
 	# a mixed-case "By Name" byline the all-caps rule skips. It won idx 1 and
@@ -132,7 +132,7 @@ def test_article_landing_skips_dated_byline():
 	        "like any other piece of construction equipment.")
 	nodes = [
 		_node("heading", 89, level=1, preview="Flock Safety's Billion-Dollar Surveillance Machine"),
-		_node("paragraph", 66, ends_sentence=True, preview=byline),
+		_node("paragraph", 66, endsSentence=True, preview=byline),
 		_node("paragraph", 15, preview="TruthTweetShare"),
 		_node("paragraph", 5, preview="Gettr"),
 		_node("paragraph", 122, preview="GabShare on TelegramShare on LinkedInShare on Fre"),
@@ -140,27 +140,27 @@ def test_article_landing_skips_dated_byline():
 		_node("paragraph", 19, preview="Audio by Carbonatix"),
 		_node("paragraph", 1, preview="0"),
 		_node("paragraph", 96, preview="Your Firefox settings blocked this content from tr"),
-		_node("paragraph", len(lede), ends_sentence=True, preview=lede),
-		_node("paragraph", 136, ends_sentence=True, preview="It also had a camera lens carved into both sides,"),
+		_node("paragraph", len(lede), endsSentence=True, preview=lede),
+		_node("paragraph", 136, endsSentence=True, preview="It also had a camera lens carved into both sides,"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 9
+	assert web.findArticleLanding(_summaryWith(nodes)) == 9
 
 
-def test_dated_byline_detected_and_by_prose_openers_safe():
+def test_datedBylineDetectedAndByProseOpenersSafe():
 	# The dated byline matches; real ledes that open with "By" do not — the
 	# guards are: a full Month-DD-YYYY date, a capitalized non-weekday name after
 	# "By", and a short length.
-	assert web._looks_like_byline("By Jenn Baker Jul. 20, 2026 7:40 pm") is True
-	assert web._looks_like_byline("By Sarah Connor March 3, 2025") is True
+	assert web._looksLikeByline("By Jenn Baker Jul. 20, 2026 7:40 pm") is True
+	assert web._looksLikeByline("By Sarah Connor March 3, 2025") is True
 	# weekday opener + date = temporal prose, not a byline
-	assert web._looks_like_byline("By Monday, June 5, 2026, the crews had cleared the debris.") is False
+	assert web._looksLikeByline("By Monday, June 5, 2026, the crews had cleared the debris.") is False
 	# no day in the date
-	assert web._looks_like_byline("By January 2026, sales had risen sharply.") is False
+	assert web._looksLikeByline("By January 2026, sales had risen sharply.") is False
 	# no date at all
-	assert web._looks_like_byline("By NASA's estimate, the mission will cost billions.") is False
+	assert web._looksLikeByline("By NASA's estimate, the mission will cost billions.") is False
 
 
-def test_headline_list_fires_on_wall_of_titles():
+def test_headlineListFiresOnWallOfTitles():
 	# Index/homepage: nav labels, then a wall of non-sentence headline titles,
 	# no article body. Land on the FIRST headline.
 	nodes = [
@@ -173,17 +173,17 @@ def test_headline_list_fires_on_wall_of_titles():
 		_node("paragraph", 66, preview="Intel to co-develop next-gen firewall silicon"),
 		_node("paragraph", 58, preview="TSMC eyes price hikes on chip production services"),
 	]
-	assert web._find_headline_list_landing(nodes) == 2
+	assert web._findHeadlineListLanding(nodes) == 2
 
 
-def test_headline_list_declines_when_article_body_present():
+def test_headlineListDeclinesWhenArticleBodyPresent():
 	# A real article with a related-stories rail: the sentence-ending body
 	# cluster must keep the headline gate OFF so the cascade lands on the body.
 	nodes = [
 		_node("heading", 30, level=1, preview="The Big Story"),
-		_node("paragraph", 180, ends_sentence=True, preview="The event unfolded over three days, beginning when the crew"),
-		_node("paragraph", 210, ends_sentence=True, preview="Officials confirmed the details in a briefing on Monday mor"),
-		_node("paragraph", 160, ends_sentence=True, preview="The full impact is still being assessed by the agency invol"),
+		_node("paragraph", 180, endsSentence=True, preview="The event unfolded over three days, beginning when the crew"),
+		_node("paragraph", 210, endsSentence=True, preview="Officials confirmed the details in a briefing on Monday mor"),
+		_node("paragraph", 160, endsSentence=True, preview="The full impact is still being assessed by the agency invol"),
 		_node("heading", 10, level=2, preview="Read more"),
 		_node("paragraph", 62, preview="Nvidia's DLSS 5 can switch between three AI models in real"),
 		_node("paragraph", 55, preview="China is considering export controls on AI technologies"),
@@ -192,83 +192,83 @@ def test_headline_list_declines_when_article_body_present():
 		_node("paragraph", 66, preview="Intel to co-develop next-gen firewall silicon"),
 		_node("paragraph", 58, preview="TSMC eyes price hikes on chip production services"),
 	]
-	assert web._find_headline_list_landing(nodes) is None
+	assert web._findHeadlineListLanding(nodes) is None
 	# and the cascade lands on the body, not the rail
-	assert web.find_article_landing(_summary_with(nodes)) == 1
+	assert web.findArticleLanding(_summaryWith(nodes)) == 1
 
 
-def test_url_slug_is_chrome():
+def test_urlSlugIsChrome():
 	# Ars Technica exposes each story's slug as its own line above the headline.
-	assert web._is_chrome_paragraph(
+	assert web._isChromeParagraph(
 		_node("paragraph", 36, preview="when-your-vehicle-outlives-its-cloud")) is True
 	# Real prose with spaces is never a slug, even with hyphens.
-	assert web._is_chrome_paragraph(
+	assert web._isChromeParagraph(
 		_node("paragraph", 24, preview="state-of-the-art design work")) is False
 
 
-def test_article_landing_skips_caption_via_flag_when_credit_truncated():
-	# Production path: tree_summary truncates text_preview to 60 chars, so the
+def test_articleLandingSkipsCaptionViaFlagWhenCreditTruncated():
+	# Production path: treeSummary truncates textPreview to 60 chars, so the
 	# trailing "(Getty Images)" credit is GONE from the preview and only the
-	# is_caption flag (computed over full text at walk time) marks the node.
+	# isCaption flag (computed over full text at walk time) marks the node.
 	# The landing must still skip it.
 	caption = cls.MainNode(
 		kind="paragraph",
-		text_length=103,
-		text_preview="Colorado State Capitol Building from the pathways of Civic Ce",  # 60 chars, no credit
-		is_caption=True,
+		textLength=103,
+		textPreview="Colorado State Capitol Building from the pathways of Civic Ce",  # 60 chars, no credit
+		isCaption=True,
 	)
-	lede = cls.MainNode(kind="paragraph", text_length=85, text_preview="DENVER (KDVR) - A handful of Colorado laws set to take effect")
+	lede = cls.MainNode(kind="paragraph", textLength=85, textPreview="DENVER (KDVR) - A handful of Colorado laws set to take effect")
 	# Long second paragraph so teaser-skip is in play; the dateline guard must
 	# still keep the landing on the lede.
-	body = cls.MainNode(kind="paragraph", text_length=190, text_preview="While Colorado laws get passed all the time, the effective da")
+	body = cls.MainNode(kind="paragraph", textLength=190, textPreview="While Colorado laws get passed all the time, the effective da")
 	nodes = [
 		_node("heading", 45, level=1, preview="These Colorado laws are going into effect in July"),
 		caption,
 		lede,
 		body,
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_image_caption_filter_matches_credits_not_datelines():
+def test_imageCaptionFilterMatchesCreditsNotDatelines():
 	# Trailing photo-credit parenthetical → caption.
-	assert web._looks_like_image_caption("A scenic overlook at sunset (Getty Images)")
-	assert web._looks_like_image_caption("City hall downtown. (Photo: Jane Doe)")
-	assert web._looks_like_image_caption("Image courtesy of the city of Denver")
+	assert web._looksLikeImageCaption("A scenic overlook at sunset (Getty Images)")
+	assert web._looksLikeImageCaption("City hall downtown. (Photo: Jane Doe)")
+	assert web._looksLikeImageCaption("Image courtesy of the city of Denver")
 	# Leading non-credit parenthetical (news dateline) → NOT a caption.
-	assert not web._looks_like_image_caption(
+	assert not web._looksLikeImageCaption(
 		"DENVER (KDVR) - A handful of Colorado laws take effect in July."
 	)
 	# Ordinary prose with an aside in parentheses → NOT a caption.
-	assert not web._looks_like_image_caption(
+	assert not web._looksLikeImageCaption(
 		"The bill (which passed in May) raises the minimum wage statewide."
 	)
 
 
-def test_news_dateline_detection():
+def test_newsDatelineDetection():
 	# AP-style datelines → True (em-dash, en-dash, and spaced-hyphen separators).
-	assert web._looks_like_news_dateline("DENVER (KDVR) — A handful of Colorado laws take effect.")
-	assert web._looks_like_news_dateline("DENVER (KDVR) - A handful of Colorado laws take effect.")
-	assert web._looks_like_news_dateline("WASHINGTON — The Senate voted Tuesday.")
-	assert web._looks_like_news_dateline("NEW YORK (AP) — Stocks rose.")
+	assert web._looksLikeNewsDateline("DENVER (KDVR) — A handful of Colorado laws take effect.")
+	assert web._looksLikeNewsDateline("DENVER (KDVR) - A handful of Colorado laws take effect.")
+	assert web._looksLikeNewsDateline("WASHINGTON — The Senate voted Tuesday.")
+	assert web._looksLikeNewsDateline("NEW YORK (AP) — Stocks rose.")
 	# Sentence-case prose (a CNET-style teaser) and ordinary openers → False.
-	assert not web._looks_like_news_dateline("When I first started using an iMac back in 2008.")
-	assert not web._looks_like_news_dateline("Keyboard shortcuts can be a huge time saver.")
-	assert not web._looks_like_news_dateline("The Senate voted Tuesday to advance the bill.")
+	assert not web._looksLikeNewsDateline("When I first started using an iMac back in 2008.")
+	assert not web._looksLikeNewsDateline("Keyboard shortcuts can be a huge time saver.")
+	assert not web._looksLikeNewsDateline("The Senate voted Tuesday to advance the bill.")
 
 
-def test_article_landing_picks_hero_before_heading():
+def test_articleLandingPicksHeroBeforeHeading():
 	# Hero pattern: substantial paragraph followed by a heading within lookahead.
 	nodes = [
 		_node("paragraph", 200),
 		_node("heading", 30, level=2),
 		_node("paragraph", 50),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 0
+	assert web.findArticleLanding(_summaryWith(nodes)) == 0
 
 
-def test_article_landing_does_not_return_last_node_if_better_exists():
-	# Regression: bestmidi.com/bg/ — scoped walk failed, main_nodes contains
+def test_articleLandingDoesNotReturnLastNodeIfBetterExists():
+	# Regression: bestmidi.com/bg/ — scoped walk failed, mainNodes contains
 	# nav + intro + footer. Idx 6 (60-char intro) is the right landing. The
 	# old code returned idx 19 (59-char footer) via "last node, accept"
 	# shortcut. The fix removes that shortcut so the largest-paragraph
@@ -295,12 +295,12 @@ def test_article_landing_does_not_return_last_node_if_better_exists():
 		_node("paragraph", 32),
 		_node("paragraph", 59),   # 19 footer disclaimer ← used to land here
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 6
+	assert web.findArticleLanding(_summaryWith(nodes)) == 6
 
 
-def test_article_landing_jetpack_daily_writing_prompt():
+def test_articleLandingJetpackDailyWritingPrompt():
 	# Regression: steviet3.wordpress.com daily-prompt post. has_main=False so
-	# main_nodes leads with the nav menu, then the Jetpack "Daily writing
+	# mainNodes leads with the nav menu, then the Jetpack "Daily writing
 	# prompt" widget (label / question / "View all responses"), then short
 	# intro lines, then the numbered advice list. The prompt question is a
 	# lone 64-char paragraph: it loses the cluster gate (next node is the
@@ -323,10 +323,10 @@ def test_article_landing_jetpack_daily_writing_prompt():
 		_node("paragraph", 89, preview="1. Follow your heart. Think about what you're good"),  # 12
 		_node("paragraph", 138, preview="3. Take heed of the warnings on cigarette packets "),  # 13
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 9
+	assert web.findArticleLanding(_summaryWith(nodes)) == 9
 
 
-def test_article_landing_no_prompt_widget_unaffected():
+def test_articleLandingNoPromptWidgetUnaffected():
 	# Sanity: a post without the widget still lands via the normal cluster
 	# gate, unchanged by the widget rule.
 	nodes = [
@@ -334,12 +334,12 @@ def test_article_landing_no_prompt_widget_unaffected():
 		_node("paragraph", 89, preview="1. Follow your heart..."),
 		_node("paragraph", 138, preview="3. Take heed..."),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 1
+	assert web.findArticleLanding(_summaryWith(nodes)) == 1
 
 
-def test_article_landing_positionally_scoped_takes_first_substantial():
+def test_articleLandingPositionallyScopedTakesFirstSubstantial():
 	# Regression: steviet3.wordpress.com after article-positional scoping.
-	# main_nodes is now chrome-free (post metadata then content). The prompt
+	# mainNodes is now chrome-free (post metadata then content). The prompt
 	# question (idx 4, 64 chars) is a lone sub-100 paragraph followed by a
 	# 33-char intro, so the hero/cluster gates would skip it and land on the
 	# list (idx 6). Because the tree is positionally scoped, land on the first
@@ -354,11 +354,11 @@ def test_article_landing_positionally_scoped_takes_first_substantial():
 		_node("paragraph", 89, preview="1. Follow your heart. Think about what you’re good"),  # 6
 		_node("paragraph", 138, preview="3. Take heed of the warnings on cigarette packets "),  # 7
 	]
-	summary = cls.TreeSummary(main_nodes=nodes, positionally_scoped=True)
-	assert web.find_article_landing(summary) == 4
+	summary = cls.TreeSummary(mainNodes=nodes, positionallyScoped=True)
+	assert web.findArticleLanding(summary) == 4
 
 
-def test_article_landing_not_scoped_keeps_defensive_gates():
+def test_articleLandingNotScopedKeepsDefensiveGates():
 	# Same shape but NOT positionally scoped (unscoped/noisy tree): the lone
 	# 64-char paragraph must still lose to the list cluster, preserving the
 	# defensive behavior that protects against pre-content chrome.
@@ -368,41 +368,41 @@ def test_article_landing_not_scoped_keeps_defensive_gates():
 		_node("paragraph", 89, preview="1. Follow your heart..."),
 		_node("paragraph", 138, preview="3. Take heed..."),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_looks_like_tag_list_detects_no_space_comma_joined_categories():
+def test_looksLikeTagListDetectsNoSpaceCommaJoinedCategories():
 	# Direct unit test for the helper. Tag rows look like
 	# "CoPilot,Microsoft 365,Microsoft Excel,..." with no spaces.
-	assert web._looks_like_tag_list("CoPilot,Microsoft 365,Microsoft Excel,Microsoft Office") is True
-	assert web._looks_like_tag_list("A,B,C,D") is True
+	assert web._looksLikeTagList("CoPilot,Microsoft 365,Microsoft Excel,Microsoft Office") is True
+	assert web._looksLikeTagList("A,B,C,D") is True
 
 
-def test_looks_like_accessibility_instructions_detects_amazon_dropdown_help():
+def test_looksLikeAccessibilityInstructionsDetectsAmazonDropdownHelp():
 	# Amazon product pages emit text like "Shop by Room, You are currently
 	# on a drop-down. To open this, press alt+down arrow." — UI help, not
 	# article content. The "you are currently on" phrase is the signal.
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions(
 		"Shop by Room, You are currently on a drop-down. To open this, press alt+down arrow."
 	) is True
 	# Case-insensitive.
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions(
 		"YOU ARE CURRENTLY ON a tab control. Press right arrow to move."
 	) is True
 
 
-def test_looks_like_accessibility_instructions_rejects_normal_prose():
+def test_looksLikeAccessibilityInstructionsRejectsNormalProse():
 	# Prose that doesn't contain the specific phrase should pass through.
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions(
 		"For years, Malwarebytes has protected people by going where they are."
 	) is False
-	assert web._looks_like_accessibility_instructions("") is False
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions("") is False
+	assert web._looksLikeAccessibilityInstructions(
 		"Microsoft has quietly flipped a major switch."
 	) is False
 
 
-def test_content_section_landing_picks_paragraph_after_about_this_item():
+def test_contentSectionLandingPicksParagraphAfterAboutThisItem():
 	# Generic Amazon-style pattern: a chrome-heavy page where the actual
 	# product description lives under an "About this item" heading.
 	nodes = [
@@ -415,10 +415,10 @@ def test_content_section_landing_picks_paragraph_after_about_this_item():
 	]
 	# Should land on idx 4 (first substantial paragraph after the
 	# "About this item" heading), NOT idx 1 or 2 (chrome).
-	assert web.find_article_landing(_summary_with(nodes)) == 4
+	assert web.findArticleLanding(_summaryWith(nodes)) == 4
 
 
-def test_content_section_landing_handles_description_heading():
+def test_contentSectionLandingHandlesDescriptionHeading():
 	# Recipe / how-to / software-doc pattern: "Description" heading is
 	# where the actual content begins, with chrome before it.
 	nodes = [
@@ -426,10 +426,10 @@ def test_content_section_landing_handles_description_heading():
 		_node("heading", 11, preview="Description", level=2),
 		_node("paragraph", 220, preview="This handcrafted ceramic mug holds 12 ounces and is microwave safe"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_content_section_landing_falls_through_when_section_empty():
+def test_contentSectionLandingFallsThroughWhenSectionEmpty():
 	# If the matching heading has no substantial paragraph before the next
 	# heading, the function gives up and lets the normal heuristics run.
 	nodes = [
@@ -440,10 +440,10 @@ def test_content_section_landing_falls_through_when_section_empty():
 	]
 	# Description section has nothing substantial; falls through to the
 	# very-substantial rule on idx 3.
-	assert web.find_article_landing(_summary_with(nodes)) == 3
+	assert web.findArticleLanding(_summaryWith(nodes)) == 3
 
 
-def test_content_section_landing_returns_none_with_no_matching_section():
+def test_contentSectionLandingReturnsNoneWithNoMatchingSection():
 	# Without any matching heading text, the function returns None and
 	# normal article-shape heuristics apply unchanged.
 	nodes = [
@@ -451,10 +451,10 @@ def test_content_section_landing_returns_none_with_no_matching_section():
 		_node("paragraph", 200, preview="Body paragraph two"),
 	]
 	# Very-substantial rule wins idx 0; content-section landing didn't fire.
-	assert web.find_article_landing(_summary_with(nodes)) == 0
+	assert web.findArticleLanding(_summaryWith(nodes)) == 0
 
 
-def test_content_section_landing_skips_a11y_instructions_under_section():
+def test_contentSectionLandingSkipsA11yInstructionsUnderSection():
 	# The substantial paragraph filters (tag-list, a11y-instructions)
 	# still apply inside content sections — if the first "paragraph" after
 	# "About this item" is screen-reader help, skip it.
@@ -463,10 +463,10 @@ def test_content_section_landing_skips_a11y_instructions_under_section():
 		_node("paragraph", 80, preview="You are currently on a tab. Press right arrow to navigate."),
 		_node("paragraph", 180, preview="The real product description starts here with prose content."),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def _vovsoft_ai_requester_nodes():
+def _vovsoftAiRequesterNodes():
 	"""The real node trail from vovsoft.com/software/ai-requester/, taken from
 	the decision trace of a live mislanding (2026-07-18, nvda.log).
 
@@ -488,13 +488,13 @@ def _vovsoft_ai_requester_nodes():
 		_node("heading", 32, level=2, preview="Connects to OpenAI API with ease"),
 		_node("paragraph", 27, preview="Release Date: June 13, 2026"),
 		_node("paragraph", 30, preview="Version: 5.2 (Version History)"),
-		_node("paragraph", 74, ends_sentence=True,
+		_node("paragraph", 74, endsSentence=True,
 			preview="This program requires your own OpenAI API key for onl"),
-		_node("paragraph", 103, ends_sentence=True,
+		_node("paragraph", 103, endsSentence=True,
 			preview="Local models can run directly on your computer without"),
-		_node("paragraph", 102, ends_sentence=True,
+		_node("paragraph", 102, endsSentence=True,
 			preview="Vovsoft AI Requester is a program that can connect to"),
-		_node("paragraph", 183, ends_sentence=True,
+		_node("paragraph", 183, endsSentence=True,
 			preview="The software provides a reliable and easy-to-use interf"),
 	]
 	# 9-33: the feature sections. Only the shape matters here, not the text.
@@ -512,14 +512,14 @@ def _vovsoft_ai_requester_nodes():
 	while len(nodes) < 49:
 		nodes.append(_node("paragraph", 30, preview="Short bullet"))
 	# 49: what the add-on wrongly spoke.
-	nodes.append(_node("paragraph", 387, ends_sentence=True,
+	nodes.append(_node("paragraph", 387, endsSentence=True,
 		preview="To receive license key and use all features of the s"))
 	return nodes
 
 
-def test_content_section_does_not_claim_a_distant_paragraph():
+def test_contentSectionDoesNotClaimADistantParagraph():
 	# Regression: vovsoft product pages spoke a licensing blurb instead of the
-	# product description. _find_content_section_landing matched the "Key
+	# product description. _findContentSectionLanding matched the "Key
 	# Features" heading at 34, then scanned forward with NO distance limit,
 	# stopping only at the next heading. There IS no next heading, so it ran to
 	# the end of the document and claimed the licensing paragraph at 49 —
@@ -529,25 +529,25 @@ def test_content_section_does_not_claim_a_distant_paragraph():
 	# with truncated=False, and their descriptions were 263 and 207 chars,
 	# comfortably over the 200-char very-substantial bar. The content-section
 	# gate runs BEFORE that rule and jumped past them.
-	nodes = _vovsoft_ai_requester_nodes()
-	idx = web.find_article_landing(_summary_with(nodes))
+	nodes = _vovsoftAiRequesterNodes()
+	idx = web.findArticleLanding(_summaryWith(nodes))
 	assert idx != 49, "landed on the licensing blurb, the reported bug"
 	# Must land in the genuine description block near the top of the page.
 	assert 5 <= idx <= 8, f"expected the product description block, got idx={idx}"
 
 
-def test_definitional_lede_beats_a_prerequisite_note_above_it():
+def test_definitionalLedeBeatsAPrerequisiteNoteAboveIt():
 	# The cluster gate awards the landing to the FIRST of two adjacent
 	# substantial paragraphs. On the real vovsoft page that is a prerequisite
 	# note ("This program requires your own OpenAI API key...", 74 chars)
 	# clustered with a feature line (103), while the sentence that says what the
 	# product IS sits two nodes below. Casey confirmed live that the note was
 	# what got spoken and that he wanted the description instead.
-	nodes = _vovsoft_ai_requester_nodes()
-	assert web.find_article_landing(_summary_with(nodes)) == 7
+	nodes = _vovsoftAiRequesterNodes()
+	assert web.findArticleLanding(_summaryWith(nodes)) == 7
 
 
-def test_definitional_lede_leaves_ordinary_article_prose_alone():
+def test_definitionalLedeLeavesOrdinaryArticleProseAlone():
 	# The refinement must be inert on news shapes. No paragraph here names the
 	# page subject followed by a copula, so the cluster gate's own choice
 	# stands. This is the guard that keeps a general prose rule from becoming a
@@ -555,15 +555,15 @@ def test_definitional_lede_leaves_ordinary_article_prose_alone():
 	nodes = [
 		_node("heading", 48, level=1,
 			preview="These Colorado laws are going into effect in July"),
-		_node("paragraph", 86, ends_sentence=True,
+		_node("paragraph", 86, endsSentence=True,
 			preview="DENVER (KDVR) - A handful of Colorado laws are set to take"),
-		_node("paragraph", 190, ends_sentence=True,
+		_node("paragraph", 190, endsSentence=True,
 			preview="While Colorado laws get passed all the time, the effective"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 1
+	assert web.findArticleLanding(_summaryWith(nodes)) == 1
 
 
-def test_definitional_lede_ignores_a_passing_mention_deep_in_prose():
+def test_definitionalLedeIgnoresAPassingMentionDeepInProse():
 	# "is a" far from the subject, or a subject mentioned deep into the
 	# paragraph, must NOT qualify — otherwise any body paragraph that happens to
 	# name the product becomes a landing magnet.
@@ -572,30 +572,30 @@ def test_definitional_lede_ignores_a_passing_mention_deep_in_prose():
 		"After a long preamble about pricing and availability in several "
 		"regions, the vendor notes that Widget Pro is a tool."
 	)
-	assert web._looks_like_definitional_lede(late, subject) is False
+	assert web._looksLikeDefinitionalLede(late, subject) is False
 	# Subject present early, but no copula near it.
-	assert web._looks_like_definitional_lede(
+	assert web._looksLikeDefinitionalLede(
 		"Widget Pro pricing changed last year for most customers.", subject,
 	) is False
 	# The real shape, including a vendor prefix before the H1 text.
-	assert web._looks_like_definitional_lede(
+	assert web._looksLikeDefinitionalLede(
 		"Acme Widget Pro is a tool that trims images.", subject,
 	) is True
 
 
-def test_content_section_still_claims_an_adjacent_paragraph():
+def test_contentSectionStillClaimsAnAdjacentParagraph():
 	# The distance bound must not break the case the gate exists for: on a real
 	# product page the description sits directly under its section heading.
 	nodes = [
 		_node("paragraph", 60, preview="Sponsored ads and tag widgets, click here for offers"),
 		_node("heading", 16, preview="About this item", level=2),
-		_node("paragraph", 180, ends_sentence=True,
+		_node("paragraph", 180, endsSentence=True,
 			preview="Premium stainless steel with a brushed finish makes this"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_article_landing_skips_screen_reader_instructions():
+def test_articleLandingSkipsScreenReaderInstructions():
 	# Regression scenario: Amazon-style chrome where an accessibility help
 	# paragraph (84 chars) wins via cluster with the next chrome paragraph.
 	# The filter eliminates this candidate; the actual article-shaped node
@@ -610,19 +610,19 @@ def test_article_landing_skips_screen_reader_instructions():
 	# are both candidates. Without the a11y filter, idx 1 would win
 	# (cluster with idx 2). With the filter, idx 3 (>= 200, very-substantial)
 	# wins.
-	assert web.find_article_landing(_summary_with(nodes)) == 3
+	assert web.findArticleLanding(_summaryWith(nodes)) == 3
 
 
-def test_looks_like_tag_list_rejects_prose_with_spaced_commas():
+def test_looksLikeTagListRejectsProseWithSpacedCommas():
 	# Real prose uses commas WITH spaces as standard punctuation.
-	assert web._looks_like_tag_list("Microsoft has quietly flipped a major switch. Copilot Agent Mode is now the default in Word, Excel, and PowerPoint.") is False
-	assert web._looks_like_tag_list("Apple, Orange, Banana") is False
+	assert web._looksLikeTagList("Microsoft has quietly flipped a major switch. Copilot Agent Mode is now the default in Word, Excel, and PowerPoint.") is False
+	assert web._looksLikeTagList("Apple, Orange, Banana") is False
 	# Too short or no commas at all.
-	assert web._looks_like_tag_list("Some short text.") is False
-	assert web._looks_like_tag_list("") is False
+	assert web._looksLikeTagList("Some short text.") is False
+	assert web._looksLikeTagList("") is False
 
 
-def test_article_landing_very_substantial_paragraph_wins_over_later_bullet_cluster():
+def test_articleLandingVerySubstantialParagraphWinsOverLaterBulletCluster():
 	# Regression: malwarebytes article — 280-char intro paragraph followed
 	# by a short transitional sentence, then a bullet list whose items each
 	# pass the 50-char "substantial" bar. Without the very-substantial rule,
@@ -640,10 +640,10 @@ def test_article_landing_very_substantial_paragraph_wins_over_later_bullet_clust
 		_node("paragraph", 110, preview="• Check email: Forward suspicious emails"),
 		_node("paragraph", 100, preview="• Check messages: Paste text messages"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 4
+	assert web.findArticleLanding(_summaryWith(nodes)) == 4
 
 
-def test_article_landing_skips_tag_list_before_article_heading():
+def test_articleLandingSkipsTagListBeforeArticleHeading():
 	# Regression: office-watch.com/2026/copilot-agent-mode-... was landing
 	# on a 126-char tag row "CoPilot,Microsoft 365,Microsoft Excel,...".
 	# It won the hero shortcut because (a) it was >= 100 chars and (b)
@@ -667,16 +667,16 @@ def test_article_landing_skips_tag_list_before_article_heading():
 	]
 	# Tag row at idx 8 must be skipped. Article body cluster at idx 10/11
 	# wins via primary cluster check (idx 10's next is also substantial).
-	result_idx = web.find_article_landing(_summary_with(nodes))
-	assert result_idx == 10, f"expected 10 (article body), got {result_idx} (would be tag row at 8 if filter missed it)"
+	resultIdx = web.findArticleLanding(_summaryWith(nodes))
+	assert resultIdx == 10, f"expected 10 (article body), got {resultIdx} (would be tag row at 8 if filter missed it)"
 
 
-def test_article_landing_skips_disclaimer_paragraph_before_first_heading():
+def test_articleLandingSkipsDisclaimerParagraphBeforeFirstHeading():
 	# Regression: pcmag.com — a 167-char publisher disclaimer "PCMag
 	# editors select and review products..." sits BEFORE the article's
 	# H1. Old code returned that disclaimer via the hero shortcut because
 	# the H1 was in its lookahead window. The fix: hero shortcut requires
-	# that we've already seen a heading earlier in main_nodes. Pre-H1
+	# that we've already seen a heading earlier in mainNodes. Pre-H1
 	# substantial paragraphs are almost always chrome (disclaimer, dek,
 	# byline) — let post-H1 article body win via very-substantial or
 	# cluster instead.
@@ -697,10 +697,10 @@ def test_article_landing_skips_disclaimer_paragraph_before_first_heading():
 	]
 	# Should land on the 280-char body via very-substantial, NOT the
 	# 167-char pre-H1 disclaimer.
-	assert web.find_article_landing(_summary_with(nodes)) == 8
+	assert web.findArticleLanding(_summaryWith(nodes)) == 8
 
 
-def test_article_landing_skips_short_ui_label_followed_by_heading():
+def test_articleLandingSkipsShortUiLabelFollowedByHeading():
 	# Regression: calendar.google.com had "Google Account: Casey Mathews
 	# (help@webf...)" (56 chars) at idx 6, followed by a "Drawer" heading
 	# at idx 7. The old hero-pattern code returned idx 6 because of the
@@ -723,10 +723,10 @@ def test_article_landing_skips_short_ui_label_followed_by_heading():
 		_node("paragraph", 181, preview="2:30pm to 4pm appointment"),
 	]
 	# Largest paragraph is the 181-char appointment at idx 46.
-	assert web.find_article_landing(_summary_with(nodes)) == 46
+	assert web.findArticleLanding(_summaryWith(nodes)) == 46
 
 
-def test_article_landing_returns_only_substantial_paragraph_when_alone():
+def test_articleLandingReturnsOnlySubstantialParagraphWhenAlone():
 	# Regression guard: removing the last-node shortcut must not break the
 	# legitimate single-substantial-paragraph-as-last-node case.
 	nodes = [
@@ -734,19 +734,19 @@ def test_article_landing_returns_only_substantial_paragraph_when_alone():
 		_node("paragraph", 8),
 		_node("paragraph", 120),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_article_landing_returns_none_when_nothing_qualifies():
+def test_articleLandingReturnsNoneWhenNothingQualifies():
 	nodes = [_node("paragraph", 10), _node("paragraph", 15)]
-	assert web.find_article_landing(_summary_with(nodes)) is None
+	assert web.findArticleLanding(_summaryWith(nodes)) is None
 
 
 # ---------------------------------------------------------------------------
-# find_list_landing
+# findListLanding
 # ---------------------------------------------------------------------------
 
-def test_list_landing_picks_first_heading_in_largest_cluster():
+def test_listLandingPicksFirstHeadingInLargestCluster():
 	# Two same-level heading clusters, the longer one wins.
 	nodes = [
 		_node("heading", 30, level=2),
@@ -757,24 +757,24 @@ def test_list_landing_picks_first_heading_in_largest_cluster():
 		_node("heading", 30, level=3),
 		_node("heading", 30, level=3),
 	]
-	assert web.find_list_landing(_summary_with(nodes)) == 2
+	assert web.findListLanding(_summaryWith(nodes)) == 2
 
 
 # ---------------------------------------------------------------------------
-# find_notice_landing
+# findNoticeLanding
 # ---------------------------------------------------------------------------
 
-def test_notice_landing_first_substantial_paragraph_in_document_order():
+def test_noticeLandingFirstSubstantialParagraphInDocumentOrder():
 	# Classic notice shape: H1 + status sentence.
 	nodes = [
 		_node("heading", 28, level=1),
 		_node("paragraph", 130),
 		_node("paragraph", 50),
 	]
-	assert web.find_notice_landing(_summary_with(nodes)) == 1
+	assert web.findNoticeLanding(_summaryWith(nodes)) == 1
 
 
-def test_notice_landing_picks_substantial_paragraph_before_heading():
+def test_noticeLandingPicksSubstantialParagraphBeforeHeading():
 	# Regression: bestmidi.com/bg/ — the substantial intro precedes the first
 	# detected heading. Old code's "first paragraph after first heading" rule
 	# skipped it and landed on a much later footer text. New code picks the
@@ -786,30 +786,30 @@ def test_notice_landing_picks_substantial_paragraph_before_heading():
 		_node("heading", 13, level=2),
 		_node("paragraph", 32),
 	]
-	assert web.find_notice_landing(_summary_with(nodes)) == 1
+	assert web.findNoticeLanding(_summaryWith(nodes)) == 1
 
 
-def test_notice_landing_falls_back_to_heading_when_no_substantial_paragraph():
+def test_noticeLandingFallsBackToHeadingWhenNoSubstantialParagraph():
 	nodes = [
 		_node("paragraph", 5),
 		_node("heading", 20, level=1),
 		_node("paragraph", 10),
 	]
-	assert web.find_notice_landing(_summary_with(nodes)) == 1
+	assert web.findNoticeLanding(_summaryWith(nodes)) == 1
 
 
-def test_notice_landing_returns_zero_on_pathological_node_list():
+def test_noticeLandingReturnsZeroOnPathologicalNodeList():
 	# Truly empty content — return idx 0 rather than None so the caller has
 	# something to anchor on.
 	nodes = [_node("paragraph", 5)]
-	assert web.find_notice_landing(_summary_with(nodes)) == 0
+	assert web.findNoticeLanding(_summaryWith(nodes)) == 0
 
 
-def test_notice_landing_returns_none_when_main_nodes_empty():
-	assert web.find_notice_landing(_summary_with([])) is None
+def test_noticeLandingReturnsNoneWhenMainNodesEmpty():
+	assert web.findNoticeLanding(_summaryWith([])) is None
 
 
-def test_notice_landing_lands_on_thank_you_page_heading_not_breadcrumb():
+def test_noticeLandingLandsOnThankYouPageHeadingNotBreadcrumb():
 	# WebAIM survey-confirmation page (2026-07-20): the status is the H1
 	# "Screen Reader User Survey Completed" and the H2 "Thank you for
 	# completing our screen reader user survey"; the paragraphs below are
@@ -830,10 +830,10 @@ def test_notice_landing_lands_on_thank_you_page_heading_not_breadcrumb():
 		_node("paragraph", 107,
 		      preview="While you're here, please check out some of the services and resour"),
 	]
-	assert web.find_notice_landing(_summary_with(nodes)) == 0
+	assert web.findNoticeLanding(_summaryWith(nodes)) == 0
 
 
-def test_notice_landing_title_heading_still_yields_to_status_sentence():
+def test_noticeLandingTitleHeadingStillYieldsToStatusSentence():
 	# The heading-owns-status rule must NOT regress the closed-form shape:
 	# a generic title heading with the real status sentence beneath it still
 	# lands on the sentence, not the title. (Google Forms "no longer
@@ -842,27 +842,27 @@ def test_notice_landing_title_heading_still_yields_to_status_sentence():
 		_node("heading", 18, level=1, preview="Contact Us"),
 		_node("paragraph", 45, preview="This form is no longer accepting responses."),
 	]
-	assert web.find_notice_landing(_summary_with(nodes)) == 1
+	assert web.findNoticeLanding(_summaryWith(nodes)) == 1
 
 
-def test_breadcrumb_is_chrome_but_prose_with_one_chevron_is_not():
+def test_breadcrumbIsChromeButProseWithOneChevronIsNot():
 	# The breadcrumb filter keys on TWO spaced chevrons (three segments);
 	# ordinary prose containing a single " > " must survive as a landing.
 	crumb = _node("paragraph", 50,
 	              preview="Home > WebAIM Projects > Screen Reader User Survey")
-	you_are_here = _node("paragraph", 40, preview="You are here: Home > Projects")
+	youAreHere = _node("paragraph", 40, preview="You are here: Home > Projects")
 	prose = _node("paragraph", 58,
 	              preview="The rule fires when x > y in the comparison step.")
-	assert web._is_chrome_paragraph(crumb) is True
-	assert web._is_chrome_paragraph(you_are_here) is True
-	assert web._is_chrome_paragraph(prose) is False
+	assert web._isChromeParagraph(crumb) is True
+	assert web._isChromeParagraph(youAreHere) is True
+	assert web._isChromeParagraph(prose) is False
 
 
 # ---------------------------------------------------------------------------
-# find_form_landing
+# findFormLanding
 # ---------------------------------------------------------------------------
 
-def test_form_landing_picks_first_heading():
+def test_formLandingPicksFirstHeading():
 	# Google Form "Fesshole" shape: form title heading + a few form inputs.
 	# Land on the title so the user hears "Fesshole - Anonymous Confessions"
 	# and can arrow forward to the description and fields.
@@ -872,10 +872,10 @@ def test_form_landing_picks_first_heading():
 		_node("paragraph", 18, preview="Submit your story"),
 		_node("paragraph", 5, preview="Field"),
 	]
-	assert web.find_form_landing(_summary_with(nodes)) == 1
+	assert web.findFormLanding(_summaryWith(nodes)) == 1
 
 
-def test_form_landing_falls_back_to_description_when_no_heading():
+def test_formLandingFallsBackToDescriptionWhenNoHeading():
 	# Some forms render the title as a styled div (no real heading role).
 	# Fall back to the first substantive paragraph — that's the description.
 	nodes = [
@@ -883,28 +883,28 @@ def test_form_landing_falls_back_to_description_when_no_heading():
 		_node("paragraph", 60, preview="Tell us your most embarrassing moment in 1000 chars or less"),
 		_node("paragraph", 5, preview="Name"),
 	]
-	assert web.find_form_landing(_summary_with(nodes)) == 1
+	assert web.findFormLanding(_summaryWith(nodes)) == 1
 
 
-def test_form_landing_last_resort_first_node():
+def test_formLandingLastResortFirstNode():
 	# All nodes are tiny — no heading, no substantive paragraph. Return
 	# idx 0 so the user at least lands somewhere instead of nowhere.
 	nodes = [
 		_node("paragraph", 5, preview="Name"),
 		_node("paragraph", 5, preview="Email"),
 	]
-	assert web.find_form_landing(_summary_with(nodes)) == 0
+	assert web.findFormLanding(_summaryWith(nodes)) == 0
 
 
-def test_form_landing_returns_none_on_empty():
-	assert web.find_form_landing(_summary_with([])) is None
+def test_formLandingReturnsNoneOnEmpty():
+	assert web.findFormLanding(_summaryWith([])) is None
 
 
 # ---------------------------------------------------------------------------
-# find_key_result_landing
+# findKeyResultLanding
 # ---------------------------------------------------------------------------
 
-def test_key_result_landing_returns_label_index():
+def test_keyResultLandingReturnsLabelIndex():
 	# Pattern at lead position — return the label's index so arrowing
 	# forward speaks the value.
 	nodes = [
@@ -913,30 +913,30 @@ def test_key_result_landing_returns_label_index():
 		_node("paragraph", 3, preview="170"),                       # 2: value
 		_node("paragraph", 4, preview="Mbps"),                      # 3: unit
 	]
-	assert web.find_key_result_landing(_summary_with(nodes)) == 1
+	assert web.findKeyResultLanding(_summaryWith(nodes)) == 1
 
 
-def test_key_result_landing_with_implicit_unit():
+def test_keyResultLandingWithImplicitUnit():
 	nodes = [
 		_node("paragraph", 13, preview="Battery level"),  # 0: label
 		_node("paragraph", 3, preview="85%"),             # 1: value (implicit unit)
 	]
-	assert web.find_key_result_landing(_summary_with(nodes)) == 0
+	assert web.findKeyResultLanding(_summaryWith(nodes)) == 0
 
 
-def test_key_result_landing_returns_none_when_no_pattern():
+def test_keyResultLandingReturnsNoneWhenNoPattern():
 	nodes = [
 		_node("paragraph", 250),
 		_node("paragraph", 220),
 	]
-	assert web.find_key_result_landing(_summary_with(nodes)) is None
+	assert web.findKeyResultLanding(_summaryWith(nodes)) is None
 
 
 # ---------------------------------------------------------------------------
-# find_next_heading_landing — Phase 1.5 Z-sequence
+# findNextHeadingLanding — Phase 1.5 Z-sequence
 # ---------------------------------------------------------------------------
 
-def test_next_heading_returns_first_heading_after_idx():
+def test_nextHeadingReturnsFirstHeadingAfterIdx():
 	# Initial landing is the first paragraph (idx 0). Second Z press
 	# should advance to the next H2 (idx 2).
 	nodes = [
@@ -946,10 +946,10 @@ def test_next_heading_returns_first_heading_after_idx():
 		_node("paragraph", 180, preview="body of second section"),
 		_node("heading", 0, level=2, preview="Third section"),
 	]
-	assert web.find_next_heading_landing(_summary_with(nodes), 0) == 2
+	assert web.findNextHeadingLanding(_summaryWith(nodes), 0) == 2
 
 
-def test_next_heading_skips_paragraphs_between_headings():
+def test_nextHeadingSkipsParagraphsBetweenHeadings():
 	nodes = [
 		_node("heading", 0, level=1, preview="Title"),
 		_node("paragraph", 100),
@@ -957,10 +957,10 @@ def test_next_heading_skips_paragraphs_between_headings():
 		_node("paragraph", 90),
 		_node("heading", 0, level=2, preview="Next section"),
 	]
-	assert web.find_next_heading_landing(_summary_with(nodes), 0) == 4
+	assert web.findNextHeadingLanding(_summaryWith(nodes), 0) == 4
 
 
-def test_next_heading_returns_none_at_end():
+def test_nextHeadingReturnsNoneAtEnd():
 	# Caller is already at the last heading — no further heading exists.
 	nodes = [
 		_node("heading", 0, level=1, preview="First"),
@@ -968,56 +968,56 @@ def test_next_heading_returns_none_at_end():
 		_node("heading", 0, level=2, preview="Last"),
 		_node("paragraph", 150),
 	]
-	assert web.find_next_heading_landing(_summary_with(nodes), 2) is None
+	assert web.findNextHeadingLanding(_summaryWith(nodes), 2) is None
 
 
-def test_next_heading_returns_none_when_no_headings():
+def test_nextHeadingReturnsNoneWhenNoHeadings():
 	# Page is all paragraphs — sequence advance has nowhere to go.
 	nodes = [
 		_node("paragraph", 200),
 		_node("paragraph", 150),
 		_node("paragraph", 180),
 	]
-	assert web.find_next_heading_landing(_summary_with(nodes), 0) is None
+	assert web.findNextHeadingLanding(_summaryWith(nodes), 0) is None
 
 
-def test_next_heading_strict_greater_than_after_idx():
-	# When after_idx points at a heading, do not return that same index —
+def test_nextHeadingStrictGreaterThanAfterIdx():
+	# When afterIdx points at a heading, do not return that same index —
 	# the user is already there.
 	nodes = [
 		_node("heading", 0, level=2, preview="A"),
 		_node("paragraph", 200),
 		_node("heading", 0, level=2, preview="B"),
 	]
-	assert web.find_next_heading_landing(_summary_with(nodes), 0) == 2
+	assert web.findNextHeadingLanding(_summaryWith(nodes), 0) == 2
 
 
-def test_next_heading_returns_none_when_next_heading_is_too_far():
+def test_nextHeadingReturnsNoneWhenNextHeadingIsTooFar():
 	# Fox21 case: short article body (~14 paragraphs) followed by a long
 	# gap of paragraphs/cards/links and the next heading is a sidebar
 	# widget hundreds of nodes away. The Z-sequence must stop, not walk
 	# into the sidebar.
 	body = [_node("paragraph", 200) for _ in range(100)]
 	nodes = body + [_node("heading", 0, level=3, preview="Sidebar widget")]
-	# Default max_gap=30 should stop at the article body's edge.
-	assert web.find_next_heading_landing(_summary_with(nodes), 0) is None
+	# Default maxGap=30 should stop at the article body's edge.
+	assert web.findNextHeadingLanding(_summaryWith(nodes), 0) is None
 
 
-def test_next_heading_respects_custom_max_gap():
+def test_nextHeadingRespectsCustomMaxGap():
 	# Caller can opt for a stricter or looser gap.
 	body = [_node("paragraph", 200) for _ in range(10)]
 	nodes = body + [_node("heading", 0, level=3, preview="Next section")]
-	# With max_gap=5 the heading at idx 10 is unreachable (gap=10).
-	assert web.find_next_heading_landing(_summary_with(nodes), 0, max_gap=5) is None
-	# With max_gap=15 the same heading is reachable.
-	assert web.find_next_heading_landing(_summary_with(nodes), 0, max_gap=15) == 10
+	# With maxGap=5 the heading at idx 10 is unreachable (gap=10).
+	assert web.findNextHeadingLanding(_summaryWith(nodes), 0, maxGap=5) is None
+	# With maxGap=15 the same heading is reachable.
+	assert web.findNextHeadingLanding(_summaryWith(nodes), 0, maxGap=15) == 10
 
 
 # ---------------------------------------------------------------------------
 # Share-link payload filter — Fox21 social-share button URL strings
 # ---------------------------------------------------------------------------
 
-def test_share_link_payload_url_equals_pattern():
+def test_shareLinkPayloadUrlEqualsPattern():
 	# LinkedIn "share-offsite?url=https%3A%2F%2F..." text exposed by
 	# accessibility tooling. Reads as a paragraph but is really a URL.
 	share = (
@@ -1025,39 +1025,39 @@ def test_share_link_payload_url_equals_pattern():
 		"retro-pizza-hut-revival-see-which-locations-are-returning-to-"
 		"the-1990s-aesthetic"
 	)
-	assert web._looks_like_share_link_payload(share) is True
+	assert web._looksLikeShareLinkPayload(share) is True
 
 
-def test_share_link_payload_dense_url_encoding():
+def test_shareLinkPayloadDenseUrlEncoding():
 	# Even without "url=", a string with 3+ URL-encoded triplets is
 	# overwhelmingly a URL.
 	encoded = "post%3A%2F%2Fid%3D42%26type%3Dshare"
-	assert web._looks_like_share_link_payload(encoded) is True
+	assert web._looksLikeShareLinkPayload(encoded) is True
 
 
-def test_share_link_payload_negatives():
+def test_shareLinkPayloadNegatives():
 	# Normal prose. A paragraph that mentions one URL is still prose.
-	assert web._looks_like_share_link_payload("") is False
-	assert web._looks_like_share_link_payload("Just a normal sentence.") is False
-	assert web._looks_like_share_link_payload(
+	assert web._looksLikeShareLinkPayload("") is False
+	assert web._looksLikeShareLinkPayload("Just a normal sentence.") is False
+	assert web._looksLikeShareLinkPayload(
 		"For more info, see https://example.com which lists details."
 	) is False
 	# Single isolated %20 in an academic context: still prose.
-	assert web._looks_like_share_link_payload(
+	assert web._looksLikeShareLinkPayload(
 		"Encoded as %20 in the URL, the space character is..."
 	) is False
 
 
-def test_article_landing_directory_page_picks_first_heading():
+def test_articleLandingDirectoryPagePicksFirstHeading():
 	# Regression: montgomeryprobatecourtal.gov/resources/all-probate-forms.
-	# A small directory page (25 main_nodes) — title heading near the top,
+	# A small directory page (25 mainNodes) — title heading near the top,
 	# short link/list paragraphs through the body, a 78-char Share &
 	# Bookmark widget instructional paragraph (which the existing
 	# accessibility-instruction filter must catch), and the only other
 	# substantial paragraph is the courthouse address at the bottom.
-	# Without filtering Share & Bookmark, substantial_count is 2 and the
+	# Without filtering Share & Bookmark, substantialCount is 2 and the
 	# directory-page redirect would not fire. WITH the filter,
-	# substantial_count drops to 1 and the redirect lands at the heading.
+	# substantialCount drops to 1 and the redirect lands at the heading.
 	nodes = [
 		_node("paragraph", 20, preview="Skip to Main Content"),
 		_node("paragraph", 18, preview="Home ProbateOffice"),
@@ -1068,7 +1068,7 @@ def test_article_landing_directory_page_picks_first_heading():
 		_node("paragraph", 10, preview="Contact Us"),
 		_node("heading", 17, level=1, preview="All Probate Forms"),  # idx 7
 		# Share & Bookmark widget — accessibility-instruction text. Must be
-		# filtered out by _looks_like_accessibility_instructions.
+		# filtered out by _looksLikeAccessibilityInstructions.
 		_node("paragraph", 78,
 			preview="Share & Bookmark, Press Enter to show all options, press Tab"),
 		_node("paragraph", 22, preview="Adoption Forms"),
@@ -1092,24 +1092,24 @@ def test_article_landing_directory_page_picks_first_heading():
 	]
 	# Expected: idx 7 (heading "All Probate Forms"), not 8 (Share &
 	# Bookmark) and not 22 (courthouse address).
-	assert web.find_article_landing(_summary_with(nodes)) == 7
+	assert web.findArticleLanding(_summaryWith(nodes)) == 7
 
 
-def test_share_and_bookmark_widget_text_is_filtered():
+def test_shareAndBookmarkWidgetTextIsFiltered():
 	# Direct unit test for the accessibility-instruction filter.
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions(
 		"Share & Bookmark, Press Enter to show all options, press Tab go to next option"
 	) is True
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions(
 		"Press Tab to navigate between fields"
 	) is True
 	# Negative: real prose that happens to mention these words.
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions(
 		"The bookmark contains a tab character."
 	) is False
 
 
-def test_content_section_matcher_ignores_long_headings():
+def test_contentSectionMatcherIgnoresLongHeadings():
 	# Thurrott bug: "No additional security features included" (38 chars)
 	# matched "features" as a substring and dispatched the content-section
 	# landing to look past this heading. Real "Features" / "Description" /
@@ -1130,10 +1130,10 @@ def test_content_section_matcher_ignores_long_headings():
 	# Expected: idx 1 (the real lede), via the very-substantial rule.
 	# NOT idx 4 (the post-section body) which would mean the matcher
 	# misfired on "features".
-	assert web.find_article_landing(_summary_with(nodes)) == 1
+	assert web.findArticleLanding(_summaryWith(nodes)) == 1
 
 
-def test_content_section_matcher_still_works_for_short_headings():
+def test_contentSectionMatcherStillWorksForShortHeadings():
 	# Guard: legitimate short product/recipe section headings should
 	# still match. "Description" alone, "About this item", etc.
 	nodes = [
@@ -1145,10 +1145,10 @@ def test_content_section_matcher_still_works_for_short_headings():
 			preview="The real product description that we want to land on"),
 	]
 	# Expected: idx 4 (real description paragraph), via content-section match.
-	assert web.find_article_landing(_summary_with(nodes)) == 4
+	assert web.findArticleLanding(_summaryWith(nodes)) == 4
 
 
-def test_article_landing_prefers_longer_neighbor_when_first_is_teaser():
+def test_articleLandingPrefersLongerNeighborWhenFirstIsTeaser():
 	# CNET case: an 82-char teaser sits right after the H1, followed by
 	# a 209-char narrative opener. The teaser is too "thin" to be where
 	# a reader wants to start. Prefer the longer neighbor.
@@ -1162,10 +1162,10 @@ def test_article_landing_prefers_longer_neighbor_when_first_is_teaser():
 		_node("paragraph", 72, preview="If you think you already know them all, read on."),
 	]
 	# Expected: idx 3 (the 209-char narrative opener), not idx 2 (teaser).
-	assert web.find_article_landing(_summary_with(nodes)) == 3
+	assert web.findArticleLanding(_summaryWith(nodes)) == 3
 
 
-def test_article_landing_does_not_skip_substantial_first_paragraph():
+def test_articleLandingDoesNotSkipSubstantialFirstParagraph():
 	# Guard: when the first cluster paragraph is already ≥100 chars, do
 	# not switch to a longer neighbor. Wikipedia ledes commonly run
 	# 200-500 chars; we want to land on the first one.
@@ -1175,14 +1175,14 @@ def test_article_landing_does_not_skip_substantial_first_paragraph():
 		_node("paragraph", 420, preview="An even longer second paragraph continuing the lede"),
 	]
 	# Expected: idx 1 (the first substantial paragraph), unchanged.
-	assert web.find_article_landing(_summary_with(nodes)) == 1
+	assert web.findArticleLanding(_summaryWith(nodes)) == 1
 
 
 # ---------------------------------------------------------------------------
-# find_next_content_landing — Z scan-from-cursor
+# findNextContentLanding — Z scan-from-cursor
 # ---------------------------------------------------------------------------
 
-def test_next_content_skips_headings():
+def test_nextContentSkipsHeadings():
 	# Z is meant to advance through substantial content paragraphs, NOT
 	# headings (NVDA's H key already handles those). A heading in the
 	# scan range should be skipped.
@@ -1191,10 +1191,10 @@ def test_next_content_skips_headings():
 		_node("heading", 20, level=2, preview="Section heading"),
 		_node("paragraph", 180, preview="Body of the section"),
 	]
-	assert web.find_next_content_landing(_summary_with(nodes), 0) == 2
+	assert web.findNextContentLanding(_summaryWith(nodes), 0) == 2
 
 
-def test_next_content_skips_chrome_paragraphs():
+def test_nextContentSkipsChromeParagraphs():
 	# Tag list, share link, accessibility instruction text all skipped.
 	nodes = [
 		_node("paragraph", 200, preview="The intro paragraph"),
@@ -1208,37 +1208,37 @@ def test_next_content_skips_chrome_paragraphs():
 	]
 	# All three chrome paragraphs at idx 1, 2, 3 must be skipped. Landing
 	# at idx 4 (the real body paragraph).
-	assert web.find_next_content_landing(_summary_with(nodes), 0) == 4
+	assert web.findNextContentLanding(_summaryWith(nodes), 0) == 4
 
 
-def test_next_content_returns_none_when_nothing_below():
+def test_nextContentReturnsNoneWhenNothingBelow():
 	# Cursor at the last substantial paragraph — nothing else to land on.
 	nodes = [
 		_node("paragraph", 200, preview="Last body paragraph"),
 		_node("heading", 20, level=2, preview="No content past this"),
 		_node("paragraph", 30, preview="Short footer line"),
 	]
-	assert web.find_next_content_landing(_summary_with(nodes), 0) is None
+	assert web.findNextContentLanding(_summaryWith(nodes), 0) is None
 
 
-def test_pdf_viewer_disclaimer_is_filtered():
+def test_pdfViewerDisclaimerIsFiltered():
 	# Government / municipal sites that link to PDF forms often carry a
 	# disclaimer paragraph. Montgomery probate forms page is the canonical
 	# case — the disclaimer is 61 chars and was sneaking past the filter,
 	# preventing the directory-page redirect from firing.
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions(
 		"Free viewers are required for some of the attached documents."
 	) is True
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions(
 		"You may need Adobe Reader to view these forms."
 	) is True
 	# Negative: prose mentioning PDFs without the disclaimer phrasing.
-	assert web._looks_like_accessibility_instructions(
+	assert web._looksLikeAccessibilityInstructions(
 		"The library catalog is available as a PDF download."
 	) is False
 
 
-def test_article_landing_short_page_with_real_body_still_picks_paragraph():
+def test_articleLandingShortPageWithRealBodyStillPicksParagraph():
 	# Guard: don't redirect a SHORT article to its heading just because the
 	# directory check is in town. A short page with a real body paragraph
 	# right after the heading should still land at the paragraph.
@@ -1252,12 +1252,12 @@ def test_article_landing_short_page_with_real_body_still_picks_paragraph():
 	# The heading is at idx 2, the substantial paragraph at idx 3.
 	# Gap is only 1, NOT > 5 — directory redirect should not trigger.
 	# Cluster of two substantial paragraphs wins on its own anyway.
-	assert web.find_article_landing(_summary_with(nodes)) == 3
+	assert web.findArticleLanding(_summaryWith(nodes)) == 3
 
 
-def test_article_landing_skips_share_link_payload():
+def test_articleLandingSkipsShareLinkPayload():
 	# Fox21 case: the social-share LinkedIn URL string is the FIRST
-	# substantial paragraph in main_nodes. Without the filter it would
+	# substantial paragraph in mainNodes. Without the filter it would
 	# win the article-landing cascade. With the filter, the next real
 	# body paragraph wins.
 	nodes = [
@@ -1272,7 +1272,7 @@ def test_article_landing_skips_share_link_payload():
 		_node("paragraph", 180, preview="The chain announced a phased rollout..."),
 	]
 	# Expected: idx=3 (article lede), not idx=2 (share-link payload).
-	assert web.find_article_landing(_summary_with(nodes)) == 3
+	assert web.findArticleLanding(_summaryWith(nodes)) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -1290,23 +1290,23 @@ _ZOOM_COPYRIGHT = "Copyright ©2026 Zoom Video Communications, Inc. All rights r
 _ZOOM_PRIVACY_ROW = "Privacy & Legal Policies Do Not Sell My Personal Information Cookie Preferences"
 
 
-def test_boilerplate_detector_positives_and_negatives():
-	assert web._looks_like_legal_boilerplate(_ZOOM_COPYRIGHT)
-	assert web._looks_like_legal_boilerplate("© 2026 Example Corp")
-	assert web._looks_like_legal_boilerplate("Copyright 2019 Acme Inc.")
-	assert web._looks_like_legal_boilerplate("Copyright (c) 2026 Acme Inc.")
-	assert web._looks_like_legal_boilerplate(_ZOOM_PRIVACY_ROW)
-	assert web._looks_like_legal_boilerplate("Do not sell or share my personal information")
+def test_boilerplateDetectorPositivesAndNegatives():
+	assert web._looksLikeLegalBoilerplate(_ZOOM_COPYRIGHT)
+	assert web._looksLikeLegalBoilerplate("© 2026 Example Corp")
+	assert web._looksLikeLegalBoilerplate("Copyright 2019 Acme Inc.")
+	assert web._looksLikeLegalBoilerplate("Copyright (c) 2026 Acme Inc.")
+	assert web._looksLikeLegalBoilerplate(_ZOOM_PRIVACY_ROW)
+	assert web._looksLikeLegalBoilerplate("Do not sell or share my personal information")
 	# Prose ABOUT copyright must not match — no year adjacent to the word.
-	assert not web._looks_like_legal_boilerplate(
+	assert not web._looksLikeLegalBoilerplate(
 		"The copyright office ruled in 2026 that AI-generated works need human authorship."
 	)
 	# "rights are reserved" is not the boilerplate phrase.
-	assert not web._looks_like_legal_boilerplate("All rights are reserved for members of the guild.")
-	assert not web._looks_like_legal_boilerplate("")
+	assert not web._looksLikeLegalBoilerplate("All rights are reserved for members of the guild.")
+	assert not web._looksLikeLegalBoilerplate("")
 
 
-def test_purchase_consent_line_is_legal_boilerplate():
+def test_purchaseConsentLineIsLegalBoilerplate():
 	# store.payproglobal.com/checkout (2026-07-17): the checkout's
 	# "By placing your order, you agree to our Terms and Conditions..."
 	# consent paragraph is 263 chars of sentence-ending prose sitting next
@@ -1315,31 +1315,31 @@ def test_purchase_consent_line_is_legal_boilerplate():
 	# wording is contract-formula language — as enumerable as "All rights
 	# reserved". Note the real page uses non-breaking spaces inside
 	# "Terms\xa0and\xa0Conditions"; the detector must tolerate them.
-	assert web._looks_like_legal_boilerplate(
+	assert web._looksLikeLegalBoilerplate(
 		"By placing your order, you agree to our Terms\xa0and\xa0Conditions and "
 		"Privacy\xa0Policy and acknowledge that you are purchasing from PayPro "
 		"Global (PayPro Global, Inc., PayPro Europe Limited, PPG DIGITAL Sp. z "
 		"o.o. or PayPro U.S. Inc.), an authorized e-Commerce reseller."
 	)
-	assert web._looks_like_legal_boilerplate(
+	assert web._looksLikeLegalBoilerplate(
 		"By clicking Submit, you agree to the Terms of Service."
 	)
-	assert web._looks_like_legal_boilerplate(
+	assert web._looksLikeLegalBoilerplate(
 		"By creating an account you consent to our Privacy Policy."
 	)
 	# Second-person consent is required — reported speech about other
 	# parties agreeing is ordinary prose.
-	assert not web._looks_like_legal_boilerplate(
+	assert not web._looksLikeLegalBoilerplate(
 		"The two sides did not agree to the terms of the ceasefire until dawn."
 	)
 	# And the consent verb must target the legal terms — shopping advice
 	# that happens to open with "By placing your order" is prose.
-	assert not web._looks_like_legal_boilerplate(
+	assert not web._looksLikeLegalBoilerplate(
 		"By placing your order early, you can avoid holiday shipping delays."
 	)
 
 
-def test_article_landing_returns_none_on_zoom_shell():
+def test_articleLandingReturnsNoneOnZoomShell():
 	# The pre-hydration Zoom shell: short header links + the copyright line.
 	# No landing may be produced — None triggers the caller's retry.
 	nodes = [
@@ -1350,26 +1350,26 @@ def test_article_landing_returns_none_on_zoom_shell():
 		_node("paragraph", len(_ZOOM_COPYRIGHT), preview=_ZOOM_COPYRIGHT),
 		_node("paragraph", len(_ZOOM_PRIVACY_ROW), preview=_ZOOM_PRIVACY_ROW),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) is None
+	assert web.findArticleLanding(_summaryWith(nodes)) is None
 
 
-def test_article_landing_skips_boilerplate_via_flag_when_preview_truncated():
-	# Production path: text_preview is cut at 60 chars, which can truncate
+def test_articleLandingSkipsBoilerplateViaFlagWhenPreviewTruncated():
+	# Production path: textPreview is cut at 60 chars, which can truncate
 	# the detector's signal (the CCPA phrase in the Zoom privacy row is cut
-	# mid-word). The walk-time is_boilerplate flag, computed over the full
+	# mid-word). The walk-time isBoilerplate flag, computed over the full
 	# text, must carry the skip on its own.
 	footer = cls.MainNode(
 		kind="paragraph",
-		text_length=80,
-		text_preview="Privacy & Legal Policies Do Not Sell My Personal Informatio",
-		is_boilerplate=True,
+		textLength=80,
+		textPreview="Privacy & Legal Policies Do Not Sell My Personal Informatio",
+		isBoilerplate=True,
 	)
 	body = _node("paragraph", 250, preview="Real article body paragraph that is long enough to win immediately.")
 	nodes = [footer, body]
-	assert web.find_article_landing(_summary_with(nodes)) == 1
+	assert web.findArticleLanding(_summaryWith(nodes)) == 1
 
 
-def test_largest_paragraph_fallback_never_picks_copyright():
+def test_largestParagraphFallbackNeverPicksCopyright():
 	# Even when the copyright line is the LARGEST substantial paragraph on
 	# the page, the fallback must not pick it.
 	nodes = [
@@ -1377,20 +1377,20 @@ def test_largest_paragraph_fallback_never_picks_copyright():
 		_node("paragraph", 40, preview="Too short to be substantial."),
 		_node("paragraph", len(_ZOOM_COPYRIGHT), preview=_ZOOM_COPYRIGHT),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) is None
+	assert web.findArticleLanding(_summaryWith(nodes)) is None
 
 
-def test_notice_landing_skips_copyright_line():
+def test_noticeLandingSkipsCopyrightLine():
 	# A small status page whose first 30+ char paragraph is the footer
 	# copyright: the status sentence, not the copyright, is the landing.
 	nodes = [
 		_node("paragraph", len(_ZOOM_COPYRIGHT), preview=_ZOOM_COPYRIGHT),
 		_node("paragraph", 45, preview="This form is no longer accepting responses."),
 	]
-	assert web.find_notice_landing(_summary_with(nodes)) == 1
+	assert web.findNoticeLanding(_summaryWith(nodes)) == 1
 
 
-def test_z_scan_skips_copyright_footer():
+def test_zScanSkipsCopyrightFooter():
 	# Z forward scan from the body must not offer the copyright as the
 	# "next content paragraph" — with nothing real below, it returns None
 	# so the user hears "Nothing else to land on."
@@ -1398,11 +1398,11 @@ def test_z_scan_skips_copyright_footer():
 		_node("paragraph", 250, preview="Real article body paragraph long enough to be the initial landing."),
 		_node("paragraph", len(_ZOOM_COPYRIGHT), preview=_ZOOM_COPYRIGHT),
 	]
-	assert web.find_next_content_landing(_summary_with(nodes), 0) is None
+	assert web.findNextContentLanding(_summaryWith(nodes), 0) is None
 
 
 # ---------------------------------------------------------------------------
-# form_wants_browse_landing (rich-preamble form rule, Zoom registration)
+# formWantsBrowseLanding (rich-preamble form rule, Zoom registration)
 # ---------------------------------------------------------------------------
 # The hydrated Zoom webinar registration page classifies as FORM (7 inputs),
 # but the announce-title-then-focus-first-input treatment dropped the user in
@@ -1410,18 +1410,18 @@ def test_z_scan_skips_copyright_footer():
 # page carrying a very-substantial descriptive paragraph gets a browse-mode
 # landing on its title instead; bare forms keep the focus behavior.
 
-def test_form_with_rich_description_wants_browse_landing():
+def test_formWithRichDescriptionWantsBrowseLanding():
 	nodes = [
 		_node("heading", 81, level=1, preview="AI as Assistive Technology: A Practical Stack for Entrepren"),
 		_node("heading", 20, level=2, preview="Webinar Registration"),
 		_node("paragraph", 1958, preview="Whether you're starting your business or scaling one, AI is"),
 	]
-	assert web.form_wants_browse_landing(_summary_with(nodes)) is True
+	assert web.formWantsBrowseLanding(_summaryWith(nodes)) is True
 	# And the landing itself is the form title (first heading).
-	assert web.find_form_landing(_summary_with(nodes)) == 0
+	assert web.findFormLanding(_summaryWith(nodes)) == 0
 
 
-def test_bare_form_keeps_focus_landing():
+def test_bareFormKeepsFocusLanding():
 	# Google-Forms-style: title + shortish question labels, no description
 	# paragraph clearing the 200-char bar.
 	nodes = [
@@ -1429,12 +1429,12 @@ def test_bare_form_keeps_focus_landing():
 		_node("paragraph", 112, preview="If you would like to request an accommodation to participat"),
 		_node("paragraph", 61, preview="I would like to subscribe to the small business mailing lis"),
 	]
-	assert web.form_wants_browse_landing(_summary_with(nodes)) is False
+	assert web.formWantsBrowseLanding(_summaryWith(nodes)) is False
 
 
-def test_headingless_form_lands_on_sentence_not_slogan():
+def test_headinglessFormLandsOnSentenceNotSlogan():
 	# store.payproglobal.com/checkout, third round (2026-07-17): the page
-	# has NO headings, so find_form_landing fell to its paragraph fallback,
+	# has NO headings, so findFormLanding fell to its paragraph fallback,
 	# and the first >= 30 char paragraph is the vendor's slogan under the
 	# logo — "exponential growth in file management productivity", a
 	# fragment with no terminal punctuation. The user landed there instead
@@ -1445,21 +1445,21 @@ def test_headingless_form_lands_on_sentence_not_slogan():
 		_node("paragraph", 8, preview="xplorer²"),
 		_node("paragraph", 50, preview="exponential growth in file management productivity"),
 		_node("paragraph", 13, preview="You're Buying"),
-		_node("paragraph", 108, ends_sentence=True,
+		_node("paragraph", 108, endsSentence=True,
 			preview="xplorer² professional  Explore, preview,"),
 		_node("paragraph", 42, preview="Volume discount available for this produ"),
 	]
-	assert web.find_form_landing(cls.TreeSummary(main_nodes=nodes)) == 3
+	assert web.findFormLanding(cls.TreeSummary(mainNodes=nodes)) == 3
 	# A fragments-only form (nothing ends like a sentence) keeps the old
 	# first-substantive landing — no form loses its landing to this rule.
 	frag = [
 		_node("paragraph", 8, preview="Logo"),
 		_node("paragraph", 45, preview="Just labels and fragments with no punctuation"),
 	]
-	assert web.find_form_landing(cls.TreeSummary(main_nodes=frag)) == 1
+	assert web.findFormLanding(cls.TreeSummary(mainNodes=frag)) == 1
 
 
-def test_truncated_walk_takes_browse_landing_not_focus_jump():
+def test_truncatedWalkTakesBrowseLandingNotFocusJump():
 	# store.payproglobal.com/checkout, second visit (2026-07-17): a slow
 	# hydrating refresh hit the 2.0 s walk budget at 34 nodes, so the
 	# 200+ char preamble paragraphs near the Submit button were never
@@ -1475,28 +1475,28 @@ def test_truncated_walk_takes_browse_landing_not_focus_jump():
 		_node("paragraph", 13, preview="You're Buying"),
 		_node("paragraph", 108, preview="xplorer² professional  Explore, preview,"),
 	]
-	tree = cls.TreeSummary(main_nodes=nodes, walk_truncated=True)
-	assert web.form_wants_browse_landing(tree) is True
+	tree = cls.TreeSummary(mainNodes=nodes, walkTruncated=True)
+	assert web.formWantsBrowseLanding(tree) is True
 	# Same shape with a complete walk stays a bare form.
-	complete = cls.TreeSummary(main_nodes=nodes, walk_truncated=False)
-	assert web.form_wants_browse_landing(complete) is False
+	complete = cls.TreeSummary(mainNodes=nodes, walkTruncated=False)
+	assert web.formWantsBrowseLanding(complete) is False
 
 
-def test_form_rich_preamble_ignores_boilerplate_and_chrome():
+def test_formRichPreambleIgnoresBoilerplateAndChrome():
 	# A long copyright/legal paragraph must not count as a rich preamble.
 	footer = cls.MainNode(
 		kind="paragraph",
-		text_length=260,
-		text_preview="Copyright ©2026 Example Corp. All rights reserved.",
-		is_boilerplate=True,
+		textLength=260,
+		textPreview="Copyright ©2026 Example Corp. All rights reserved.",
+		isBoilerplate=True,
 	)
 	nodes = [_node("heading", 25, level=1, preview="Sign in"), footer]
-	assert web.form_wants_browse_landing(_summary_with(nodes)) is False
+	assert web.formWantsBrowseLanding(_summaryWith(nodes)) is False
 
 
-def test_collapsed_form_shell_lands_on_heading_not_lone_question_label():
+def test_collapsedFormShellLandsOnHeadingNotLoneQuestionLabel():
 	# Signed-in Zoom webinar registration (from the 2026-07-06 debug log):
-	# 36 main_nodes, description and date hidden in CLOSED accordions (so
+	# 36 mainNodes, description and date hidden in CLOSED accordions (so
 	# their text is not in the buffer), only heading is the "Webinar
 	# Registration" H2 at idx 5, and the ONLY substantial paragraph is the
 	# 52-char "Do you consider yourself a person with a disability?" label
@@ -1519,16 +1519,16 @@ def test_collapsed_form_shell_lands_on_heading_not_lone_question_label():
 	for i in range(25, 34):
 		nodes.append(_node("paragraph", 15, preview=f"More labels {i}"))
 	nodes.append(cls.MainNode(                                                 # 34
-		kind="paragraph", text_length=68,
-		text_preview="Copyright ©2026 Zoom Video Communications, Inc. Al",
-		is_boilerplate=True,
+		kind="paragraph", textLength=68,
+		textPreview="Copyright ©2026 Zoom Video Communications, Inc. Al",
+		isBoilerplate=True,
 	))
 	nodes.append(_node("paragraph", 24, preview="Privacy & Legal Policies"))   # 35
 	assert len(nodes) == 36
-	assert web.find_article_landing(_summary_with(nodes)) == 5
+	assert web.findArticleLanding(_summaryWith(nodes)) == 5
 
 
-def test_lede_after_title_survives_an_embedded_video_block():
+def test_ledeAfterTitleSurvivesAnEmbeddedVideoBlock():
 	# MacRumors "Apple Just Increased Prices" (2026-07-20 report). The lede
 	# sits at idx 2, two nodes under the H1, and is 79 chars — too short for
 	# VERY_SUBSTANTIAL (200) and too short for the hero gate (100). A YouTube
@@ -1542,7 +1542,7 @@ def test_lede_after_title_survives_an_embedded_video_block():
 			preview="Apple Just Increased Prices on MacBooks,"),                 # 0
 		_node("paragraph", 54,
 			preview="Thursday June 25, 2026 5:44 am PDT by Hartley Char"),       # 1
-		_node("paragraph", 79, ends_sentence=True,
+		_node("paragraph", 79, endsSentence=True,
 			preview="Apple today dramatically increased device prices a"),       # 2
 		_node("paragraph", 20, preview="YouTube Video Player"),                  # 3
 		_node("paragraph", 34, preview="Apple Just Raised Prices... By A LOT"),   # 4
@@ -1550,32 +1550,32 @@ def test_lede_after_title_survives_an_embedded_video_block():
 		_node("paragraph", 25, preview="MacRumors648K subscribers"),             # 6
 		_node("paragraph", 11, preview="Watch later"),                           # 7
 		_node("paragraph", 5, preview="Share"),                                  # 8
-		_node("paragraph", 59, ends_sentence=True,
+		_node("paragraph", 59, endsSentence=True,
 			preview="Subscribe to the MacRumors YouTube channel for mor"),       # 9
 		_node("paragraph", 149,
 			preview="After temporarily taking it down earlier today, Ap"),       # 10
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_lede_after_title_does_not_override_a_real_cluster():
+def test_ledeAfterTitleDoesNotOverrideARealCluster():
 	# Guard on the gate above: when the paragraph under the H1 IS followed by
 	# a substantial paragraph, the ordinary cluster gate already handles the
 	# page (including teaser-skip), so the new gate must decline and leave
 	# the CNET teaser behavior untouched.
 	nodes = [
 		_node("heading", 51, level=1, preview="MacOS Keyboard Shortcuts Make Typing"),
-		_node("paragraph", 82, ends_sentence=True,
+		_node("paragraph", 82, endsSentence=True,
 			preview="MacOS keyboard shortcuts can be a huge time saver."),
 		_node("paragraph", 209,
 			preview="When I first started using an iMac all the way back in 2008"),
 		_node("paragraph", 72, preview="If you think you already know them all, read on."),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_lede_after_title_ignores_a_non_h1_first_heading():
-	# Guard on _find_title_lede_landing: the "slot under the title" only means
+def test_ledeAfterTitleIgnoresANonH1FirstHeading():
+	# Guard on _findTitleLedeLanding: the "slot under the title" only means
 	# anything when the heading IS the page title. On an unscoped tree the
 	# first heading is routinely site chrome (a sidebar or widget H2), and the
 	# sentence-ending paragraph beneath it is a cookie notice or a widget
@@ -1583,18 +1583,18 @@ def test_lede_after_title_ignores_a_non_h1_first_heading():
 	# very-substantial rule can claim the real body paragraph.
 	nodes = [
 		_node("heading", 9, level=2, preview="Main menu"),
-		_node("paragraph", 62, ends_sentence=True,
+		_node("paragraph", 62, endsSentence=True,
 			preview="We use cookies to improve your experience on this site."),
 		_node("paragraph", 12, preview="Learn more"),
 		_node("heading", 30, level=1, preview="The Actual Article Headline"),
-		_node("paragraph", 300, ends_sentence=True,
+		_node("paragraph", 300, endsSentence=True,
 			preview="The real body of the story begins right here and runs on"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 4
+	assert web.findArticleLanding(_summaryWith(nodes)) == 4
 
 
-def test_lede_after_title_does_not_reach_past_its_lookahead():
-	# Guard on _find_title_lede_landing: the lede sits directly under the H1,
+def test_ledeAfterTitleDoesNotReachPastItsLookahead():
+	# Guard on _findTitleLedeLanding: the lede sits directly under the H1,
 	# past a byline at most. A sentence-ending paragraph eight nodes down is
 	# not "the slot under the title" — it is a caption, a promo, or a pull
 	# quote, and claiming it would be a guess. The gate must decline and let
@@ -1606,22 +1606,22 @@ def test_lede_after_title_does_not_reach_past_its_lookahead():
 		_node("paragraph", 18, preview="Advertisement"),
 		_node("paragraph", 22, preview="Sponsored content"),
 		_node("paragraph", 19, preview="Related stories"),
-		_node("paragraph", 64, ends_sentence=True,
+		_node("paragraph", 64, endsSentence=True,
 			preview="Sign up for our newsletter to get the day's top stories."),
 		_node("paragraph", 11, preview="Subscribe"),
-		_node("paragraph", 260, ends_sentence=True,
+		_node("paragraph", 260, endsSentence=True,
 			preview="The story itself finally begins in this paragraph and"),
 		# A second body paragraph, so the lead-section gate declines ("exactly
 		# one" candidate is its load-bearing condition) and the title-lede
 		# lookahead is genuinely the thing under test here.
-		_node("paragraph", 180, ends_sentence=True,
+		_node("paragraph", 180, endsSentence=True,
 			preview="And the story continues in a second body paragraph"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 8
+	assert web.findArticleLanding(_summaryWith(nodes)) == 8
 
 
-def test_lede_after_title_stops_at_an_intervening_heading():
-	# Guard on _find_title_lede_landing: the gate's whole claim is that the
+def test_ledeAfterTitleStopsAtAnInterveningHeading():
+	# Guard on _findTitleLedeLanding: the gate's whole claim is that the
 	# paragraph occupies the slot directly under the page title. Once a second
 	# heading intervenes, that slot is closed — whatever follows belongs to the
 	# new section, not to the title — so the gate must stop rather than scan
@@ -1629,21 +1629,21 @@ def test_lede_after_title_stops_at_an_intervening_heading():
 	nodes = [
 		_node("heading", 30, level=1, preview="The Article Headline"),
 		_node("heading", 10, level=2, preview="Newsletter"),
-		_node("paragraph", 60, ends_sentence=True,
+		_node("paragraph", 60, endsSentence=True,
 			preview="Get our best stories delivered to you every morning."),
 		_node("paragraph", 12, preview="Sign up"),
-		_node("paragraph", 250, ends_sentence=True,
+		_node("paragraph", 250, endsSentence=True,
 			preview="The actual story text starts here and keeps going for"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 4
+	assert web.findArticleLanding(_summaryWith(nodes)) == 4
 
 
-def test_lede_after_title_declines_on_a_dek_above_the_byline_block():
+def test_ledeAfterTitleDeclinesOnADekAboveTheBylineBlock():
 	# iinteractive.com/resources/blog/read-only (2026-07-22 report). The blog
 	# uses a magazine layout: headline, then a DEK (standfirst summary), then
 	# the author-meta block (name, date, read-time), then the body. The dek is
 	# sentence-ending prose sitting directly under the H1 with a short byline
-	# beneath it, so _find_title_lede_landing grabbed it exactly like the
+	# beneath it, so _findTitleLedeLanding grabbed it exactly like the
 	# MacRumors lede -- but locked decision #7 says skip the dek and land on the
 	# first body paragraph. The read-time / date meta line between the dek and
 	# the body is the tell: the candidate sits ABOVE the meta block, so it is
@@ -1653,22 +1653,22 @@ def test_lede_after_title_declines_on_a_dek_above_the_byline_block():
 		_node("paragraph", 11, preview="Development"),                          # 0
 		_node("heading", 32, level=1,
 			preview="Read Only. Read Only. Read Only."),                        # 1
-		_node("paragraph", 149, ends_sentence=True,
+		_node("paragraph", 149, endsSentence=True,
 			preview="How working with a blind client on a Power Automate project "),  # 2 (dek)
 		_node("paragraph", 12, preview="Sharni Zaugg"),                         # 3
 		_node("paragraph", 8, preview="6/3/2026"),                              # 4
 		_node("paragraph", 10, preview="6 min read"),                           # 5
-		_node("paragraph", 395, ends_sentence=True,
+		_node("paragraph", 395, endsSentence=True,
 			preview="We recently had a client with detailed accessibility require"),  # 6 (body)
-		_node("paragraph", 25, ends_sentence=True,
+		_node("paragraph", 25, endsSentence=True,
 			preview="It took 18 hours of work."),                               # 7
-		_node("paragraph", 339, ends_sentence=True,
+		_node("paragraph", 339, endsSentence=True,
 			preview="The project was to build a purchasing approval workflow in M"),  # 8
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 6
+	assert web.findArticleLanding(_summaryWith(nodes)) == 6
 
 
-def test_z_scan_falls_back_to_notice_bar_on_short_content_pages():
+def test_zScanFallsBackToNoticeBarOnShortContentPages():
 	# Zoom confirmation page: no paragraph anywhere clears the 50-char bar
 	# (the longest real line is 44 chars). Z from the top must land on that
 	# line via the 30-char fallback instead of stranding the user with
@@ -1679,10 +1679,10 @@ def test_z_scan_falls_back_to_notice_bar_on_short_content_pages():
 		_node("paragraph", 24, preview="he**@webfriendlyhelp.com"),
 		_node("paragraph", 15, preview="Add to calendar"),
 	]
-	assert web.find_next_content_landing(_summary_with(nodes), -1) == 1
+	assert web.findNextContentLanding(_summaryWith(nodes), -1) == 1
 
 
-def test_z_scan_keeps_strict_bar_when_page_has_substantial_paragraphs():
+def test_zScanKeepsStrictBarWhenPageHasSubstantialParagraphs():
 	# An article page: 50+ char paragraphs exist, so the fallback must NOT
 	# kick in — Z past the last substantial paragraph still reports nothing
 	# rather than landing on short related-link rows below the article.
@@ -1690,27 +1690,27 @@ def test_z_scan_keeps_strict_bar_when_page_has_substantial_paragraphs():
 		_node("paragraph", 250, preview="Real article body paragraph long enough to be the initial landing."),
 		_node("paragraph", 35, preview="Related: another story teaser row"),
 	]
-	assert web.find_next_content_landing(_summary_with(nodes), 0) is None
+	assert web.findNextContentLanding(_summaryWith(nodes), 0) is None
 
 
 # ---------------------------------------------------------------------------
 # Prose-run landing (X/Twitter single-status pages)
 # ---------------------------------------------------------------------------
 
-def test_ends_like_sentence_detector():
-	assert web.ends_like_sentence("We are just not getting the coverage we should.") is True
-	assert web.ends_like_sentence('He said "we will finish the job."') is True
-	assert web.ends_like_sentence("Really?!") is True
-	assert web.ends_like_sentence("And then…") is True
-	assert web.ends_like_sentence('"We are doing very well with Iran. ') is True
+def test_endsLikeSentenceDetector():
+	assert web.endsLikeSentence("We are just not getting the coverage we should.") is True
+	assert web.endsLikeSentence('He said "we will finish the job."') is True
+	assert web.endsLikeSentence("Really?!") is True
+	assert web.endsLikeSentence("And then…") is True
+	assert web.endsLikeSentence('"We are doing very well with Iran. ') is True
 	# Nav / label / metadata shapes.
-	assert web.ends_like_sentence("Adoption Forms") is False
-	assert web.ends_like_sentence("Trump on Iran:") is False
-	assert web.ends_like_sentence("2:30 PM · Jul 6, 2026") is False
-	assert web.ends_like_sentence("") is False
+	assert web.endsLikeSentence("Adoption Forms") is False
+	assert web.endsLikeSentence("Trump on Iran:") is False
+	assert web.endsLikeSentence("2:30 PM · Jul 6, 2026") is False
+	assert web.endsLikeSentence("") is False
 
 
-def test_article_landing_prose_run_on_x_status_page():
+def test_articleLandingProseRunOnXStatusPage():
 	# Regression: x.com/MarioNawfal/status/2074138801208012984 (2026-07-06
 	# soak test). Quote tweet whose main text never appears in NVDA's walk;
 	# the quoted tweet's text arrives as THREE short lines (19 + 34 + 61
@@ -1727,19 +1727,19 @@ def test_article_landing_prose_run_on_x_status_page():
 		_node("paragraph", 1, preview="·"),                           # 6
 		_node("paragraph", 19, preview="Trump on Iran:"),                  # 7
 		_node("paragraph", 34, preview='"We are doing very well with Iran.',
-			ends_sentence=True),                                           # 8
+			endsSentence=True),                                           # 8
 		_node("paragraph", 61,
 			preview="We are just not getting the kind of coverage that we should",
-			ends_sentence=True),                                           # 9
+			endsSentence=True),                                           # 9
 		_node("paragraph", 21, preview="2:30 PM · Jul 6, 2026"),      # 10
 		_node("paragraph", 11, preview="46.9K Views"),                     # 11
 		_node("paragraph", 14, preview="Read 21 replies"),                 # 12
 		_node("paragraph", 13, preview="Relevant people"),                 # 13
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 7
+	assert web.findArticleLanding(_summaryWith(nodes)) == 7
 
 
-def test_prose_run_rejects_nav_link_runs():
+def test_proseRunRejectsNavLinkRuns():
 	# The Montgomery directory page opens with six consecutive 17-26 char
 	# nav rows totaling 125 chars — length alone must never qualify a run.
 	# No line ends like a sentence, so the run is rejected (and it also
@@ -1752,10 +1752,10 @@ def test_prose_run_rejects_nav_link_runs():
 		_node("paragraph", 25, preview="Records & Recording Forms"),
 		_node("paragraph", 26, preview="Internet Tag/Boat Renewals"),
 	]
-	assert web._find_prose_run_landing(nodes) is None
+	assert web._findProseRunLanding(nodes) is None
 
 
-def test_prose_run_rejects_form_label_runs():
+def test_proseRunRejectsFormLabelRuns():
 	# Signed-in Zoom shape: a long run of field labels with ONE question
 	# ending in "?" — 1 sentence-ender in a 17-line run fails the density
 	# requirement (at least 2 AND at least half the run).
@@ -1764,10 +1764,10 @@ def test_prose_run_rejects_form_label_runs():
 		nodes.append(_node("paragraph", 18, preview=f"Field label {i}"))
 	nodes.append(_node("paragraph", 52,
 		preview="Do you consider yourself a person with a disability?"))
-	assert web._find_prose_run_landing(nodes) is None
+	assert web._findProseRunLanding(nodes) is None
 
 
-def test_prose_run_rejects_pre_heading_runs():
+def test_proseRunRejectsPreHeadingRuns():
 	# Cookie-banner shape: two sentence-shaped lines BEFORE any heading.
 	# Pre-heading runs are chrome (same principle as the hero gate's
 	# seen-heading requirement) — must not become a landing.
@@ -1776,10 +1776,10 @@ def test_prose_run_rejects_pre_heading_runs():
 		_node("paragraph", 52, preview="By clicking Accept, you agree to our use of cookies."),
 		_node("heading", 12, level=1, preview="Real Article"),
 	]
-	assert web._find_prose_run_landing(nodes) is None
+	assert web._findProseRunLanding(nodes) is None
 
 
-def test_prose_run_preview_fallback_detects_sentence_ends():
+def test_proseRunPreviewFallbackDetectsSentenceEnds():
 	# Fixture-style nodes without the walk-time flag: lines <= 60 chars
 	# fall back to checking the preview, so a punctuated pair after a
 	# heading still qualifies.
@@ -1788,42 +1788,42 @@ def test_prose_run_preview_fallback_detects_sentence_ends():
 		_node("paragraph", 44, preview="Short first line of a chat-style message here."),
 		_node("paragraph", 58, preview="Second line that also reads like a real prose sentence."),
 	]
-	assert web._find_prose_run_landing(nodes) == 1
+	assert web._findProseRunLanding(nodes) == 1
 
 
 # ---------------------------------------------------------------------------
 # Promo-teaser and byline chrome filters (Daily Mail regression)
 # ---------------------------------------------------------------------------
 
-def test_promo_teaser_detector():
-	assert web._looks_like_promo_teaser(
+def test_promoTeaserDetector():
+	assert web._looksLikePromoTeaser(
 		"• READ MORE: America's greatest mystery was a lie") is True
-	assert web._looks_like_promo_teaser("READ MORE: The full story here") is True
-	assert web._looks_like_promo_teaser("RELATED: Another headline") is True
-	assert web._looks_like_promo_teaser("RELATED ARTICLES: one and two") is True
-	assert web._looks_like_promo_teaser("DON'T MISS: The other thing") is True
+	assert web._looksLikePromoTeaser("READ MORE: The full story here") is True
+	assert web._looksLikePromoTeaser("RELATED: Another headline") is True
+	assert web._looksLikePromoTeaser("RELATED ARTICLES: one and two") is True
+	assert web._looksLikePromoTeaser("DON'T MISS: The other thing") is True
 	# Mixed-case prose never matches — the label must be ALL CAPS.
-	assert web._looks_like_promo_teaser("Read more about the study here.") is False
-	assert web._looks_like_promo_teaser(
+	assert web._looksLikePromoTeaser("Read more about the study here.") is False
+	assert web._looksLikePromoTeaser(
 		"Related: the researchers also found a second site.") is False
 	# EXCLUSIVE deliberately excluded — sites open real ledes with it.
-	assert web._looks_like_promo_teaser("EXCLUSIVE: Prince Harry has decided") is False
+	assert web._looksLikePromoTeaser("EXCLUSIVE: Prince Harry has decided") is False
 
 
-def test_byline_detector():
-	assert web._looks_like_byline(
+def test_bylineDetector():
+	assert web._looksLikeByline(
 		"By STACY LIBERATORE, US SCIENCE & TECHNOLOGY EDITOR") is True
-	assert web._looks_like_byline("By JOHN SMITH FOR DAILYMAIL.COM") is True
+	assert web._looksLikeByline("By JOHN SMITH FOR DAILYMAIL.COM") is True
 	# Real prose that opens with "By" is mostly lowercase — never matches.
-	assert web._looks_like_byline(
+	assert web._looksLikeByline(
 		"By NASA's estimate, the mission will cost billions.") is False
-	assert web._looks_like_byline(
+	assert web._looksLikeByline(
 		"By the time he arrived, the crowd had gone.") is False
 	# Mixed-case bylines are a KNOWN GAP, deliberately not matched.
-	assert web._looks_like_byline("By John Smith") is False
+	assert web._looksLikeByline("By John Smith") is False
 
 
-def test_article_landing_skips_read_more_promo_and_caps_byline():
+def test_articleLandingSkipsReadMorePromoAndCapsByline():
 	# Regression: dailymail.com Channel Islands article (2026-07-06 soak).
 	# The "• READ MORE:" promo box (109 chars) followed by the all-caps
 	# byline (51 chars) formed a fake cluster and won the landing at idx 1.
@@ -1843,10 +1843,10 @@ def test_article_landing_skips_read_more_promo_and_caps_byline():
 		_node("paragraph", 211,
 			preview="Instead, it suggests Ice Age humans reached North "),   # 7
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 6
+	assert web.findArticleLanding(_summaryWith(nodes)) == 6
 
 
-def test_article_landing_hero_lands_on_podcast_description():
+def test_articleLandingHeroLandsOnPodcastDescription():
 	# Thurrott podcast page shape once it classifies ARTICLE: H1, chrome
 	# rows, then a 120-char episode description immediately followed by a
 	# heading ("Tagged with"). Hero gate: >= 100 chars, heading already
@@ -1860,27 +1860,27 @@ def test_article_landing_hero_lands_on_podcast_description():
 		_node("heading", 11, level=3, preview="Tagged with"),
 		_node("paragraph", 30, preview="First Ring Daily, GPU, NVIDIA"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 3
+	assert web.findArticleLanding(_summaryWith(nodes)) == 3
 
 
-def test_participle_byline_detector():
+def test_participleBylineDetector():
 	# Phoronix-style mixed-case byline (85 chars full length).
-	assert web._looks_like_byline(
+	assert web._looksLikeByline(
 		"Written by Michael Larabel in Arch Linux on 14 June 2026 at",
-		full_length=85,
+		fullLength=85,
 	) is True
-	assert web._looks_like_byline("Posted by Jane Doe on July 4, 2026") is True
-	assert web._looks_like_byline("Published by The Editorial Team") is True
+	assert web._looksLikeByline("Posted by Jane Doe on July 4, 2026") is True
+	assert web._looksLikeByline("Published by The Editorial Team") is True
 	# Narrative prose: lowercase after "by" — never matches.
-	assert web._looks_like_byline("Written by hand, the letter took weeks to arrive.") is False
+	assert web._looksLikeByline("Written by hand, the letter took weeks to arrive.") is False
 	# Long book-review lede: participle prefix but over the 120-char cap.
-	assert web._looks_like_byline(
+	assert web._looksLikeByline(
 		"Written by John Steinbeck in 1939, The Grapes of",
-		full_length=200,
+		fullLength=200,
 	) is False
 
 
-def test_scoped_article_landing_skips_participle_byline():
+def test_scopedArticleLandingSkipsParticipleByline():
 	# Regression: phoronix.com/news/Arch-Linux-AUR-More-Malware (2026-07-06
 	# soak). Positionally-scoped single-article tree; the fast path took
 	# the FIRST substantial paragraph, which was the 85-char mixed-case
@@ -1894,8 +1894,8 @@ def test_scoped_article_landing_skips_participle_byline():
 		_node("paragraph", 205, preview="At this stage it's a bit surprising they don't com"),
 		_node("paragraph", 11, preview="97 Comments"),
 	]
-	summary = cls.TreeSummary(main_nodes=nodes, positionally_scoped=True)
-	assert web.find_article_landing(summary) == 2
+	summary = cls.TreeSummary(mainNodes=nodes, positionallyScoped=True)
+	assert web.findArticleLanding(summary) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -1907,18 +1907,18 @@ def test_scoped_article_landing_skips_participle_byline():
 # in "Preferred Source", another story's headline ending in "the law"). Every
 # one of the 9 good landings was prose ending in terminal punctuation.
 #
-# So find_article_landing now runs the whole cascade ONCE over a view where
+# So findArticleLanding now runs the whole cascade ONCE over a view where
 # non-sentence-ending PARAGRAPHS are treated as chrome, and only falls back to
 # the unrestricted cascade if that finds nothing.
 #
 # The fallback is load-bearing, not a safety net: on a link-aggregator front
 # page NOTHING ends like a sentence, and landing on the first headline is the
 # CORRECT behavior there (stevequayle.com, confirmed by Casey). Do not remove
-# it. See test_article_landing_falls_back_when_no_sentence_enders.
+# it. See test_articleLandingFallsBackWhenNoSentenceEnders.
 # ---------------------------------------------------------------------------
 
-def test_article_landing_skips_photo_credit_chain():
-	# Regression: breitbart.com article landed on main_nodes[1], the photo
+def test_articleLandingSkipsPhotoCreditChain():
+	# Regression: breitbart.com article landed on mainNodes[1], the photo
 	# credit "Matthew Jonas/MediaNews Group/Boulder Daily Camera/Getty".
 	# It has no parenthetical and says "Getty" not "Getty Images", so it
 	# missed BOTH existing photo-credit signals.
@@ -1927,22 +1927,22 @@ def test_article_landing_skips_photo_credit_chain():
 		_node("heading", 60, level=1, preview="Automotive journalist detained by police"),
 		_node("paragraph", len(credit), preview=credit),
 		_node("paragraph", 220, preview="An automotive journalist was detained after a Flock camera.",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 180, preview="The vehicle had been misidentified as stolen.",
-		      ends_sentence=True),
+		      endsSentence=True),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_looks_like_image_caption_catches_slash_credit_chain():
-	assert web._looks_like_image_caption("Matthew Jonas/MediaNews Group/Boulder Daily Camera/Getty")
+def test_looksLikeImageCaptionCatchesSlashCreditChain():
+	assert web._looksLikeImageCaption("Matthew Jonas/MediaNews Group/Boulder Daily Camera/Getty")
 	# Must NOT eat real prose that merely contains slashes or a date.
-	assert not web._looks_like_image_caption("The meeting is set for 7/14/2026 at city hall.")
-	assert not web._looks_like_image_caption("He asked whether the on/off switch mattered.")
+	assert not web._looksLikeImageCaption("The meeting is set for 7/14/2026 at city hall.")
+	assert not web._looksLikeImageCaption("He asked whether the on/off switch mattered.")
 
 
-def test_article_landing_skips_headline_teaser_for_real_lede():
-	# Regression: nypost.com (Hegseth leaks story) landed on main_nodes[8],
+def test_articleLandingSkipsHeadlineTeaserForRealLede():
+	# Regression: nypost.com (Hegseth leaks story) landed on mainNodes[8],
 	# a RELATED-STORY teaser headline for a completely different article.
 	# Two adjacent teasers formed a cluster and won the cluster gate.
 	nodes = [
@@ -1953,14 +1953,14 @@ def test_article_landing_skips_headline_teaser_for_real_lede():
 		      preview="Trump admin sues city over sanctuary policy in new filing"),
 		_node("paragraph", 210,
 		      preview="Defense Secretary Pete Hegseth announced a joint task force.",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 190, preview="The task force will prosecute leaks.",
-		      ends_sentence=True),
+		      endsSentence=True),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 3
+	assert web.findArticleLanding(_summaryWith(nodes)) == 3
 
 
-def test_article_landing_skips_ad_banner_and_promo():
+def test_articleLandingSkipsAdBannerAndPromo():
 	# allnewspipeline.com landed on an ad banner ("Whatfinger: Frontpage For
 	# Conservative News Founded By Veterans"); dailymail.com landed on a
 	# self-promo ("See more Daily Mail on Google - save us as a Preferred
@@ -1972,12 +1972,12 @@ def test_article_landing_skips_ad_banner_and_promo():
 		_node("paragraph", 63,
 		      preview="See more Daily Mail on Google - save us as a Preferred Sou"),
 		_node("paragraph", 240, preview="The government has begun a new push this week.",
-		      ends_sentence=True),
+		      endsSentence=True),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 3
+	assert web.findArticleLanding(_summaryWith(nodes)) == 3
 
 
-def test_article_landing_falls_back_when_no_sentence_enders():
+def test_articleLandingFallsBackWhenNoSentenceEnders():
 	# LOAD-BEARING. stevequayle.com is a link-aggregator front page: every
 	# item is a bulleted story headline and NOTHING ends like a sentence.
 	# Landing on the first substantial bullet is CORRECT here (confirmed by
@@ -1991,7 +1991,7 @@ def test_article_landing_falls_back_when_no_sentence_enders():
 		_node("paragraph", 140,
 		      preview="▪ Nuclear plant goes offline after unexplained fault"),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -2007,30 +2007,30 @@ def test_article_landing_falls_back_when_no_sentence_enders():
 # away a perfectly good landing and the page goes quiet.
 # ---------------------------------------------------------------------------
 
-def test_landing_match_accepts_identical_text():
+def test_landingMatchAcceptsIdenticalText():
 	n = _node("paragraph", 60, preview="Glaucoma is an eye condition that damages the optic nerve.")
-	assert web.landing_text_matches("Glaucoma is an eye condition that damages the optic nerve.", n)
+	assert web.landingTextMatches("Glaucoma is an eye condition that damages the optic nerve.", n)
 
 
-def test_landing_match_tolerates_whitespace_and_nbsp():
+def test_landingMatchToleratesWhitespaceAndNbsp():
 	# News sites litter NBSPs through ledes, and the expanded range carries
 	# leading/trailing whitespace and a trailing newline. None of that is drift.
 	n = _node("paragraph", 60, preview="Pentagon chief\xa0Pete Hegseth\xa0on Monday announced")
 	actual = "  Pentagon chief Pete Hegseth  on Monday announced the creation of a task force.\n"
-	assert web.landing_text_matches(actual, n)
+	assert web.landingTextMatches(actual, n)
 
 
-def test_landing_match_accepts_preview_truncated_at_60_chars():
-	# text_preview is only the first ~60 chars; the real range is the full
+def test_landingMatchAcceptsPreviewTruncatedAt60Chars():
+	# textPreview is only the first ~60 chars; the real range is the full
 	# paragraph. A longer actual must still match.
 	preview = "NVDA (NonVisual Desktop Access) is a free, open source scree"
 	n = _node("paragraph", 257, preview=preview)
 	actual = ("NVDA (NonVisual Desktop Access) is a free, open source screen reader for "
 	          "Microsoft Windows, developed by NV Access.")
-	assert web.landing_text_matches(actual, n)
+	assert web.landingTextMatches(actual, n)
 
 
-def test_landing_match_rejects_real_drift():
+def test_landingMatchRejectsRealDrift():
 	# The seven real drifts from the soak. In every case the classifier chose
 	# correctly and the buffer had moved on to something else entirely.
 	drifts = [
@@ -2046,24 +2046,24 @@ def test_landing_match_rejects_real_drift():
 		 "Trump scraps his Hormuz shipping charge idea but presses ahead"),
 		("AppleVis is the premier online resource for blind, DeafBlind", "Welcome to AppleVis"),
 	]
-	for preview, buffer_now in drifts:
+	for preview, bufferNow in drifts:
 		n = _node("paragraph", max(len(preview), 60), preview=preview)
-		assert not web.landing_text_matches(buffer_now, n), f"should reject drift: {buffer_now!r}"
+		assert not web.landingTextMatches(bufferNow, n), f"should reject drift: {bufferNow!r}"
 
 
-def test_landing_match_returns_true_when_nothing_to_compare():
+def test_landingMatchReturnsTrueWhenNothingToCompare():
 	# An empty preview is NOT evidence of drift. This guard must never be the
 	# reason a page goes silent on its own.
 	n = _node("paragraph", 0, preview="")
-	assert web.landing_text_matches("", n)
-	assert web.landing_text_matches("anything at all", n)
+	assert web.landingTextMatches("", n)
+	assert web.landingTextMatches("anything at all", n)
 
 
-def test_landing_match_rejects_empty_buffer_for_real_paragraph():
+def test_landingMatchRejectsEmptyBufferForRealParagraph():
 	# The biblegateway silent-landing: the stale position expanded to an EMPTY
 	# range, so speakTextInfo neither raised nor spoke. Same root cause.
 	n = _node("paragraph", 68, preview="There is no one who guides her among all the children she ha")
-	assert not web.landing_text_matches("", n)
+	assert not web.landingTextMatches("", n)
 
 
 # ---------------------------------------------------------------------------
@@ -2084,23 +2084,23 @@ def test_landing_match_rejects_empty_buffer_for_real_paragraph():
 # first visit.
 # ---------------------------------------------------------------------------
 
-def test_skips_affiliate_disclosure_for_real_lede():
+def test_skipsAffiliateDisclosureForRealLede():
 	# pinchofyum.com landed on the affiliate disclosure instead of the recipe.
 	nodes = [
 		_node("heading", 34, level=1, preview="The Best Soft Chocolate Chip Cookies"),
 		_node("paragraph", 120,
 		      preview="This post contains referral links for products we love. Pinc",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 210,
 		      preview="These cookies are thick, soft, and completely irresistible.",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 180, preview="You only need one bowl and no chilling time.",
-		      ends_sentence=True),
+		      endsSentence=True),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_skips_syndication_note_for_real_lede():
+def test_skipsSyndicationNoteForRealLede():
 	# wtop.com. Ground truth confirmed by fetching the page: headline, byline,
 	# THIS note, then the real lede.
 	nodes = [
@@ -2108,38 +2108,38 @@ def test_skips_syndication_note_for_real_lede():
 		      preview="Montgomery County slapped a notice on her Little Free Librar"),
 		_node("paragraph", 145,
 		      preview="This article was written by WTOP’s news partner, The Banner ",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 230,
 		      preview="Carol Andress’ husband gave her a Little Free Library kit fo",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 190, preview="She painted the wood box pastel blue and yellow.",
-		      ends_sentence=True),
+		      endsSentence=True),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_disclosure_flag_catches_a_phrase_past_the_preview_cutoff():
-	# THE RUNTIME PATH, which no test used to exercise. _is_chrome_paragraph is
-	# handed text_preview, truncated to 60 chars, so a disclosure whose giveaway
-	# phrase sits past character 60 was invisible. tree_summary now computes the
+def test_disclosureFlagCatchesAPhrasePastThePreviewCutoff():
+	# THE RUNTIME PATH, which no test used to exercise. _isChromeParagraph is
+	# handed textPreview, truncated to 60 chars, so a disclosure whose giveaway
+	# phrase sits past character 60 was invisible. treeSummary now computes the
 	# verdict at walk time over the FULL chunk text, exactly as it already did
-	# for is_caption and is_boilerplate.
+	# for isCaption and isBoilerplate.
 	#
 	# The preview here is innocuous on its own - the phrase would be in the
 	# unseen tail - so only the flag can reject this node.
 	nodes = [
 		_node("heading", 34, level=1, preview="The Best Soft Chocolate Chip Cookies"),
-		_node("paragraph", 120, is_disclosure=True, ends_sentence=True,
+		_node("paragraph", 120, isDisclosure=True, endsSentence=True,
 			preview="Before we get to the recipe, a quick word from our team abou"),
-		_node("paragraph", 210, ends_sentence=True,
+		_node("paragraph", 210, endsSentence=True,
 			preview="These cookies are thick, soft, and completely irresistible."),
-		_node("paragraph", 180, ends_sentence=True,
+		_node("paragraph", 180, endsSentence=True,
 			preview="You only need one bowl and no chilling time."),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_long_lede_mentioning_affiliate_links_is_not_chrome():
+def test_longLedeMentioningAffiliateLinksIsNotChrome():
 	# THE OTHER DIRECTION, and the reason the guard had to become live rather
 	# than just be fed better text. _EDITORIAL_DISCLOSURE_MAX_CHARS exists
 	# because "a disclosure is SHORT" - a long paragraph mentioning affiliate
@@ -2157,25 +2157,25 @@ def test_long_lede_mentioning_affiliate_links_is_not_chrome():
 	assert len(lede) > web._EDITORIAL_DISCLOSURE_MAX_CHARS
 	# Preview-only, the old runtime input: still rejected once the real length
 	# is supplied alongside it.
-	assert web._looks_like_editorial_disclosure(lede[:60], full_length=len(lede)) is False
+	assert web._looksLikeEditorialDisclosure(lede[:60], fullLength=len(lede)) is False
 	# And the node-level helper agrees, which is what the cascade actually calls.
-	node = _node("paragraph", len(lede), preview=lede[:60], ends_sentence=True)
-	assert web._node_is_disclosure(node) is False
-	assert web._is_chrome_paragraph(node) is False
+	node = _node("paragraph", len(lede), preview=lede[:60], endsSentence=True)
+	assert web._nodeIsDisclosure(node) is False
+	assert web._isChromeParagraph(node) is False
 
 
-def test_editorial_disclosure_does_not_eat_real_prose():
+def test_editorialDisclosureDoesNotEatRealProse():
 	# Must NOT fire on an article ABOUT affiliate marketing, or on ordinary prose
 	# that happens to use one of these words.
-	assert not web._looks_like_editorial_disclosure(
+	assert not web._looksLikeEditorialDisclosure(
 		"The commission voted to republish the report after a lengthy debate."
 	)
-	assert not web._looks_like_editorial_disclosure(
+	assert not web._looksLikeEditorialDisclosure(
 		"She originally appeared on the show in 1998 and has been a fixture since."
 	)
 
 
-def test_lead_section_gate_lands_on_imdb_plot_summary():
+def test_leadSectionGateLandsOnImdbPlotSummary():
 	# IMDb. Codex read the real node trail: H1 "The Dark Knight" at 6, the plot at
 	# 27, next heading ("Videos") at 58. The plot fails the hero gate because the
 	# next heading is 31 nodes away, far outside the 4-node lookahead -- NOT
@@ -2192,7 +2192,7 @@ def test_lead_section_gate_lands_on_imdb_plot_summary():
 		_node("paragraph", 20, preview="2008"),
 		_node("paragraph", 166,
 		      preview="When a menace known as the Joker wreaks havoc and chaos on th",
-		      ends_sentence=True),
+		      endsSentence=True),
 	]
 	# The gap is load-bearing. On the real page the next heading is 31 nodes
 	# past the plot summary -- far outside the hero gate's 4-node lookahead.
@@ -2206,37 +2206,37 @@ def test_lead_section_gate_lands_on_imdb_plot_summary():
 	nodes += [_node("paragraph", 12, preview=f"Cast member {i}") for i in range(28)]
 	nodes += [
 		_node("heading", 6, level=2, preview="Videos"),
-		# The clip titles END IN QUESTION MARKS, so ends_sentence is genuinely
+		# The clip titles END IN QUESTION MARKS, so endsSentence is genuinely
 		# True and the sentence-strict pass rightly keeps them. Their cluster is
 		# what currently wins.
 		_node("paragraph", 57, preview="ClipThe Biggest Supervillain Movies and Who's Comi",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 55, preview="ClipIs the New 'Joker' Most Like Jared, Heath, or J",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 933, preview="Dark, yes, complex, ambitious. Christopher Nolan a",
-		      ends_sentence=True),
+		      endsSentence=True),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_lead_section_gate_does_not_fire_on_a_normal_article():
+def test_leadSectionGateDoesNotFireOnANormalArticle():
 	# A normal article's lead section holds MANY substantial paragraphs, so the
 	# "exactly one" requirement fails and the ordinary cascade runs. This is what
 	# keeps the gate from hijacking every news page (and from landing on a dek).
 	nodes = [
 		_node("heading", 40, level=1, preview="Council approves the budget"),
 		_node("paragraph", 150, preview="The council voted 5-4 on Tuesday evening.",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 220, preview="The budget adds two firefighters and a librarian.",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 180, preview="Opponents said the tax increase was too steep.",
-		      ends_sentence=True),
+		      endsSentence=True),
 	]
 	# Falls through to the normal cascade, which lands on the first of the run.
-	assert web.find_article_landing(_summary_with(nodes)) == 1
+	assert web.findArticleLanding(_summaryWith(nodes)) == 1
 
 
-def test_skips_sms_marketing_consent_for_real_lede():
+def test_skipsSmsMarketingConsentForRealLede():
 	# krdo.com (Chrome soak, 2026-07-14). Several KRDO pages carry an SMS signup
 	# widget whose consent blurb sits above the story. It is grammatical prose
 	# ending in a period, so the sentence rule waves it straight through, exactly
@@ -2249,21 +2249,21 @@ def test_skips_sms_marketing_consent_for_real_lede():
 		_node("heading", 45, level=1, preview="Look of the week: Zendaya nailing her red carpet"),
 		_node("paragraph", 160,
 		      preview="By signing up, you agree to receive text and multimedia mark",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 230,
 		      preview="COLORADO SPRINGS, Colo. (KRDO) -- The actress turned heads a",
-		      ends_sentence=True),
+		      endsSentence=True),
 		_node("paragraph", 180, preview="She wore a custom gown to the premiere.",
-		      ends_sentence=True),
+		      endsSentence=True),
 	]
-	assert web.find_article_landing(_summary_with(nodes)) == 2
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
 
 
-def test_consent_filter_does_not_eat_real_prose():
+def test_consentFilterDoesNotEatRealProse():
 	# Must not fire on a story ABOUT consent, marketing, or subscriptions.
-	assert not web._looks_like_editorial_disclosure(
+	assert not web._looksLikeEditorialDisclosure(
 		"The senator said voters did not agree to receive a tax increase this year."
 	)
-	assert not web._looks_like_editorial_disclosure(
+	assert not web._looksLikeEditorialDisclosure(
 		"Readers may unsubscribe from the paper, but circulation is still climbing."
 	)

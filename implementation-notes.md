@@ -91,7 +91,7 @@ from NVDA's own bytecode reversed it:
   PERSISTENCE are what make something a browsing record, and a `[TMTS perf]`
   grep is a browsing record in a way 130 lines of speech noise is not.
 
-**Every `log.debug` now goes through `tree_summary.dlog`,** not just the ones
+**Every `log.debug` now goes through `treeSummary.dlog`,** not just the ones
 with a url in them. "Gate the sensitive lines" needs correct judgement at every
 future call site and one miss puts a stranger's browsing in a file; "no bare
 `log.debug` anywhere" is auditable, and a test audits it. 45 call sites moved
@@ -110,7 +110,7 @@ Four tests, and each was confirmed to fail against the specific regression:
 gate held open, gate inverted, a single call site reverted to bare `log.debug`,
 and the lifecycle lines removed. The first two are in `sabotage_check.py` (29 to
 31 sabotages); the call-site audit cannot live there because sabotage_check only
-edits `tree_summary.py`, so it was verified by hand against `__init__.py`.
+edits `treeSummary.py`, so it was verified by hand against `__init__.py`.
 
 CLAUDE.md updated in the same commit rather than left to go stale, since it
 documented the opposite rule and a future session would have trusted it.
@@ -126,8 +126,8 @@ in five minutes, of which FOUR were real. The other 1022 were
 persistent logs are gated on a marker file under `%APPDATA%\nvda`. That gate
 works exactly as intended for users. But a developer collecting real data
 necessarily HAS the marker -- that is the entire point of creating it -- so on
-precisely the machine where the logs matter, `_append_perf_line` is live during
-`pytest`. `_log_landmark_probe` calls it, and `tests/test_chrome_scope.py` and
+precisely the machine where the logs matter, `_appendPerfLine` is live during
+`pytest`. `_logLandmarkProbe` calls it, and `tests/test_chrome_scope.py` and
 `tests/test_walk_wiring.py` drive the landmark scan directly. One
 `sabotage_check.py` run is 30-odd full suite passes, so a single verification
 run buried the real signal 250:1.
@@ -136,12 +136,12 @@ run buried the real signal 250:1.
 and keeps one generation. At the rate the suite fills it, a few verification
 runs would silently discard the real browsing data the log had been turned on to
 collect, and nothing would look wrong while it happened. The capture log was
-spared only because `_append_capture` is reached from `build_tree_summary`, which
+spared only because `_appendCapture` is reached from `buildTreeSummary`, which
 no test drives end to end -- that is luck, not design.
 
 **Fix: `tests/conftest.py` repoints `APPDATA` at an empty temp directory at
-import time**, before any test module can `import tree_summary`. No marker lives
-there, so `_diagnostics_enabled()` answers False for the whole run and every
+import time**, before any test module can `import treeSummary`. No marker lives
+there, so `_diagnosticsEnabled()` answers False for the whole run and every
 writer is inert. `test_diagnostic_optin.py` still exercises the real gate,
 because its function-scoped `monkeypatch.setenv` applies after this and wins.
 
@@ -164,7 +164,7 @@ explicitly not to be cited as evidence, so nothing of value was in them.
 (JamalMazrui/HomerView), whose Shift+J does the same text-bridge trick we do and
 shortens its needle progressively where we did not.
 
-**The bug was an asymmetry, not a missing feature.** `find_landing_by_text` did
+**The bug was an asymmetry, not a missing feature.** `findLandingByText` did
 ONE literal search at the full width of the 60-char walk-time preview, and that
 search was strictly harder to satisfy than `web.landing_text_matches`, the check
 that judges its own result. Two ways:
@@ -186,7 +186,7 @@ it.** The ladder was originally justified by "the verifier is stricter (24
 chars) than our shortest needle (20), so a false hit is rejected." The suite
 went green and the `hit accepted without asking the verifier` sabotage came back
 NOT CAUGHT. Measured directly afterwards: a teaser reading "The council voted on
-Tuesday, and here is what else you missed" IS accepted by `landing_text_matches`
+Tuesday, and here is what else you missed" IS accepted by `landingTextMatches`
 against a lede reading "The council voted on Tuesday to approve...", because
 they agree on all 24 compared characters. That is the Daily Mail teaser-box
 shape this project has already been bitten by. Four characters of margin is not
@@ -275,7 +275,7 @@ log, wiped on the second restart, and the only thing that makes a live
    concern is "does X leak", enumerate every writer before answering, not the
    one that prompted the question.
 2. *The sabotage harness had been quietly lying.* Multi-line anchors are written
-   with `\n`, git can return `tree_summary.py` with CRLF after a checkout, and
+   with `\n`, git can return `treeSummary.py` with CRLF after a checkout, and
    every multi-line anchor then reported "0 hits" - which reads like a stale
    anchor rather than a dead check. FOUR existing sabotages were in that state.
    Normalizing line endings for matching brought them back. A verification tool
@@ -301,12 +301,12 @@ did.
 348 tests + 1 xfail. Casey's rule: a page that's a wall of headline articles
 should land on the FIRST headline, like stevequayle.com already does.
 
-`_find_headline_list_landing` runs FIRST in `find_article_landing`: the first run
+`_findHeadlineListLanding` runs FIRST in `findArticleLanding`: the first run
 of >= 6 consecutive medium (30-250 char) non-chrome paragraphs, mostly
 non-sentence-ending (titles), on a page with no article body, lands on the first
-member. `_has_article_body_cluster` (>= 2 consecutive sentence-ending >= 100-char
+member. `_hasArticleBodyCluster` (>= 2 consecutive sentence-ending >= 100-char
 non-chrome paragraphs) is the article-vs-index discriminator: an article with a
-related-stories rail keeps the gate OFF. Also added `_looks_like_url_slug`
+related-stories rail keeps the gate OFF. Also added `_looksLikeUrlSlug`
 (hyphen-joined, no spaces - "when-your-vehicle-outlives-its-cloud") to the chrome
 filter; Ars Technica lists each story's slug above its headline and it was
 winning as a 31-char "headline".
@@ -319,7 +319,7 @@ real articles, zero regression. Index pages land on the first headline
 
 **Known limitation, shipped deliberately (NOT a regression).** The Verge and
 TechCrunch homepages carry a featured block of 2 consecutive long sentence-ending
-deks, so `_has_article_body_cluster` (bar = 2) treats them as articles and the
+deks, so `_hasArticleBodyCluster` (bar = 2) treats them as articles and the
 gate declines; they land on a headline but a DEEP one (Verge idx 37), which is
 exactly their pre-gate cascade behavior. Raising the body bar to 3 fixes them but
 FALSE-FIRES on XDA (a real article whose body is one 954-char paragraph plus a
@@ -336,7 +336,7 @@ as real-page regression guards.
 read. Added an explicit newsletter-signup family to the disclosure detector
 (`_NEWSLETTER_PROMO`: "to your inbox", "sign up for our newsletter", etc. -
 near-mandated phrasing, NOT the bare word "newsletter"). Computed at walk time
-via the existing `is_disclosure` flag because the giveaway ("to your inbox")
+via the existing `isDisclosure` flag because the giveaway ("to your inbox")
 sits past the 60-char preview.
 
 **First fix verified end-to-end with the autonomous NVDA loop** (Casey authorized
@@ -345,7 +345,7 @@ installed add-on (`%APPDATA%\nvda\addons\...`, back up first) -> `nvda.exe -r`
 -> confirm the add-on loaded (`Z binding registered`, no import error) -> open
 the real page -> read the fresh capture. Confirmed: Tom's Hardware's "Get Tom's
 Hardware's best news and in-depth reviews, straight to your inbox" (idx 46, the
-"to your inbox" past the preview) now carries `is_disclosure=True`. RedState
+"to your inbox" past the preview) now carries `isDisclosure=True`. RedState
 still lands on its lede (no regression). This loop is the way to verify any
 walk-time flag without waiting for a manual install.
 
@@ -378,7 +378,7 @@ page. Revisit-suppressed pages correctly read void.
 
 ### Capture + replay corpus (the durable payoff)
 
-`_append_capture` (added earlier today) banks one faithful JSON record per
+`_appendCapture` (added earlier today) banks one faithful JSON record per
 detection. A direct sweep fills it fast; `tests/replay_captures.py` reproduces
 every landing offline; `tests/test_replay_corpus.py` +
 `tests/fixtures/capture_corpus.jsonl` freeze 10 real pages as a regression guard
@@ -415,24 +415,24 @@ REVERTED. Shelved patch: scratch `counts_positional_SHELVED.patch`.
 The `[TMTS counts-phase]` instrumentation (shipped earlier today) showed the
 ~600 ms no-`<main>` counts burn is per-ITEM parent-chain COM cost, not scan
 volume: e.g. abc7ny 8 links / 677 ms (~85 ms each), DuckDuckGo 4 articles /
-424 ms. On no-`<main>` pages the counts use identity `_count_in_scope`, which
+424 ms. On no-`<main>` pages the counts use identity `_countInScope`, which
 walks each item's parent chain to the document root.
 
-The fix attempted: `_count_chrome_pos`, reusing `_chrome_pos_verdict` (the same
-positional verdict the walk and `_form_field_in_scope` already use) so the common
+The fix attempted: `_count_chrome_pos`, reusing `_chromePosVerdict` (the same
+positional verdict the walk and `_formFieldInScope` already use) so the common
 case is offset arithmetic, falling back to identity only on a None verdict. It
 was pitched as "same result, just faster." TWO independent reviews (Sol/Codex
 read-only on the diff; Fable reading the full repo) each found a real,
 FORM-flipping OVER-count, in the guardrail-violating direction, and Fable found
 the framing itself was wrong. Do NOT rebuild it without addressing all of this:
 
-1. **Shared-cache divergence (Sol).** Old `_count_in_scope` calls `_in_scope`
+1. **Shared-cache divergence (Sol).** Old `_countInScope` calls `_inScope`
    for EVERY item, and each parent walk POPULATES the shared cache with its
    ancestors' verdicts, so later controls sharing a nav ancestor short-circuit
    to chrome. The positional path decides items WITHOUT walking, so it never
    primes that cache. A deep control that then falls to identity exhausts the
    30-parent depth limit before reaching the nav ancestor and — because
-   `_in_scope` fails OPEN (undecided -> True on a no-`<main>` page) — is counted
+   `_inScope` fails OPEN (undecided -> True on a no-`<main>` page) — is counted
    as content. Reproduced in memory: old form count 0, new 3 -> UNKNOWN flips to
    FORM. Preserving the old result requires priming the cache, i.e. the walk,
    i.e. the cost we were removing.
@@ -456,7 +456,7 @@ the framing itself was wrong. Do NOT rebuild it without addressing all of this:
    divergence CLAUDE.md flags), but it is a deliberate BEHAVIOR change needing
    its own soak and truncation-flag handling, not a quiet optimization.
 
-4. Under-tested: deleting the `_count_form_inputs` chrome-pos branch left the
+4. Under-tested: deleting the `_countFormInputs` chrome-pos branch left the
    suite green (no test, no `sabotage_check.py` entry) — the exact hazard this
    branch has hit repeatedly.
 
@@ -469,7 +469,7 @@ CLOSED on undecidable items with per-count-type truncation flags (article-count
 
 ### Auto-capture + replay harness (kept)
 
-To build a faithful, NVDA-free regression corpus from real browsing: `_append_capture`
+To build a faithful, NVDA-free regression corpus from real browsing: `_appendCapture`
 writes one JSON record per detection to `%APPDATA%\nvda\TextMarksTheSpot-captures.jsonl`
 (DEBUG-gated, 2 MB self-rotation, errors swallowed — same discipline as the perf
 log). It records every field the classifier and landing finders READ (kind,
@@ -492,7 +492,7 @@ all-caps rule deliberately skips (indistinguishable from "By Tuesday, the storm
 had..." on its own).
 
 The publication DATE is the extra signal that makes it safe. Added a dated-byline
-form to `_looks_like_byline`: "By " + capitalized non-weekday name + a full
+form to `_looksLikeByline`: "By " + capitalized non-weekday name + a full
 Month-DD-YYYY date, capped at 120 chars. Three guards keep it off real "By"
 ledes, each pinned by a test: a bare year with no day ("By January 2026, sales
 rose") lacks the date; a weekday opener ("By Monday, June 5, 2026, the crews...")
@@ -520,7 +520,7 @@ lede sits at idx 6 (233 / 356 / 218 chars, all very-substantial >=200). Page
 shape: H1, author slug, byline, THIS disclaimer, a `?subject=...` share-link
 payload, a photo credit, then the lede.
 
-It is the documented `_looks_like_editorial_disclosure` blind spot - boilerplate
+It is the documented `_looksLikeEditorialDisclosure` blind spot - boilerplate
 that reads as a grammatical sentence, so the sentence-strict pass cannot see it
 and it clustered with the share payload to win idx 3. The existing detector
 covered affiliate / syndication / marketing-consent families but not the
@@ -534,7 +534,7 @@ alone ("the opinions expressed at the meeting were heated" is prose; "these
 results do not necessarily represent the population" is prose), but together
 they essentially only occur in this disclaimer. The "not necessarily..." half
 sits past the 60-char preview (char ~62 here), so it relies on the walk-time
-`is_disclosure` flag over full text, which is already how tree_summary computes
+`isDisclosure` flag over full text, which is already how treeSummary computes
 it. Once flagged chrome, the cascade reaches the very-substantial lede at idx 6.
 
 Sabotage-checked: rule off -> chrome=False -> lands idx 3 (the bug); rule on ->
@@ -567,11 +567,11 @@ the phase is slow (>= 0.3 s, below the walk's 1.0 s on purpose - the burn is
 ~0.6 s) or truncated; session log always; emitted adjacent to the `[TMTS perf]`
 line, same as walk-phase.
 
-Mechanics: added an optional `scanned_out` list to `_count_in_scope` /
-`_count_in_range` (live-incremented so every early return reports true scanned)
-and threaded it through `_count_form_inputs`. Zero behavioral change - the leaf
+Mechanics: added an optional `scannedOut` list to `_countInScope` /
+`_countInRange` (live-incremented so every early return reports true scanned)
+and threaded it through `_countFormInputs`. Zero behavioral change - the leaf
 count loops and their check-placement contract (`tests/test_count_budgets.py`)
-are untouched; five new tests pin that `scanned_out` reports correctly on every
+are untouched; five new tests pin that `scannedOut` reports correctly on every
 exit path (full scan, limit short-circuit, scan cap, multi-type accumulation)
 and never alters the count or the truncated flag. The primary counts phase is
 instrumented; the rare/cheap fallback recount (t3->t4) is deliberately not
@@ -595,7 +595,7 @@ lists, and the classifier inputs were exactly what the perf lines reported).
 ### 1. The questions page landed mid-form (Q13) instead of at the top
 
 `/screenreadersurvey11/survey`: `article=1`, `forms=10`. Classified
-`article(0.75)` and `find_article_landing`'s largest-paragraph fallback picked
+`article(0.75)` and `findArticleLanding`'s largest-paragraph fallback picked
 idx 42, "13. Do you see free or low-cost desktop screen readers..." (166 chars)
 - the LONGEST single question label on the page. Every question is separated by
 its short answer options ("Yes", "No Response", 3-11 chars), so no cluster and
@@ -603,19 +603,19 @@ no hero gate ever fires on the questions; the cascade falls straight through to
 "pick the longest paragraph", and Q13 happened to be longest.
 
 Root cause is classification, not landing: WebAIM wraps the survey body in a
-single `<article>`. `has_editorial_content = article_count >= 1` tripped, and
-with no form-URL hint the `(has_editorial_content and not form_url_hint)` clause
+single `<article>`. `hasEditorialContent = articleCount >= 1` tripped, and
+with no form-URL hint the `(hasEditorialContent and not formUrlHint)` clause
 blocked FORM. So a 10-input survey classified as an article.
 
 Fix: a survey / questionnaire URL is a form URL, exactly like /register and
 /contact already are. Added `/survey`, `/questionnaire` to `URL_HINTS[FORM]`.
 That flips the existing escape hatch, FORM fires at 0.99, and the bare-form path
 announces the title and moves focus to Q1. Deliberately did NOT touch the
-`<article>` FORM block or let `strong_form_signal` bypass it - that block is a
+`<article>` FORM block or let `strongFormSignal` bypass it - that block is a
 documented deliberate decision protecting news articles with comment forms, and
-those articles are also caught by `has_body_cluster_strong` (no URL hatch), so a
+those articles are also caught by `hasBodyClusterStrong` (no URL hatch), so a
 real "/surveying-services" article with a body cluster still blocks FORM. Pinned
-that collision with `test_surveying_article_with_body_cluster_stays_editorial`.
+that collision with `test_surveyingArticleWithBodyClusterStaysEditorial`.
 `/poll` was NOT added: plain substring matching would eat "/pollution".
 
 ### 2. The thank-you page landed on the breadcrumb, then would have landed on a share prompt
@@ -630,19 +630,19 @@ this with others", "check out our services").
 Two things were wrong, both needed:
 
   a. The breadcrumb is nav chrome and was not filtered. Added
-     `_looks_like_breadcrumb` to the shared `_is_chrome_paragraph`: a "You are
+     `_looksLikeBreadcrumb` to the shared `_isChromeParagraph`: a "You are
      here" preamble, or >= 2 spaced chevrons (>, ›, ») forming a 3+ segment
      chain. Two separators (not one) keeps prose with a lone " > " safe; " / "
      is excluded because "and / or" is real prose. General win - breadcrumbs are
      never a landing on any page type.
 
-  b. Even chrome-skipped, `find_notice_landing` was paragraph-first with headings
+  b. Even chrome-skipped, `findNoticeLanding` was paragraph-first with headings
      as a pure fallback, so it would then land on idx 4 (the share prompt), never
      the heading that IS the message. Rewrote it: a heading owns the status
      UNLESS a status paragraph follows it before the next heading. The lookahead
      is what preserves the closed-form shape (title H1 + "no longer accepting
      responses" paragraph still lands on the sentence) - pinned by
-     `test_notice_landing_title_heading_still_yields_to_status_sentence`. Result:
+     `test_noticeLandingTitleHeadingStillYieldsToStatusSentence`. Result:
      the thank-you page lands on the H1.
 
 Sabotage-checked both: breadcrumb OFF -> idx 2 (the reported bug); heading rule
@@ -652,7 +652,7 @@ OFF -> idx 4 (share prompt); both on -> idx 0.
 
 The notice-landing change touches a core intent's landing behavior, so it will
 affect other NOTICE pages Casey hits. The residual risk is a NOTICE page whose
-first heading in `main_nodes` is a poor label with no paragraph under it before
+first heading in `mainNodes` is a poor label with no paragraph under it before
 the next heading (e.g. a leaked nav "Menu" heading) - it would now land on that
 heading instead of a later status paragraph. Judged unlikely on small scoped
 NOTICE pages and it degrades to "announces what page this is" (the old
@@ -660,7 +660,7 @@ fallback), but the moved-caret line will show it if it happens.
 
 ## 2026-07-20 - an embedded video cut the lede off from the body (MacRumors)
 
-318 tests. `main` still v1.0.13. New gate: `_find_title_lede_landing`.
+318 tests. `main` still v1.0.13. New gate: `_findTitleLedeLanding`.
 
 ### What Casey reported
 
@@ -702,7 +702,7 @@ Neither is a bug; they just both failed to save us.
 
 This is the structural fault CLAUDE.md already names: **the cascade awards the
 landing on rule ORDER rather than evidence strength.** Same disease as IMDb, and
-`_find_lead_section_landing` did not cover it -- that gate wants exactly ONE
+`_findLeadSectionLanding` did not cover it -- that gate wants exactly ONE
 candidate of 100+ chars in the section, and MacRumors' lead section holds four.
 
 ### The rule
@@ -739,7 +739,7 @@ thing enforcing it was deletable. Tests added for all three.
 
 **One of those repair attempts was itself hollow, and that is the transferable
 part.** The first guard-3 fixture passed with the lookahead deleted, not because
-the guard was unnecessary but because `_find_lead_section_landing` claimed the
+the guard was unnecessary but because `_findLeadSectionLanding` claimed the
 same index first and masked it. A fixture that exercises a gate has to be shaped
 so the gates ABOVE it decline; otherwise it pins nothing and looks like it does.
 Adding a second body paragraph made the lead-section gate decline ("exactly one"
@@ -766,9 +766,9 @@ planned change was NOT made, which is the useful part.
 ### The plan that was abandoned, and what stopped it
 
 Codex's last review proposed refining the depleted-scope net: stop widening to
-`all_nodes`, widen instead to a RECOVERABLE set (everything except nodes dropped
+`allNodes`, widen instead to a RECOVERABLE set (everything except nodes dropped
 by a TRUSTED mechanism, `_SCOPE_CHROME_DROP` / `_SCOPE_FIELD_DROP`), and then
-delete the `positional_drops == 0` gate, since its only purpose was preventing
+delete the `positionalDrops == 0` gate, since its only purpose was preventing
 re-admission of correctly-removed chrome. The argument was clean and I believed
 it. Both reviewers were briefed and were reasoning inside the same premise.
 
@@ -792,17 +792,17 @@ observations, all from the decision trace:
 
 **1. The net does not fire there, and has not been able to since before this
 session.** The page is `chrome-pos` with `pos_drops=15`, so the
-`positional_drops == 0` gate blocks it. That gate predates today for chrome-pos;
+`positionalDrops == 0` gate blocks it. That gate predates today for chrome-pos;
 today only extended it to plain `chrome`.
 
 **2. The first attempt reproduces the recorded symptom exactly** -
-`main_nodes=3`, all chrome, `no-action: unknown(0.00)`, first node "Get new
-articles delivered to your inbox". But `all_nodes=16` and `raw_seen=21`: the
-1439-char paragraph is not in `all_nodes` EITHER. The scope filter never saw it.
+`mainNodes=3`, all chrome, `no-action: unknown(0.00)`, first node "Get new
+articles delivered to your inbox". But `allNodes=16` and `rawSeen=21`: the
+1439-char paragraph is not in `allNodes` EITHER. The scope filter never saw it.
 **It had not hydrated yet.**
 
 **3. On the hydrated page the filter is CORRECT.** Retry at +1500 ms:
-`raw_seen=67 all_nodes=59 main_nodes=46`, landed on the 618-char article lede at
+`rawSeen=67 allNodes=59 mainNodes=46`, landed on the 618-char article lede at
 idx=6, `intent=article(0.85)`. A later Z press on the warm page: identical, 46 of
 59 kept. The 15 drops are the logo, "WELLINGTON · AOTEAROA · EST. 2024", Home,
 About Us, Pricing, Coaching, Contact, Blog, Quizzes, and the copyright line -
@@ -813,11 +813,11 @@ every one of them genuine chrome, 11 of them field-stack drops.
 **Stated carefully, because the first draft of this entry overclaimed.** It
 called the original observation a misdiagnosis. That is TOO STRONG: the
 docstring quotes six real paragraph lengths (618, 563, 699, 1002, 460, 1439),
-so those paragraphs were genuinely observed in `all_nodes` on 2026-07-18.
+so those paragraphs were genuinely observed in `allNodes` on 2026-07-18.
 
 What today's load supports:
 
-  - Attempt 1 reproduces the symptom, and `raw_seen` went 21 -> 67 before the
+  - Attempt 1 reproduces the symptom, and `rawSeen` went 21 -> 67 before the
     retry, so the page was HYDRATING. The retry landed correctly.
   - LIMIT: attempt 1 had 13 drops and the `[TMTS walk-drops]` line caps at 10.
     The 10 logged are all chrome; up to 3 are unaccounted for - FEWER than the
@@ -832,7 +832,7 @@ compensated for is largely gone on supported backends, which fits it never
 having fired.
 
 Worse for the design: **had the net fired on the cold load it would have caused
-harm.** Widening to `all_nodes` there means widening to 16 nodes containing no
+harm.** Widening to `allNodes` there means widening to 16 nodes containing no
 article, and the most likely landing is "Get new articles delivered to your
 inbox" - a WRONG landing, which guardrail 3 rates worse than the silence that
 actually occurred. Refining WHICH nodes it widens to does not help; on that page
@@ -847,8 +847,8 @@ One page load is not grounds for deleting a safety net, in the same way it was
 not grounds for building on one. The net is now recorded as UNVERIFIED with its
 motivating case explained away. The next step is EVIDENCE, not code: if
 `unscoped-depleted` is still absent after another few hundred loads, it is dead
-weight and should go, along with the `positional_drops` gate and possibly
-`positional_drops` itself. Watch the persistent perf log for the tag.
+weight and should go, along with the `positionalDrops` gate and possibly
+`positionalDrops` itself. Watch the persistent perf log for the tag.
 
 ### The lesson, which is the same one in new clothes
 
@@ -868,8 +868,8 @@ that cannot.
 1. THE COUNTS, now clearly dominant (646-666 ms of ~730 ms on these loads,
    `counts_trunc=True` every time). Probe first: one-character expand at the
    item start, MAX call time not average, plus backend and NVDA version.
-2. `_count_in_scope` drops an `obj is None` item without setting
-   `truncated_out` - a TRUSTED undercount.
+2. `_countInScope` drops an `obj is None` item without setting
+   `truncatedOut` - a TRUSTED undercount.
 3. Objectless chunks still fail open on the plain-chrome and range-error
    identity branches.
 4. `classifier.py:448` LIST branch is dead (`>= 5` against `_ARTICLE_LIMIT = 4`).
@@ -903,7 +903,7 @@ filter (identity question, unprobed). Counts untouched, held behind a probe.
 
 stevequayle.com, the page that motivated all of this:
 
-    walk_total=84ms  obj=0ms  fields=64ms  chunks=113
+    walkTotal=84ms  obj=0ms  fields=64ms  chunks=113
     parent_derefs=0  identity=0  field=113  field_backend=y
 
 Zero COM parent chains, against 1808 ms of a 2035 ms walk before and 6+ seconds
@@ -938,8 +938,8 @@ Codex and Fable, run in parallel, INDEPENDENTLY found the same two deletions
 that left all 307 tests green:
 
 1. **The chrome-pos field consultation was wired but entirely untested.** Every
-   `exclude_ranges` test used the plain `FakeTI`, where the backend gate forces
-   the verdict to None; every supported-backend test omitted `exclude_ranges`.
+   `excludeRanges` test used the plain `FakeTI`, where the backend gate forces
+   the verdict to None; every supported-backend test omitted `excludeRanges`.
    The two were never exercised together, so the whole branch deleted green.
    Not cosmetic: inside an untrusted range the field stack is the ONLY mechanism
    that can see a nested nav the enumeration may have omitted.
@@ -981,11 +981,11 @@ reviewers converging on the same two gaps is the actual control here.
   the identity filter have called this chrome", and to THAT it is sound.
 - **The scope-kinds comment was actively lying** after the commit (still named
   the deleted FREE kind, omitted the FIELD kinds, and claimed only CHROME_* feed
-  `positional_drops` and only chrome-pos consumes them -- false twice). Rewritten,
+  `positionalDrops` and only chrome-pos consumes them -- false twice). Rewritten,
   including the rationale nobody had written down: identity drops are
   deliberately NOT counted, because identity is the mechanism the net exists to
   distrust. Counting them would switch the net off on the pages it rescues.
-- **`[TMTS walk-phase]` now reports `field=`, `field_drops=` and
+- **`[TMTS walk-phase]` now reports `field=`, `fieldDrops=` and
   `field_backend=`** separately from `positional=`. An aggregate that cannot name
   the mechanism is what stalled the payproglobal investigation for a session.
 
@@ -993,22 +993,22 @@ reviewers converging on the same two gaps is the actual control here.
 
 1. **The depleted net is too coarse (Codex).** On a mixed-evidence page -- one
    definitive field drop on a header nav, body chunks UNKNOWN and wrongly
-   discarded by the identity chain -- `positional_drops > 0` disables recovery
+   discarded by the identity chain -- `positionalDrops > 0` disables recovery
    for the WHOLE page, and the result is silence. Fail-closed, but it disables
    the net exactly where it is needed. The durable fix is a recoverable-node
    list that keeps identity-uncertain drops while permanently excluding
    `_SCOPE_CHROME_DROP` and `_SCOPE_FIELD_DROP`, and widening to THAT rather
-   than to raw `all_nodes`. Do not revert plain `chrome` to unconditional
+   than to raw `allNodes`. Do not revert plain `chrome` to unconditional
    widening; that knowingly re-admits proven chrome.
 2. THE COUNTS, now measurably dominant. Probe first: one-character expand at the
    item start, MAX call time not average, plus backend and NVDA version.
-3. `_count_in_scope` drops an `obj is None` item without setting
-   `truncated_out` -- a TRUSTED undercount, poison for NOTICE and KEY_RESULT.
-   Its sibling `_count_in_range` biases the OPPOSITE way on the same evidence.
+3. `_countInScope` drops an `obj is None` item without setting
+   `truncatedOut` -- a TRUSTED undercount, poison for NOTICE and KEY_RESULT.
+   Its sibling `_countInRange` biases the OPPOSITE way on the same evidence.
 4. Objectless chunks still fail open on the plain-chrome and range-error
    identity branches. Pre-existing; both reviewers say CLAUDE.md mis-files it as
    an accepted limitation.
-5. `classifier.py:448` bumps LIST confidence at `article_count >= 5` while
+5. `classifier.py:448` bumps LIST confidence at `articleCount >= 5` while
    `_ARTICLE_LIMIT = 4` caps it. Dead branch.
 6. `main-id` via `controlIdentifier_docHandle`/`_ID`, behind its own probe.
 
@@ -1065,8 +1065,8 @@ delete-now rather than weakening it.
 
 ### Both reviewers corrected the "unbuilt, unprobed" framing of Task 2
 
-`_walk_main_nodes` ALREADY calls `getTextWithFields()` for every chunk
-(`tree_summary.py:2264-2274`) to feed `_role_level_from_fields`. Reading
+`_walkMainNodes` ALREADY calls `getTextWithFields()` for every chunk
+(`treeSummary.py:2264-2274`) to feed `_roleLevelFromFields`. Reading
 `field.get("landmark")` off that already-parsed leading run is dictionary
 lookups. The fetch and the parser are shipped; Task 2 is smaller than the
 previous entry implies, and its walk cost should be slightly BETTER than
@@ -1085,8 +1085,8 @@ its results could not be attributed to an engine after the fact.
 ### What shipped
 
 - `_document_has_no_landmarks` and the `chrome-none` scope deleted, along with
-  the `no_landmarks` parameter threaded through `_walk_main_nodes` and
-  `_chunk_scope`, and the `_SCOPE_FREE` verdict.
+  the `no_landmarks` parameter threaded through `_walkMainNodes` and
+  `_chunkScope`, and the `_SCOPE_FREE` verdict.
 - `LandmarkScan.exhausted` KEPT but demoted to diagnostic, with the
   disassembly recorded at the field itself - that is where the next person
   reaches for it.
@@ -1110,20 +1110,20 @@ its results could not be attributed to an engine after the fact.
 
 1. Task 2, the guarded walk path, with the tri-state and the CLASS-based
    backend gate. Restores the speed this removal cost.
-2. `_count_in_scope` silently DROPS an item whose `obj is None` without setting
-   `truncated_out` (`tree_summary.py:1712`), producing a TRUSTED undercount -
+2. `_countInScope` silently DROPS an item whose `obj is None` without setting
+   `truncatedOut` (`treeSummary.py:1712`), producing a TRUSTED undercount -
    poison for NOTICE and KEY_RESULT, which fire on SMALL counts. Note its
-   sibling `_count_in_range` biases the OPPOSITE way on the same class of
+   sibling `_countInRange` biases the OPPOSITE way on the same class of
    missing evidence (`:1743`), so the two counting paths disagree about what
    "no evidence" means.
 3. Objectless chunks still fail open on the ordinary identity branch and the
-   range-error branch of `_chunk_scope`, while `chrome-pos` correctly refuses
+   range-error branch of `_chunkScope`, while `chrome-pos` correctly refuses
    that shape. Both reviewers said CLAUDE.md mis-files this as an accepted
    limitation; it is the same fail-open family with a ready-made fix pattern.
    Pre-existing, so not a blocker.
-4. `classifier.py:448` bumps LIST confidence at `article_count >= 5` while
+4. `classifier.py:448` bumps LIST confidence at `articleCount >= 5` while
    `_ARTICLE_LIMIT = 4` caps the count at 4. Dead branch, confirmed.
-5. Codex adds: the depleted/empty fallback (`tree_summary.py:461-465`) can
+5. Codex adds: the depleted/empty fallback (`treeSummary.py:461-465`) can
    reopen a correctly filtered document and re-admit cookie/nav/subscription
    text. Records as a latent correctness bug, not an accepted limitation.
    Task 2 should make the rescue unnecessary on supported backends.
@@ -1146,7 +1146,7 @@ the "not decided" disposition at the end is superseded.
 
 Found by Codex, confirmed empirically against the real code:
 
-    scan = _find_main_landmark(FakeTI([]))   # yields nothing, returns normally
+    scan = _findMainLandmark(FakeTI([]))   # yields nothing, returns normally
     scan.seen        == 0
     scan.exhausted   == True
     _document_has_no_landmarks(scan, 5) == True   # -> chrome-none
@@ -1165,7 +1165,7 @@ ENTIRELY, and navigation and footer text are admitted as content. A blind user
 lands in a menu. That is the release-blocker failure class.
 
 `tests/test_chrome_scope.py:621` gives false confidence: it drives the iterator
-with `raise_after=0`, which makes the exception ESCAPE. That is the shape
+with `raiseAfter=0`, which makes the exception ESCAPE. That is the shape
 `exhausted` genuinely catches. The shape NVDA actually produces - swallowed,
 empty, normal return - is untested, and passes.
 
@@ -1207,7 +1207,7 @@ The fail-open the brief feared does not exist on the proven backend.
    chrome correctly. Three states are required: definitive-chrome,
    definitive-not-in-chrome, and UNKNOWN (failed call, `''`/`['']`, no leading
    controlStart, malformed field, unsupported backend). The walk already models
-   exactly this with `had_field` in `_role_level_from_fields`.
+   exactly this with `hadField` in `_roleLevelFromFields`.
 2. **Backend gate, or it is fail-open.** `field["landmark"]` is BACKEND
    normalization, not a `TextInfo` contract. Gecko/Chromium populate it;
    **WebKit's normalizer does not**. On an unsupported backend every chunk
@@ -1221,7 +1221,7 @@ The fail-open the brief feared does not exist on the proven backend.
    stack IS independent of the landmark ENUMERATION, which is what the Change A
    objection was about - that part stands, narrowly.
 4. **`main-id` is not answerable this way.** "Is this inside THE `<main>` we
-   found" is identity (`cur is main_obj`); `landmark == "main"` matches ANY
+   found" is identity (`cur is mainObj`); `landmark == "main"` matches ANY
    main. Unprobed. Either keep identity there or match
    `controlIdentifier_docHandle`/`_ID`, which needs its own probe.
 
@@ -1229,16 +1229,16 @@ The fail-open the brief feared does not exist on the proven backend.
 
 It keeps a COM chain for every clean CONTENT item, which is the majority, so it
 forfeits nearly the whole win - and for the COUNTS it is not even conservative:
-a false chrome verdict REMOVES items without setting `counts_truncated`, and
+a false chrome verdict REMOVES items without setting `countsTruncated`, and
 smaller counts manufacture NOTICE and KEY_RESULT. Agreed rule instead: field
 says chrome -> exclude; field definitively not-in-chrome -> accept, no COM;
-unknown -> `_in_scope_verdict`; parent unknown -> keep (walk/counts) or refuse
-(focus). `_in_scope` is retired as the ROUTINE authority, kept as the fallback.
+unknown -> `_inScopeVerdict`; parent unknown -> keep (walk/counts) or refuse
+(focus). `_inScope` is retired as the ROUTINE authority, kept as the fallback.
 
 The focus gate gets a stricter rule than either: the field stack is a buffer
 SNAPSHOT while `setFocus()` acts on the LIVE object, and a dynamic page can
 reparent the control in between (unmeasured race). So require definitive field
-permission AND a live `_in_scope_verdict(...) is True` immediately before
+permission AND a live `_inScopeVerdict(...) is True` immediately before
 `setFocus()`. That is one COM chain per FORM page, not per chunk.
 
 ### Counts: do NOT extrapolate the 0.7-1.1 ms figure
@@ -1247,11 +1247,11 @@ That is a PARAGRAPH number. A quick-nav item's range can be a whole article, and
 `getTextWithFields` serializes and parses everything inside it. Collapse to the
 item start and expand ONE CHARACTER instead - the leading run there still
 carries full ancestry. Budget math before committing: 6 types x 300-item scan
-cap x ~1 ms is ~1.8 s against a 0.6 s counts budget, so `counts_truncated`
+cap x ~1 ms is ~1.8 s against a 0.6 s counts budget, so `countsTruncated`
 stays load-bearing and "cheap against COM" is not "fits the budget".
 
-Also found, unrelated and real: `_count_in_scope` silently DROPS an item whose
-`obj is None` without setting `truncated_out`, producing a TRUSTED undercount.
+Also found, unrelated and real: `_countInScope` silently DROPS an item whose
+`obj is None` without setting `truncatedOut`, producing a TRUSTED undercount.
 
 ### Agreed plan
 
@@ -1261,7 +1261,7 @@ Also found, unrelated and real: `_count_in_scope` silently DROPS an item whose
 3. Probe before the COUNTS: one-character call cost distribution (MAX, not
    average), backend name, NVDA version.
 4. Probe before touching `main-id`.
-5. Do NOT delete `trust_boundary` / `untrusted_ranges` / `_chrome_pos_verdict`
+5. Do NOT delete `trustBoundary` / `untrustedRanges` / `_chromePosVerdict`
    in the same change that adds the field path. Two steps, each pinned.
 6. One Firefox rerun of the probe before calling the mechanism cross-engine.
 
@@ -1294,7 +1294,7 @@ assumption it exists to check. After the change, `interactive_count > 0` could
 fail only on a page with no controls at all: hollow evidence, the exact pattern
 this file already records twice.
 
-And a second path neither of us had spotted: `tree_summary.py:366` promotes
+And a second path neither of us had spotted: `treeSummary.py:366` promotes
 scope to positional `article` when the article count is exactly 1, BEFORE
 `chrome-none` is decided. A document-wide article count could therefore scope
 the entire walk to a single `<article>` sitting inside chrome.
@@ -1304,16 +1304,16 @@ shrank.** It helps vovsoft (88 of 109 chunks were decided positionally there)
 and does nothing for thurrott, whose only landmark is a top nav, putting the
 trust boundary at offset 0. Both reviewers also caught a factual error in the
 brief: it claimed the counts are "inclusive on a missing textInfo" and proposed
-preserving that. That is `_count_in_range`'s behaviour, on main-pos/article
-pages. The path Change B touches uses `_count_in_scope`, which requires an
-object (`tree_summary.py:1631`), so "preserve the bias" would have flipped
+preserving that. That is `_countInRange`'s behaviour, on main-pos/article
+pages. The path Change B touches uses `_countInScope`, which requires an
+object (`treeSummary.py:1631`), so "preserve the bias" would have flipped
 no-evidence items from excluded to COUNTED, in the direction of FORM. Shelved
 rather than shipped, on Casey's call, because the real fix below subsumes it.
 
 ### What DID ship: the identity filter could not say "I do not know"
 
 Review found a wrong-answer bug, pre-existing and independent of the perf work.
-`_in_scope` ended with `result = main_obj is None` for every way of leaving the
+`_inScope` ended with `result = mainObj is None` for every way of leaving the
 parent walk without an answer - a dereference that raised, or a chain deeper
 than the 30-ancestor cap. On a page with no `<main>` that expression is True.
 So **"we could not prove this is chrome" was returned as "this is proven
@@ -1323,15 +1323,15 @@ chain.
 
 It lands hardest where the design leans on it hardest. `chrome-pos` routes its
 undecidable chunks to the identity filter AS its safety mechanism, and
-`_form_field_in_scope` - the path that calls `setFocus()` - documented itself
+`_formFieldInScope` - the path that calls `setFocus()` - documented itself
 as "Fails CLOSED throughout" while delegating there. It did not fail closed.
 One failed dereference could put a blind user's caret in a header search box.
 
-`_in_scope_verdict` is now tri-state; `_in_scope` is a thin wrapper keeping the
+`_inScopeVerdict` is now tri-state; `_inScope` is a thin wrapper keeping the
 OLD default for the walk and counts, whose documented policy really is "keep
 what you cannot classify". The focus path takes the tri-state and accepts only
 True. Both of its identity fallbacks were fixed: the second one matters because
-`article` scope is positional with NO `<main>`, so `main_obj is None` there too
+`article` scope is positional with NO `<main>`, so `mainObj is None` there too
 and the old default read as content.
 
 An undecided walk now caches NOTHING. That is a deliberate perf tradeoff on the
@@ -1342,7 +1342,7 @@ half of the bug that made a single failure contagious.
 
 Restructuring the loop, I set `decided = True` on clean root termination but
 never computed the answer, so the ordinary case returned None. Caught by
-`test_focus_move_skips_a_field_inside_chrome`. Worth recording because it is
+`test_focusMoveSkipsAFieldInsideChrome`. Worth recording because it is
 the failure mode of tri-state refactors generally: the "ran out of ancestors"
 exit is the ONE place the old blanket default was correct, and it is easy to
 delete along with the three places it was not.
@@ -1350,7 +1350,7 @@ delete along with the three places it was not.
 ### Known divergence, deliberate, NOT resolved
 
 A form control the focus gate would refuse for lack of evidence can still
-contribute to `form_input_count`. So the counts can call a page FORM and the
+contribute to `formInputCount`. So the counts can call a page FORM and the
 focus gate can then decline every field that made it one. Codex proposed
 tightening the counts to match. Not done: it changes classification on pages we
 have no measurement for. The probe now reports how often the undecided path is
@@ -1367,7 +1367,7 @@ dereferences, truncated at 26 chunks and 5 nodes).
 INSTALLED `virtualBuffers/__init__.pyc`: NVDA's own `getEnclosingContainerRange`
 pops control fields and tests `field.get("landmark")`. The leading run is the
 ancestor stack at the range start (established last session against the same
-function). So the ancestry `_in_scope` buys at 13-18 ms per COM dereference may
+function). So the ancestry `_inScope` buys at 13-18 ms per COM dereference may
 already be in data the walk fetches in-process for well under a millisecond -
 and unlike every positional design tried here, it does NOT depend on the
 landmark enumeration being complete, which is the constraint that killed
@@ -1378,7 +1378,7 @@ summary): `storage.cpp:207-220` `locateTextFieldNodeAtOffset` accumulates
 `tempOffset += child->length` with `nhAssert(firstChild != NULL || length ==
 0)`, so children exactly partition their parent's span and any two vbuf nodes
 NEST OR ARE DISJOINT - partial overlap is impossible. That confirms a proposal
-to advance `trust_boundary` from the last landmark's START to its END is sound.
+to advance `trustBoundary` from the last landmark's START to its END is sound.
 It is also small: it makes chunks INSIDE the top nav decidable, while thurrott's
 content sits after the nav and stays on the identity path. Both reviewers said
 so independently. Sound, cheap, not the win.
@@ -1453,7 +1453,7 @@ would be, and the last three sessions each shipped something a review would
 have caught. Open questions at minimum: whether the counts should call
 getTextWithFields per quick-nav item (the walk gets it for free, the counts do
 not); whether a landmark-free field stack is positive evidence of content or
-merely absence of evidence; and whether `_in_scope` should be retired on these
+merely absence of evidence; and whether `_inScope` should be retired on these
 paths or kept as the tie-breaker.
 
 The `field_stack` probe measures the landmark question alongside the role
@@ -1473,14 +1473,14 @@ above was actually reached on real pages.
 3+ cross-process COM round trips, 11-29 ms measured, 60-98% of the walk on
 chrome-scoped pages, and on a fully positional page not one of them was needed.
 Role and heading level now come from the control field stack
-(`_role_level_from_fields`), and the object is fetched LAZILY via a `_get_obj`
+(`_roleLevelFromFields`), and the object is fetched LAZILY via a `_getObj`
 closure only where the positional scope verdict returns None. It is NOT removed:
-`_in_scope` is the identity fallback the chrome-pos design leans on as its safety
+`_inScope` is the identity fallback the chrome-pos design leans on as its safety
 mechanism, and on identity-scoped pages the object is still the only evidence
 there is. Pinned in both directions by test.
 
-Also: `_chunk_scope` extracted from the walk, returning the DECISION KIND so the
-walk DERIVES `positional_drops` instead of incrementing it beside the branch.
+Also: `_chunkScope` extracted from the walk, returning the DECISION KIND so the
+walk DERIVES `positionalDrops` instead of incrementing it beside the branch.
 That counter is a safety input (the depleted-scope net keys on it), and as a bare
 `+= 1` it was deletable with a green suite.
 
@@ -1491,10 +1491,10 @@ relying on.** The probe reported `disagree_heading_first=0`, and I correctly sai
 that proved nothing because the shape never occurred. In the same breath I cited
 `disagree_innermost=0` over 219 chunks as proof of equivalence. It was not.
 
-`_role_level_from_fields` scanned the WHOLE field stream and kept the last
+`_roleLevelFromFields` scanned the WHOLE field stream and kept the last
 `controlStart`. `getTextWithFields` interleaves text with control commands, so a
 paragraph containing an inline `<img>` reads as GRAPHIC — a SKIP role — and the
-whole paragraph vanishes from `main_nodes` AND `all_nodes`, unrecoverable by the
+whole paragraph vanishes from `mainNodes` AND `allNodes`, unrecoverable by the
 depleted net. The probe implemented the SAME whole-stream rule, and its
 comparison reduced roles to heading/skip/paragraph, so LINK against PARAGRAPH
 scored as agreement. Two blind spots stacked, and the sample (20 top-of-document
@@ -1513,7 +1513,7 @@ not.**
 
 ### Two more fail-opens caught in review, both mine
 
-- `_get_obj` caught exceptions and memoised `None`. Two identity branches read
+- `_getObj` caught exceptions and memoised `None`. Two identity branches read
   `obj is None` as IN scope, so a transient COM failure would have admitted an
   unverified navigation chunk as content. The old eager fetch let the exception
   reach the walk's outer handler. Exceptions propagate again; timing via
@@ -1570,7 +1570,7 @@ traces already sitting in `nvda.log`.
   TAIL, so the blurb winning PROVES the description was walked too. Network
   Alarmer and Read Mode both mislanded with `truncated=False`.
 
-**The real mechanism: `_find_content_section_landing`.** It matched the "Key
+**The real mechanism: `_findContentSectionLanding`.** It matched the "Key
 Features" heading and then scanned forward with NO distance limit, stopping only
 at the next heading. On a page whose matching heading is the LAST one, it ran to
 the end of the document and claimed the licensing paragraph 15 nodes past its own
@@ -1585,7 +1585,7 @@ affiliate and SMS families are tractable. Worse, it could not have fired: the
 vovsoft blurb's first 60 chars are "To receive license key and use all features
 of the software, " (61 chars), so every distinctive phrase sits past the preview
 cutoff, leaving only "license key" — far too broad, since installation notes and
-licensing FAQs are genuine content on those same pages. And `_is_chrome_paragraph`
+licensing FAQs are genuine content on those same pages. And `_isChromeParagraph`
 feeds the Z forward scan, so flagging it would make that paragraph unreachable by
 Z on a real order page, where it is the content the user came for.
 
@@ -1605,7 +1605,7 @@ Z on a real order page, where it is the content the user came for.
   an item before breaking so they report `seen >= 1` and were already safe; the
   exception path was not. It always knew it had failed and threw that away to a
   log line. Now carried as `LandmarkScan.exhausted`, defaulting False.
-- **Empty tree no longer announces failure.** IMDb played the not_found tone
+- **Empty tree no longer announces failure.** IMDb played the notFound tone
   twice against a buffer holding one chunk and zero nodes, then landed correctly
   four seconds later off its own fresh documentLoadComplete. Zero nodes means the
   buffer is not built, not that the page is empty. Capped at 2.5 s to the tone
@@ -1628,21 +1628,21 @@ The perf work below is untouched and still the biggest win. The field-stack prob
 is written, committed, and UNRUN at `probes/field_stack/`, with kill criteria
 fixed in advance — build with `python probes/build_probe.py field_stack`, trigger
 with NVDA+shift+f, grep `[TMTS probe-fields]`. Note gotcha (g) in that work:
-`NVDAObjectAtStart` also feeds `_in_scope`, so the object fetch may only become
+`NVDAObjectAtStart` also feeds `_inScope`, so the object fetch may only become
 LAZY on the identity path, never removed outright.
 
 Two smaller ones surfaced in review, both real, neither started:
 
 1. ~~**The 60-char preview makes `_EDITORIAL_DISCLOSURE_MAX_CHARS = 300` dead code
-   at runtime.**~~ **DONE, same session.** Promoted to a walk-time `is_disclosure`
-   flag computed over the FULL chunk text, matching `is_caption` /
-   `is_boilerplate`, plus a `full_length` parameter so the preview fallback can
+   at runtime.**~~ **DONE, same session.** Promoted to a walk-time `isDisclosure`
+   flag computed over the FULL chunk text, matching `isCaption` /
+   `isBoilerplate`, plus a `fullLength` parameter so the preview fallback can
    still apply the length guard (the precedent is the byline filter). It cut both
    ways as predicted: phrases past char 60 were invisible, AND a long genuine
    lede whose first 60 chars contained a disclosure phrase was chrome-flagged
    with no length protection. Note the trap this nearly repeated — every
    cascade-level test can hand-set the flag, so `tests/test_tree_summary.py` now
-   drives `_node_for` directly and was CONFIRMED to fail when the walk-time
+   drives `_nodeFor` directly and was CONFIRMED to fail when the walk-time
    computation is deleted. Verified live on simplyrecipes.
 2. **Counts are still identity-scoped on `chrome-pos`** (~630 ms), so counts and
    walk can describe different trees. FORM is the intent that moves keyboard
@@ -1656,19 +1656,19 @@ commit message before ever rebuilding it. 260 tests.
 
 ### What shipped to the branch
 
-1. **`_in_scope`'s memo was a WRONG-ANSWER bug.** `{id(obj): bool}`, no strong
+1. **`_inScope`'s memo was a WRONG-ANSWER bug.** `{id(obj): bool}`, no strong
    reference, so recycled CPython addresses produced false hits. Reproduced against
    the old code: after 100 nav chunks, all 100 following CONTENT chunks answered
-   out-of-scope. That empties `main_nodes`, trips the unscoped fallback, and is why
+   out-of-scope. That empties `mainNodes`, trips the unscoped fallback, and is why
    the symptom always read as "the identity check unreliably fails."
 2. **`[TMTS walk-phase]`** — per-call-site timing. This ended the guesswork and found
    TWO different bottlenecks: on chrome pages the parent chains are ~92% of the walk;
    on big `main-pos` pages `NVDAObjectAtStart` is ~98% and the walk truncates. Only
    measurement separated them.
-3. **`_scope_looks_depleted`** — the old net only fired when the scope filter returned
+3. **`_scopeLooksDepleted`** — the old net only fired when the scope filter returned
    NOTHING. deadsimpletech kept 3 of 16 nodes, all chrome, and discarded a 1439-char
    article; the net stayed shut and the user got silence.
-4. **`chrome-pos`** — positional chrome exclusion, bounded by `trust_boundary`.
+4. **`chrome-pos`** — positional chrome exclusion, bounded by `trustBoundary`.
 5. **`chrome-none`** — skip the parent walk entirely on landmark-free documents.
 6. **The focus-move path** now uses the walk's real scope decision.
 
@@ -1696,14 +1696,14 @@ works, and reflects the NVDA actually running on this machine rather than master
 
 1. **[SUPERSEDED 2026-07-18 evening — WRONG MECHANISM AND WRONG FIX. See the entry
    at the top of this file before acting on any of it. The cause was
-   `_find_content_section_landing` scanning without a distance bound; the
+   `_findContentSectionLanding` scanning without a distance bound; the
    purchase-vocabulary fix proposed here was rejected and NOT implemented.]**
    **Purchase/licensing boilerplate beats real content.** vovsoft product pages: two of
    four landed on a 387-char "To receive license key..." blurb instead of the product
    description (131/178 chars). Mechanism is the documented rule-order fault — any
    paragraph 200+ chars wins immediately, so shorter genuine content must clear the
    weaker cluster/hero gates and sometimes doesn't. Fix at the CLASS level by extending
-   `_looks_like_editorial_disclosure` to purchase/licensing vocabulary; this is every
+   `_looksLikeEditorialDisclosure` to purchase/licensing vocabulary; this is every
    software download page, not one site. **Start here next session.**
 2. **Cross-origin consent iframes fire their own landing.** BBC spoke the same paragraph
    twice 1.63 s apart; radiotimes read a cookie-consent dialog before the article.
@@ -1717,7 +1717,7 @@ works, and reflects the NVDA actually running on this machine rather than master
 4. **Stale positional ranges.** Captured before a walk that can run ~2 s while the buffer
    re-renders; offset comparisons don't raise, so the tri-state never fires.
 5. **Before any tagged release:** Fable found three wirings that pass tests while
-   sabotaged (the objectless-chunk rejection, the focus filter, the `positional_hits`
+   sabotaged (the objectless-chunk rejection, the focus filter, the `positionalHits`
    increment) because they sit inside the NVDA-bound walk. Pin them by extraction. Also
    `_document_has_no_landmarks` has never been reviewed — it was written after round 4.
 
@@ -1824,7 +1824,7 @@ chunks, 6261ms walk). `WALK_NODE_LIMIT` was 1000 with NO wall-clock
 limit, and the comment above it said "tune after we measure on real
 pages." We had measured; nobody had gone back and tuned it.
 
-Three changes, all in `tree_summary.py`:
+Three changes, all in `treeSummary.py`:
 
 1. `WALK_NODE_LIMIT` 1000 -> 400, plus a new `WALK_TIME_BUDGET_SEC = 1.5`
    checked per-iteration in the walk loop. The TIME budget is the real
@@ -1832,15 +1832,15 @@ Three changes, all in `tree_summary.py`:
    cap alone cannot bound the freeze. The node cap is now just a backstop.
 
 2. The unscoped fallback no longer re-walks the document. It used to call
-   `_walk_main_nodes` a second time with an "unscoped sentinel", which
+   `_walkMainNodes` a second time with an "unscoped sentinel", which
    doubled detection time on exactly the slowest pages — hearthstoneaccess
    changelog spent 3679ms on a scoped walk that found nothing, then 3614ms
    re-walking the identical 361 chunks. The walk now collects every node it
-   sees into `all_nodes` regardless of scope, and the fallback is a list
-   assignment. Removed `_UNSCOPED_SENTINEL` and its branch in `_in_scope`,
+   sees into `allNodes` regardless of scope, and the fallback is a list
+   assignment. Removed `_UNSCOPED_SENTINEL` and its branch in `_inScope`,
    which became dead.
 
-3. Perf line: `fb_raw_seen=` replaced by `all_nodes=`, and a new
+3. Perf line: `fb_raw_seen=` replaced by `allNodes=`, and a new
    `truncated=` field says whether the walk stopped on the cap/budget
    rather than reaching the end of the document. New `[TMTS walk-truncated]`
    debug line.
@@ -1850,7 +1850,7 @@ Decisions and things to watch:
 - **Truncation is a real trade, taken deliberately.** On a 900-paragraph
   page we now choose the landing from a partial view. This is safe because
   landing indices are always near the top (the correct BibleGateway landing
-  was `main_nodes[7]`), but the TAIL of a long document no longer feeds the
+  was `mainNodes[7]`), but the TAIL of a long document no longer feeds the
   classifier's counts. A page whose character of content changes after
   paragraph 400 could in principle classify differently. Judged acceptable:
   such pages are overwhelmingly ARTICLE either way, and a six-second freeze
@@ -1859,19 +1859,19 @@ Decisions and things to watch:
 - **The notice-keyword regex had to be split.** The walk now sees
   out-of-scope chunks, and a status keyword sitting in a cookie banner or
   footer must not boost NOTICE confidence on a page whose scope filter
-  worked fine. So there are two flags: `notice_match` (in-scope only, the
-  normal path) and `notice_match_all` (whole document), and the fallback
-  path swaps in the latter because there main_nodes IS the whole document.
+  worked fine. So there are two flags: `noticeMatch` (in-scope only, the
+  normal path) and `noticeMatchAll` (whole document), and the fallback
+  path swaps in the latter because there mainNodes IS the whole document.
   Getting this wrong would silently change NOTICE classification on every
   page with a cookie banner.
 
-- **`all_nodes` completeness depends on the out-of-scope-tolerance bail.**
-  That bail can truncate `all_nodes` early, but it only fires AFTER at
-  least one in-scope node exists — in which case `main_nodes` is non-empty
-  and the fallback never runs. So `all_nodes` is always complete when it is
+- **`allNodes` completeness depends on the out-of-scope-tolerance bail.**
+  That bail can truncate `allNodes` early, but it only fires AFTER at
+  least one in-scope node exists — in which case `mainNodes` is non-empty
+  and the fallback never runs. So `allNodes` is always complete when it is
   actually used. If anyone changes that bail condition, re-check this.
 
-- **NOT fixed, deliberately deferred:** the identity-based `_count_in_scope`
+- **NOT fixed, deliberately deferred:** the identity-based `_countInScope`
   parent-chain walk still runs on `chrome`-scope pages (no `<main>`, no
   single `<article>`) and cost 8047ms of the 11958ms total on the
   Hearthstone deckbuilder. Extending positional counting to that case is
@@ -1893,7 +1893,7 @@ CHUNKS WALKED, not content nodes KEPT. GitHub's repo page turns 400 raw
 chunks into only ~195 in-scope nodes (the rest is chrome: fork/branch/tag
 counts, file browser, commit messages), and the README landing paragraph
 sits at node ~201. So the cap starved the walk before it reached any
-content, `find_article_landing` fell through the "very substantial" gate to
+content, `findArticleLanding` fell through the "very substantial" gate to
 the cluster gate, and the page landed on a COMMIT MESSAGE. Meanwhile GitHub
 walks at ~4ms/chunk, so the 2s clock had not come close to firing — the
 backstop was doing all the truncating and the real guard sat idle. Restored
@@ -1917,7 +1917,7 @@ work would quietly stop working.
 
 ### Also fixed: the trigger dropped page loads on the floor
 
-`_maybe_fire` bailed whenever the TreeInterceptor wasn't ready, with no
+`_maybeFire` bailed whenever the TreeInterceptor wasn't ready, with no
 second chance — and `event_treeInterceptor_gainFocus` does not fire on this
 NVDA build, so nothing picked it up later. `documentLoadComplete` fires when
 the DOM finishes loading, which is NOT when NVDA finishes building the
@@ -1979,13 +1979,13 @@ one paragraph above the lede. The page is positionally scoped (single
 paragraph — and the round-13 byline filter only catches ALL-CAPS "By "
 bylines, a documented gap that bit sooner than expected.
 
-Fix: `_looks_like_byline` now also matches participle openers
+Fix: `_looksLikeByline` now also matches participle openers
 ("Written/Posted/Published/Story/Reported/Reviewed/Words/Photo(s)/
 Photographs by " + capitalized name), mixed case allowed — those forms
 essentially never open narrative prose, unlike bare "By ...". Guards:
 lowercase after "by" stays ("Written by hand, the letter..."), and a
-120-char cap on the FULL paragraph length (passed as full_length from
-_is_chrome_paragraph — the preview is truncated at 60, so len(preview)
+120-char cap on the FULL paragraph length (passed as fullLength from
+_isChromeParagraph — the preview is truncated at 60, so len(preview)
 alone can't enforce the cap) keeps long book-review ledes like "Written
 by John Steinbeck in 1939, ..." landable. Worst case on a short
 review-lede false positive: landing moves one paragraph later, never
@@ -2004,7 +2004,7 @@ box, login, search, newsletter) cleared STRONG_FORM_INPUT_COUNT, the
 site exposes no <article>, the description is under 200 chars, and the
 long comment paragraphs aren't adjacent (no massive duo, no 3-cluster).
 
-Fix: `has_editorial_url` — URL matches ARTICLE hints AND not FORM hints
+Fix: `hasEditorialUrl` — URL matches ARTICLE hints AND not FORM hints
 → FORM blocked. Mirror image of the existing /register escape hatch.
 Added "/podcast" to the ARTICLE URL hints. /blog/contact-style URLs
 (match both) stay FORM-eligible. This would also have caught Armstrong
@@ -2066,11 +2066,11 @@ Two soak reports, two general fixes:
 1. dailymail.com article landed on the "• READ MORE: ..." promo box
    (109 chars) — it and the all-caps byline right after it (51 chars)
    formed a fake cluster that won gate 4. New chrome filters in
-   `_is_chrome_paragraph`: `_looks_like_promo_teaser` (ALL-CAPS
+   `_isChromeParagraph`: `_looksLikePromoTeaser` (ALL-CAPS
    READ MORE/RELATED/SEE ALSO/DON'T MISS labels, optional leading
    bullet; case-SENSITIVE so "Read more about..." prose survives;
    EXCLUSIVE deliberately excluded — sites open real ledes with it) and
-   `_looks_like_byline` (starts with exactly "By " + >=70% of letters
+   `_looksLikeByline` (starts with exactly "By " + >=70% of letters
    uppercase; "By NASA's estimate..." stays safe; mixed-case "By John
    Smith" is a known deliberate gap). With both filtered, the cascade
    reaches the real 226-char lede. Note: the page's headline is not in
@@ -2082,7 +2082,7 @@ Two soak reports, two general fixes:
    <article> (editorial block off), the 6-input newsletter widget
    cleared STRONG_FORM_INPUT_COUNT, and the two 618/595-char body
    paragraphs missed the 3-paragraph cluster bar. New classifier block:
-   `_has_massive_paragraph_duo` — two ADJACENT non-caption/boilerplate
+   `_hasMassiveParagraphDuo` — two ADJACENT non-caption/boilerplate
    paragraphs >= 200 chars each block FORM, with the same URL escape
    hatch as the <article> block (/register, /signup, ... stay FORM) so
    Zoom registration pages keep their approved title-landing behavior
@@ -2120,16 +2120,16 @@ two directory-redirect fixtures themselves: Montgomery's nav run (six
 Title Case rows, 125 chars, zero sentence ends) and signed-in Zoom's
 form-label run (sixteen labels + one "?" question = 1 ender in 17 lines).
 Pre-heading runs are rejected for the same reason the hero gate requires
-seen_heading (cookie banners / publisher disclaimers).
+seenHeading (cookie banners / publisher disclaimers).
 
 New walk-time flag `MainNode.ends_sentence` (set via `web.ends_like_sentence`
 over the FULL chunk text — the terminal '.' of a 61-char line sits past
-the 60-char preview cutoff, same trap as is_caption/is_boilerplate).
+the 60-char preview cutoff, same trap as isCaption/isBoilerplate).
 Fixture fallback: lines <=60 chars re-check the preview.
 
 Six new tests (119 total): the Mario fixture lands idx 7, nav-run reject,
 form-label-run reject, pre-heading reject, preview fallback, and the
-ends_like_sentence detector itself. Montgomery and collapsed-Zoom
+endsLikeSentence detector itself. Montgomery and collapsed-Zoom
 directory-redirect tests unchanged and still green.
 
 ## 2026-07-06 (eleventh round) — restored-position gate needs the seen-URL signal
@@ -2142,7 +2142,7 @@ so "caret past first char" alone is NOT a reliable restored-position signal.
 
 Fix (general, no per-site code): require BOTH signals. Back navigation by
 definition returns to a URL already visited this session, so the gate now
-keeps a session-scoped `_seen_urls` dict (url -> monotonic timestamp,
+keeps a session-scoped `_seenUrls` dict (url -> monotonic timestamp,
 membership checked BEFORE recording, pruned to newest 250 at 500 entries)
 and only skips when caret is mid-page AND (url seen before OR the url has
 a real anchor fragment — `#section` yes, `#/route` SPA fragments no, so
@@ -2157,7 +2157,7 @@ MOVED during the 1500 ms wait (compareEndPoints != 0). Errors resolve to
 "not moved" → proceed.
 
 Accepted trade-off: browser session restore after an NVDA restart looks
-like a first visit (empty `_seen_urls`), so a restored mid-scroll tab that
+like a first visit (empty `_seenUrls`), so a restored mid-scroll tab that
 fires documentLoadComplete will land. That matches pre-gate behavior and
 is rare; not worth persisting URL history to disk.
 
@@ -2170,7 +2170,7 @@ scan landing correctly on "Cuba has been hit by another island-wide...".
 
 Casey: Back to search results / book lists restores the reading position,
 and the addon's re-landing yanked him to the top — the opposite of
-guardrail #1. Fix: `_caret_is_mid_page(ti)` — when a load event arrives
+guardrail #1. Fix: `_caretIsMidPage(ti)` — when a load event arrives
 and the browse cursor is past the document's first character, skip
 detection entirely (position was restored: Back nav, anchor link,
 session restore). Fresh loads start at the top, so normal landings are
@@ -2188,7 +2188,7 @@ bug — do not hook event_gainFocus to "fix" it.
 Final state verified in the live log: a real load of Zoom's confirmation
 page classifies NOTICE and lands on the H1 "You have successfully
 registered" (this render carries NO paragraph >= 30 chars — the page's
-text is the heading plus <30-char fragments, so find_notice_landing's
+text is the heading plus <30-char fragments, so findNoticeLanding's
 heading fallback is what fires, and the earlier Z "nothing to land on"
 was truthful). Casey confirmed: "perfect".
 
@@ -2211,7 +2211,7 @@ Z gap anyway: on Zoom's confirmation page the longest line is 44 chars,
 under Z's LANDING_MIN_PARAGRAPH_CHARS=50 bar, so Z reports "Nothing else
 to land on" with the message right below the cursor.
 
-Fix in find_next_content_landing: if NO paragraph anywhere in main_nodes
+Fix in findNextContentLanding: if NO paragraph anywhere in mainNodes
 clears the 50-char bar (short-content page), rescan below the cursor at
 the notice bar (_NOTICE_LANDING_MIN_CHARS=30). Pages that have 50+ char
 paragraphs anywhere keep the strict bar, so end-of-article Z behavior
@@ -2225,16 +2225,16 @@ two-beep not-found (Casey read it as an addon error — it wasn't; both
 attempts classified UNKNOWN and gave up cleanly). Log: 6 nodes, H1 32
 chars, keyword match available ("successfully"), but forms=1 — the "Add
 to calendar" widget counts in NVDA's formField quick-nav class — and
-_classify_notice required form_input_count == 0.
+_classifyNotice required formInputCount == 0.
 
 Ironically surfaced BY the perf fix: before it, this page's forms would
 have miscounted as 0 and NOTICE would have fired. Correct counts exposed
 the too-strict gate.
 
-Fix: keyword-matched NOTICE (0.85) now tolerates form_input_count <=
+Fix: keyword-matched NOTICE (0.85) now tolerates formInputCount <=
 NOTICE_KEYWORD_MAX_FORM_INPUTS (2); the shape-only 0.65 path keeps the
 zero-fields requirement so small real forms (login pages) still can't
-classify as notices. Landing on the page: find_notice_landing → first
+classify as notices. Landing on the page: findNoticeLanding → first
 >=30-char paragraph → "Please check the confirmation email sent to..."
 with the H1 one arrow up.
 
@@ -2243,12 +2243,12 @@ with the H1 one arrow up.
 Perf rework verified live: counts went 930-1240 ms → 4-5 ms
 (scope=main-pos), total detection ~1.5 s → ~0.3 s, and FORM finally
 fires on Zoom (forms=10). But the FORM path's focus landed Casey on
-"Language English" — `set_focus_on_first_form_input` focused the first
+"Language English" — `setFocusOnFirstFormInput` focused the first
 formField in the WHOLE document, and Zoom's header language-picker
 combobox comes before the form.
 
 Fix: the function now (a) filters candidates positionally to the <main>
-range (rebuilt via `_find_main_landmark`, ~10 ms) and (b) prefers real
+range (rebuilt via `_findMainLandmark`, ~10 ms) and (b) prefers real
 "edit" quick-nav items over the broader formField class (which includes
 buttons/pickers), falling back to formField-in-main for edit-less forms.
 
@@ -2263,19 +2263,19 @@ between layouts; each state now gets the right treatment.
 Casey signed off on reworking the counts phase ("people won't wait").
 Perf lines showed counts=930-1240 ms per pass on Zoom (twice per visit
 with the retry), and the counts were WRONG anyway (forms=0 on a 7-input
-page) because the per-item parent-chain `_in_scope` check can't confirm
+page) because the per-item parent-chain `_inScope` check can't confirm
 `<main>` membership on many sites.
 
-What changed in tree_summary.py:
+What changed in treeSummary.py:
 
-- `_find_main_landmark(ti)` returns `(main_obj, main_range)` in one
-  enumeration; `main_range` is the landmark quick-nav ITEM's textInfo
-  (same coordinate-space trick as `_single_article_scope_range` — never
+- `_findMainLandmark(ti)` returns `(mainObj, mainRange)` in one
+  enumeration; `mainRange` is the landmark quick-nav ITEM's textInfo
+  (same coordinate-space trick as `_singleArticleScopeRange` — never
   `obj.makeTextInfo`, that's the documented trap).
-- New `_count_in_range(ti, type, scope_range, limit)`: positional counts
+- New `_countInRange(ti, type, scopeRange, limit)`: positional counts
   (item.textInfo START inside range), `_COUNT_SCAN_LIMIT=300` items
   scanned per type, items without textInfo counted inclusively. With
-  `scope_range=None` it's a plain capped enumeration (document-wide).
+  `scopeRange=None` it's a plain capped enumeration (document-wide).
 - Scope matrix, ONE range shared by counts and walk: `main-pos`
   (positional, the new fast path), `main-id` (main present, range failed
   → old identity path), `article` (unchanged), `chrome` (unchanged).
@@ -2287,7 +2287,7 @@ What changed in tree_summary.py:
   buttons, so document-wide form counts on button-heavy pages are
   dangerous; the all-zero gate limits exposure to pages where we had
   nothing anyway).
-- `positionally_scoped` stays article-only ON PURPOSE. Setting it for
+- `positionallyScoped` stays article-only ON PURPOSE. Setting it for
   main-pos would bypass the hero/cluster landing gates on every page
   with `<main>`, re-landing on pre-H1 deks/disclaimers (PCMag case).
 - Deleted `_find_main_landmark_obj` (superseded; the probe keeps its own
@@ -2346,9 +2346,9 @@ the landing choice. Three detections ran on one page visit:
    label → landed there. That's the mid-form jump Casey reported.
 3. t+34 s: same again.
 
-Fix: post-landing suppression. `_record_landing(url)` stamps URL + time on
+Fix: post-landing suppression. `_recordLanding(url)` stamps URL + time on
 every successful landing (both the FORM focus path and the caret path);
-`_maybe_fire_ti` skips automatic detection for that URL for
+`_maybeFireTi` skips automatic detection for that URL for
 `_LANDED_SUPPRESS_SEC` (120 s). Z clears the stamp (explicit re-request);
 URL change lands normally. Trade-off: F5 refresh of the same URL within
 120 s gets no auto-landing (Z covers it).
@@ -2357,7 +2357,7 @@ Also observed in the same log, documented but NOT changed (risk of broad
 behavior shift mid-test): the counts phase and the walk can disagree on
 scope. On Zoom, `forms=0 interactive=0` despite 7 real inputs because the
 main-scoped `_iterNodesByType` enumerations discarded everything (the
-known identity-based `_in_scope` failure) while `main_nodes` came from the
+known identity-based `_inScope` failure) while `mainNodes` came from the
 unscoped fallback. The summary the classifier sees is internally
 inconsistent: unscoped nodes + scoped-to-nothing counts. Under-reporting
 biases toward ARTICLE/silence (safe direction), but it means FORM intent
@@ -2375,8 +2375,8 @@ so Casey was "dropped in the middle of the reg form."
 
 Fix: `web.form_wants_browse_landing(tree)` — True when any non-chrome
 paragraph is >= VERY_SUBSTANTIAL_PARAGRAPH_CHARS (200). When True, the FORM
-branch in `_handle_result` falls through to the normal browse-cursor
-landing at `find_form_landing`'s index (first heading = form title) instead
+branch in `_handleResult` falls through to the normal browse-cursor
+landing at `findFormLanding`'s index (first heading = form title) instead
 of the focus jump. Bare forms (Google-Forms title + labels, logins) keep
 the focus behavior — the 200-char bar is above any realistic field label
 (Zoom's longest label was 112 chars).
@@ -2387,7 +2387,7 @@ Also diagnosed during this round:
   restart; once restarted, 1.0.9 was active (manifest verified, enabled,
   imports clean, zoom.us not excluded).
 - The persistent perf log stopping on 2026-06-19 is NOT a bug: since the
-  DEBUG gate was added, `_append_perf_line` only writes when NVDA's log
+  DEBUG gate was added, `_appendPerfLine` only writes when NVDA's log
   level is DEBUG, and Casey's NVDA runs loggingLevel = OFF. Diagnostics
   on his machine need NVDA log level set to Debug first (NVDA menu →
   Preferences → Settings → General).
@@ -2418,21 +2418,21 @@ essentially absent from real prose; requiring the year next to
 Decisions worth remembering:
 
 - Flag is computed at walk time over the FULL chunk text
-  (`MainNode.is_boilerplate`), mirroring `is_caption`, because the
+  (`MainNode.is_boilerplate`), mirroring `isCaption`, because the
   "All rights reserved" tail commonly sits past the 60-char preview cutoff.
 - `classifier._hero_paragraph_chars` skips boilerplate paragraphs by FLAG
   ONLY (no preview fallback there — classifier can't import detection.web
-  without a cycle; tree_summary always sets the flag in production).
-  Consequence: classifier fixtures must set `is_boilerplate=True` explicitly.
+  without a cycle; treeSummary always sets the flag in production).
+  Consequence: classifier fixtures must set `isBoilerplate=True` explicitly.
 - The five duplicated skip-filter chains in detection/web.py were
-  consolidated into `_is_chrome_paragraph`; the notice landing, form-landing
+  consolidated into `_isChromeParagraph`; the notice landing, form-landing
   paragraph fallback, and Z forward scan now apply it too (they previously
   had no chrome filters at all).
 - The win on Zoom is indirect: filtering the copyright makes the shell
-  produce NO landing → `_handle_result` returns False → the existing
+  produce NO landing → `_handleResult` returns False → the existing
   generic 1500 ms retry runs against the hydrated page. No timing tweaks,
   no Zoom-specific code.
-- Left `_largest_paragraph_cluster` alone (boilerplate could theoretically
+- Left `_largestParagraphCluster` alone (boilerplate could theoretically
   join a body cluster, but only the ©-line matches the detector and footers
   don't sit mid-body; not worth the churn).
 

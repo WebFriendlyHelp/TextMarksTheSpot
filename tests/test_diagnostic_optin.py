@@ -15,49 +15,49 @@
 # These tests pin the gate and pin BOTH writers honoring it. The two writers are
 # checked separately on purpose: they were gated at different times, and a suite
 # that only watched the capture log would not notice the perf log going back to
-# collecting by default. Delete either check in tree_summary and the matching
+# collecting by default. Delete either check in treeSummary and the matching
 # "writes nothing" test fails.
 
 import os
 
-import tree_summary
+import treeSummary
 
 
 def _reset(monkeypatch, appdata):
-	monkeypatch.setattr(tree_summary, "_DIAG_ENABLED", None, raising=False)
-	monkeypatch.setattr(tree_summary, "_CAPTURE_LOG_PATH_CACHE", None, raising=False)
-	monkeypatch.setattr(tree_summary, "_PERF_LOG_PATH_CACHE", None, raising=False)
+	monkeypatch.setattr(treeSummary, "_DIAG_ENABLED", None, raising=False)
+	monkeypatch.setattr(treeSummary, "_CAPTURE_LOG_PATH_CACHE", None, raising=False)
+	monkeypatch.setattr(treeSummary, "_PERF_LOG_PATH_CACHE", None, raising=False)
 	monkeypatch.setenv("APPDATA", str(appdata))
-	nvda_dir = os.path.join(str(appdata), "nvda")
-	os.makedirs(nvda_dir, exist_ok=True)
-	return nvda_dir
+	nvdaDir = os.path.join(str(appdata), "nvda")
+	os.makedirs(nvdaDir, exist_ok=True)
+	return nvdaDir
 
 
-def _opt_in(nvda_dir):
-	open(os.path.join(nvda_dir, tree_summary._DIAG_MARKER_NAME), "w").close()
+def _optIn(nvdaDir):
+	open(os.path.join(nvdaDir, treeSummary._DIAG_MARKER_NAME), "w").close()
 
 
 # --- the gate itself ----------------------------------------------------
 
 
-def test_disabled_without_marker(monkeypatch, tmp_path):
+def test_disabledWithoutMarker(monkeypatch, tmp_path):
 	_reset(monkeypatch, tmp_path)
-	assert tree_summary._diagnostics_enabled() is False
+	assert treeSummary._diagnosticsEnabled() is False
 
 
-def test_enabled_with_marker(monkeypatch, tmp_path):
-	nvda_dir = _reset(monkeypatch, tmp_path)
-	_opt_in(nvda_dir)
-	assert tree_summary._diagnostics_enabled() is True
+def test_enabledWithMarker(monkeypatch, tmp_path):
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
+	assert treeSummary._diagnosticsEnabled() is True
 
 
-def test_disabled_when_appdata_missing(monkeypatch, tmp_path):
+def test_disabledWhenAppdataMissing(monkeypatch, tmp_path):
 	_reset(monkeypatch, tmp_path)
 	monkeypatch.delenv("APPDATA", raising=False)
-	assert tree_summary._diagnostics_enabled() is False
+	assert treeSummary._diagnosticsEnabled() is False
 
 
-def test_disabled_when_the_marker_check_itself_raises(monkeypatch, tmp_path):
+def test_disabledWhenTheMarkerCheckItselfRaises(monkeypatch, tmp_path):
 	# A permission error, a dead network drive, anything: the answer is OFF.
 	# Failing open here would start recording on a machine we could not even
 	# read a filename on, which is the worst place to guess "yes".
@@ -67,16 +67,16 @@ def test_disabled_when_the_marker_check_itself_raises(monkeypatch, tmp_path):
 		raise OSError("cannot stat")
 
 	monkeypatch.setattr(os.path, "exists", _boom)
-	assert tree_summary._diagnostics_enabled() is False
+	assert treeSummary._diagnosticsEnabled() is False
 
 
-def test_verdict_is_cached_for_the_session(monkeypatch, tmp_path):
+def test_verdictIsCachedForTheSession(monkeypatch, tmp_path):
 	# Creating the marker mid-session must not switch recording on underneath a
 	# user who is already browsing; it takes effect at the next NVDA restart.
-	nvda_dir = _reset(monkeypatch, tmp_path)
-	assert tree_summary._diagnostics_enabled() is False
-	_opt_in(nvda_dir)
-	assert tree_summary._diagnostics_enabled() is False
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	assert treeSummary._diagnosticsEnabled() is False
+	_optIn(nvdaDir)
+	assert treeSummary._diagnosticsEnabled() is False
 
 
 # --- the capture log ----------------------------------------------------
@@ -84,28 +84,28 @@ def test_verdict_is_cached_for_the_session(monkeypatch, tmp_path):
 
 class _FakeSummary:
 	url = "https://example.com/private/page?token=secret"
-	has_main_landmark = True
-	article_count = 1
-	form_input_count = 0
-	interactive_control_count = 3
-	counts_truncated = False
-	positionally_scoped = False
-	main_nodes = ()
+	hasMainLandmark = True
+	articleCount = 1
+	formInputCount = 0
+	interactiveControlCount = 3
+	countsTruncated = False
+	positionallyScoped = False
+	mainNodes = ()
 
 
-def test_capture_disabled_writes_nothing(monkeypatch, tmp_path):
-	nvda_dir = _reset(monkeypatch, tmp_path)
-	tree_summary._append_capture(_FakeSummary())
-	assert os.listdir(nvda_dir) == [], "capture log written with no opt-in marker present"
+def test_captureDisabledWritesNothing(monkeypatch, tmp_path):
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	treeSummary._appendCapture(_FakeSummary())
+	assert os.listdir(nvdaDir) == [], "capture log written with no opt-in marker present"
 
 
-def test_capture_enabled_writes_a_record(monkeypatch, tmp_path):
-	nvda_dir = _reset(monkeypatch, tmp_path)
-	_opt_in(nvda_dir)
-	tree_summary._append_capture(_FakeSummary())
-	log_path = os.path.join(nvda_dir, "TextMarksTheSpot-captures.jsonl")
-	assert os.path.exists(log_path)
-	assert "example.com/private/page" in open(log_path, encoding="utf-8").read()
+def test_captureEnabledWritesARecord(monkeypatch, tmp_path):
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
+	treeSummary._appendCapture(_FakeSummary())
+	logPath = os.path.join(nvdaDir, "TextMarksTheSpot-captures.jsonl")
+	assert os.path.exists(logPath)
+	assert "example.com/private/page" in open(logPath, encoding="utf-8").read()
 
 
 # --- the persistent perf log --------------------------------------------
@@ -113,19 +113,19 @@ def test_capture_enabled_writes_a_record(monkeypatch, tmp_path):
 _PERF_LINE = "[TMTS perf] total=42ms url='https://example.com/private/page?token=secret'"
 
 
-def test_perf_log_disabled_writes_nothing(monkeypatch, tmp_path):
-	nvda_dir = _reset(monkeypatch, tmp_path)
-	tree_summary._append_perf_line(_PERF_LINE)
-	assert os.listdir(nvda_dir) == [], "perf log written with no opt-in marker present"
+def test_perfLogDisabledWritesNothing(monkeypatch, tmp_path):
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	treeSummary._appendPerfLine(_PERF_LINE)
+	assert os.listdir(nvdaDir) == [], "perf log written with no opt-in marker present"
 
 
-def test_perf_log_enabled_writes_the_line(monkeypatch, tmp_path):
-	nvda_dir = _reset(monkeypatch, tmp_path)
-	_opt_in(nvda_dir)
-	tree_summary._append_perf_line(_PERF_LINE)
-	log_path = os.path.join(nvda_dir, "TextMarksTheSpot-perf.log")
-	assert os.path.exists(log_path)
-	assert "example.com/private/page" in open(log_path, encoding="utf-8").read()
+def test_perfLogEnabledWritesTheLine(monkeypatch, tmp_path):
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
+	treeSummary._appendPerfLine(_PERF_LINE)
+	logPath = os.path.join(nvdaDir, "TextMarksTheSpot-perf.log")
+	assert os.path.exists(logPath)
+	assert "example.com/private/page" in open(logPath, encoding="utf-8").read()
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ def test_perf_log_enabled_writes_the_line(monkeypatch, tmp_path):
 # Added 2026-08-18 after it happened. The gate is a marker file under
 # %APPDATA%\nvda, and a developer collecting real data necessarily HAS that
 # marker -- so on exactly the machine where the logs matter, the suite was
-# writing to them. `_log_landmark_probe` calls `_append_perf_line`, and several
+# writing to them. `_logLandmarkProbe` calls `_appendPerfLine`, and several
 # tests drive the landmark scan directly, so one sabotage_check.py run put 1022
 # synthetic probe lines into a real perf log holding 4 real ones.
 #
@@ -144,7 +144,7 @@ def test_perf_log_enabled_writes_the_line(monkeypatch, tmp_path):
 # repoints APPDATA at an empty temp directory at import time; these pin it.
 # ---------------------------------------------------------------------------
 
-def test_appdata_is_redirected_away_from_the_real_one():
+def test_appdataIsRedirectedAwayFromTheRealOne():
 	real = os.path.expanduser("~")
 	appdata = os.environ.get("APPDATA", "")
 	assert appdata, "conftest should have set APPDATA for the test session"
@@ -155,14 +155,14 @@ def test_appdata_is_redirected_away_from_the_real_one():
 	assert not appdata.startswith(os.path.join(real, "AppData", "Roaming")), appdata
 
 
-def test_diagnostics_are_off_by_default_under_the_test_appdata():
+def test_diagnosticsAreOffByDefaultUnderTheTestAppdata():
 	# The consequence that actually matters: with no marker in the redirected
 	# APPDATA, every writer is inert no matter what any individual test does.
-	tree_summary._DIAG_ENABLED = None
+	treeSummary._DIAG_ENABLED = None
 	try:
-		assert tree_summary._diagnostics_enabled() is False
+		assert treeSummary._diagnosticsEnabled() is False
 	finally:
-		tree_summary._DIAG_ENABLED = None
+		treeSummary._DIAG_ENABLED = None
 
 
 def _snapshot(root):
@@ -181,23 +181,23 @@ def _snapshot(root):
 	return out
 
 
-def test_the_landmark_probe_writes_nothing_by_default():
+def test_theLandmarkProbeWritesNothingByDefault():
 	# The specific writer that leaked. It is reached from the landmark scan,
 	# which plenty of tests drive, so it is the one most likely to leak again.
-	tree_summary._DIAG_ENABLED = None
-	tree_summary._PERF_LOG_PATH_CACHE = None
+	treeSummary._DIAG_ENABLED = None
+	treeSummary._PERF_LOG_PATH_CACHE = None
 	try:
 		root = os.path.join(os.environ["APPDATA"], "nvda")
 		before = _snapshot(root)
-		tree_summary._log_landmark_probe(["navigation", "banner"], True, 0, "exhausted")
+		treeSummary._logLandmarkProbe(["navigation", "banner"], True, 0, "exhausted")
 		after = _snapshot(root)
 		assert before == after, (
 			"the landmark probe wrote to a real diagnostic log during the test "
 			f"run: {[k for k in after if after.get(k) != before.get(k)]}"
 		)
 	finally:
-		tree_summary._DIAG_ENABLED = None
-		tree_summary._PERF_LOG_PATH_CACHE = None
+		treeSummary._DIAG_ENABLED = None
+		treeSummary._PERF_LOG_PATH_CACHE = None
 
 
 # ---------------------------------------------------------------------------
@@ -217,32 +217,32 @@ def test_the_landmark_probe_writes_nothing_by_default():
 # clean greppable url= per page load, which is the shape a browsing record
 # actually takes. Casey's call: his machine logs, nobody else's.
 #
-# Every log.debug now goes through tree_summary.dlog. log.info (3 lifecycle
+# Every log.debug now goes through treeSummary.dlog. log.info (3 lifecycle
 # lines) and log.exception (15, all static strings) stay ungated on purpose --
 # they say nothing about where anyone has been, and they are what makes a crash
 # report from a stranger worth having.
 # ---------------------------------------------------------------------------
 
-def test_gated_debug_is_silent_without_the_marker(monkeypatch, tmp_path):
+def test_gatedDebugIsSilentWithoutTheMarker(monkeypatch, tmp_path):
 	_reset(monkeypatch, tmp_path)
 	seen = []
-	monkeypatch.setattr(tree_summary.log, "debug", lambda *a, **k: seen.append(a))
-	tree_summary.dlog.debug("[TMTS perf] url='https://example.com/private?token=abc'")
+	monkeypatch.setattr(treeSummary.log, "debug", lambda *a, **k: seen.append(a))
+	treeSummary.dlog.debug("[TMTS perf] url='https://example.com/private?token=abc'")
 	assert seen == [], f"a url reached the session log without opt-in: {seen}"
 
 
-def test_gated_debug_speaks_once_the_marker_exists(monkeypatch, tmp_path):
+def test_gatedDebugSpeaksOnceTheMarkerExists(monkeypatch, tmp_path):
 	# The other direction. A gate that is always closed would pass the test
 	# above while making the add-on undiagnosable, so pin that opting in works.
-	nvda_dir = _reset(monkeypatch, tmp_path)
-	_opt_in(nvda_dir)
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
 	seen = []
-	monkeypatch.setattr(tree_summary.log, "debug", lambda *a, **k: seen.append(a))
-	tree_summary.dlog.debug("[TMTS perf] url='https://example.com/'")
+	monkeypatch.setattr(treeSummary.log, "debug", lambda *a, **k: seen.append(a))
+	treeSummary.dlog.debug("[TMTS perf] url='https://example.com/'")
 	assert len(seen) == 1, "opting in did not re-enable diagnostic logging"
 
 
-def test_no_ungated_debug_call_survives_in_the_addon():
+def test_noUngatedDebugCallSurvivesInTheAddon():
 	# The audit that makes the one-rule design worth having. "Gate the sensitive
 	# lines" would need correct judgement at every future call site; "no bare
 	# log.debug anywhere" is checkable, so check it. The single permitted
@@ -267,7 +267,7 @@ def test_no_ungated_debug_call_survives_in_the_addon():
 	)
 
 
-def test_lifecycle_and_crash_logging_stay_ungated():
+def test_lifecycleAndCrashLoggingStayUngated():
 	# Deliberately NOT gated, and worth pinning so a later privacy sweep does
 	# not quietly take them too. These carry no url and no page text, and they
 	# are the only thing that makes a bug report from someone who never opted in
@@ -276,11 +276,11 @@ def test_lifecycle_and_crash_logging_stay_ungated():
 
 	root = pathlib.Path(__file__).resolve().parent.parent
 	plugin = root / "addon" / "globalPlugins" / "TextMarksTheSpot"
-	info_calls = 0
+	infoCalls = 0
 	for path in plugin.rglob("*.py"):
 		text = path.read_text(encoding="utf-8")
-		info_calls += text.count("log.info(")
+		infoCalls += text.count("log.info(")
 		# An f-string on an exception line would mean interpolated content on an
 		# ungated path, which is the one way these could start leaking.
 		assert 'log.exception(f"' not in text, f"{path.name} interpolates into an ungated log"
-	assert info_calls >= 3, "the lifecycle log lines went missing"
+	assert infoCalls >= 3, "the lifecycle log lines went missing"

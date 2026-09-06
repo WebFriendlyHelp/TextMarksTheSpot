@@ -1,9 +1,9 @@
-# Scope-cache safety for tree_summary._in_scope.
+# Scope-cache safety for treeSummary._inScope.
 #
 # The cache is keyed on id(obj) — a CPython memory address. The objects it
 # describes are TRANSIENT: NVDA caches each fetched parent on its child, so a
 # chain stays alive only while the child does, NVDA's global instance registry
-# is weak and holds nothing, and _walk_main_nodes rebinds `obj` on every chunk.
+# is weak and holds nothing, and _walkMainNodes rebinds `obj` on every chunk.
 # CPython then hands the freed blocks back LIFO, so the next chunk's freshly
 # allocated NVDAObjects land on exactly the addresses just cached.
 #
@@ -18,10 +18,10 @@
 # is invisible in the calling code and trivially undone by a future "the object
 # in the value is unused, drop it" cleanup.
 #
-# _in_scope is duck-typed over NVDAObjects (the NVDA imports in tree_summary
+# _inScope is duck-typed over NVDAObjects (the NVDA imports in treeSummary
 # are guarded), so fakes exercise it exactly.
 
-import tree_summary as ts
+import treeSummary as ts
 
 
 class FakeObj:
@@ -48,10 +48,10 @@ def _chain(*landmarks):
 # the key still matches that object's identity.
 # ---------------------------------------------------------------------------
 
-def test_cache_entries_pin_their_objects():
+def test_cacheEntriesPinTheirObjects():
 	cache = {}
 	leaf = _chain("", "", "navigation")
-	ts._in_scope(leaf, None, cache)
+	ts._inScope(leaf, None, cache)
 	assert cache, "walk cached nothing — the memo is doing no work at all"
 	for key, entry in cache.items():
 		obj, verdict = entry
@@ -68,16 +68,16 @@ def test_cache_entries_pin_their_objects():
 # while the invariant above holds.
 # ---------------------------------------------------------------------------
 
-def test_transient_chains_do_not_inherit_each_others_verdicts():
+def test_transientChainsDoNotInheritEachOthersVerdicts():
 	cache = {}
 	# Chrome first, then content — the nav-to-content boundary, walked with
 	# transient chains exactly as the real walk does. Each iteration's chain
 	# is garbage by the next iteration.
 	verdicts = []
 	for i in range(200):
-		in_nav = i < 100
-		leaf = _chain("", "", "navigation" if in_nav else "")
-		verdicts.append(ts._in_scope(leaf, None, cache))
+		inNav = i < 100
+		leaf = _chain("", "", "navigation" if inNav else "")
+		verdicts.append(ts._inScope(leaf, None, cache))
 		del leaf
 	# No <main> anywhere, so: inside a chrome landmark is out of scope,
 	# everything else is in scope. A false cache hit shows up here as a
@@ -91,7 +91,7 @@ def test_transient_chains_do_not_inherit_each_others_verdicts():
 # how we find out whether the memo earns its keep on a real page.
 # ---------------------------------------------------------------------------
 
-def test_stale_entry_under_a_matching_key_cannot_hit():
+def test_staleEntryUnderAMatchingKeyCannotHit():
 	# Belt and braces for the invariant above: even if a future edit lets an
 	# entry outlive the object it describes, a key collision must degrade to a
 	# MISS (slower, correct) rather than returning the stale verdict. Forged
@@ -103,25 +103,25 @@ def test_stale_entry_under_a_matching_key_cannot_hit():
 	cache[id(content)] = (decoy, False)
 	# Not inside any chrome landmark, and no <main>, so the honest answer is
 	# in-scope. Returning the planted False would mean the stale entry won.
-	assert ts._in_scope(content, None, cache) is True
+	assert ts._inScope(content, None, cache) is True
 
 
-def test_stats_counts_misses_and_parent_derefs():
+def test_statsCountsMissesAndParentDerefs():
 	cache = {}
 	stats = {}
-	ts._in_scope(_chain("", "", "navigation"), None, cache, stats)
+	ts._inScope(_chain("", "", "navigation"), None, cache, stats)
 	assert stats.get("cache_misses") == 1
 	assert stats.get("cache_hits", 0) == 0
 	# Two parent hops to reach the nav landmark from the leaf.
 	assert stats.get("parent_derefs") == 2
 
 
-def test_stats_counts_a_hit_on_the_same_object():
+def test_statsCountsAHitOnTheSameObject():
 	cache = {}
 	stats = {}
 	leaf = _chain("", "navigation")
-	ts._in_scope(leaf, None, cache, stats)
-	ts._in_scope(leaf, None, cache, stats)
+	ts._inScope(leaf, None, cache, stats)
+	ts._inScope(leaf, None, cache, stats)
 	assert stats.get("cache_hits") == 1
 	assert stats.get("cache_misses") == 1
 
@@ -129,7 +129,7 @@ def test_stats_counts_a_hit_on_the_same_object():
 # ---------------------------------------------------------------------------
 # UNDECIDED IS NOT "IN SCOPE". Added 2026-07-18 after adversarial review.
 #
-# _in_scope used to end with `result = main_obj is None` for EVERY way of
+# _inScope used to end with `result = mainObj is None` for EVERY way of
 # leaving the parent walk without an answer — a parent dereference that raised,
 # or a chain deeper than the 30-ancestor cap. On a page with no <main> that
 # expression is True, so "we could not prove this is chrome" was returned as
@@ -137,11 +137,11 @@ def test_stats_counts_a_hit_on_the_same_object():
 #
 # It is worst exactly where the design leans on it hardest: chrome-pos routes
 # its undecidable chunks to this filter AS its safety mechanism, and
-# _form_field_in_scope documented itself as failing closed while delegating
+# _formFieldInScope documented itself as failing closed while delegating
 # here — so the path that calls setFocus() could drop a blind user's caret into
 # a header search box on nothing more than one COM failure.
 #
-# _in_scope_verdict is now tri-state. The bool wrapper keeps the old default
+# _inScopeVerdict is now tri-state. The bool wrapper keeps the old default
 # for callers whose policy really is "keep what you cannot classify"; the focus
 # path takes the tri-state and refuses anything that is not True.
 # ---------------------------------------------------------------------------
@@ -159,48 +159,48 @@ class ExplodingParent(FakeObj):
 		pass
 
 
-def test_a_failed_parent_dereference_is_undecided_not_content():
+def test_aFailedParentDereferenceIsUndecidedNotContent():
 	obj = ExplodingParent(landmark="")
-	assert ts._in_scope_verdict(obj, None, {}) is None, (
+	assert ts._inScopeVerdict(obj, None, {}) is None, (
 		"a COM failure mid-chain proves nothing about the ancestry; "
 		"returning True here serves navigation as article text"
 	)
 
 
-def test_a_chain_deeper_than_the_cap_is_undecided_not_content():
+def test_aChainDeeperThanTheCapIsUndecidedNotContent():
 	# 40 plain ancestors, cap is 30: the walk runs out of budget before it
 	# can reach anything conclusive.
 	obj = _chain(*([""] * 40))
-	assert ts._in_scope_verdict(obj, None, {}) is None
+	assert ts._inScopeVerdict(obj, None, {}) is None
 
 
-def test_running_out_of_ancestors_cleanly_IS_an_answer():
+def test_runningOutOfAncestorsCleanlyISAnAnswer():
 	# The one case the old blanket default got right, and the regression the
 	# tri-state could most easily break: a complete chain with no chrome on it
 	# is genuinely content, not "undecided".
-	assert ts._in_scope_verdict(_chain("", "", ""), None, {}) is True
+	assert ts._inScopeVerdict(_chain("", "", ""), None, {}) is True
 
 
-def test_a_chrome_ancestor_still_decides_against():
-	assert ts._in_scope_verdict(_chain("", "navigation"), None, {}) is False
+def test_aChromeAncestorStillDecidesAgainst():
+	assert ts._inScopeVerdict(_chain("", "navigation"), None, {}) is False
 
 
-def test_an_undecided_walk_caches_nothing():
+def test_anUndecidedWalkCachesNothing():
 	# The propagation half of the bug. The old code cached its unearned True
 	# against EVERY ancestor visited on the way, so one COM failure handed the
 	# same verdict to every sibling underneath that chain.
 	cache: dict = {}
-	ts._in_scope_verdict(ExplodingParent(landmark=""), None, cache)
+	ts._inScopeVerdict(ExplodingParent(landmark=""), None, cache)
 	assert cache == {}, (
 		"an undecided walk wrote a verdict into the cache; that is how a "
 		"single failure becomes every sibling's answer"
 	)
 
 
-def test_the_bool_wrapper_keeps_the_old_default_for_the_walk():
+def test_theBoolWrapperKeepsTheOldDefaultForTheWalk():
 	# Deliberate: the walk and the counts keep what they cannot classify (a
 	# stray line read aloud is recoverable, and an undercount is poison for
 	# the small-count intents). Only the focus path fails closed. If this ever
 	# needs to change, change it on measurement, not by accident.
-	assert ts._in_scope(ExplodingParent(landmark=""), None, {}) is True
-	assert ts._in_scope(ExplodingParent(landmark=""), object(), {}) is False
+	assert ts._inScope(ExplodingParent(landmark=""), None, {}) is True
+	assert ts._inScope(ExplodingParent(landmark=""), object(), {}) is False

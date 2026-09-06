@@ -51,23 +51,23 @@ class MainNode:
 	# produces the interleaved sequence this list represents.
 	kind: str                    # "heading" or "paragraph"
 	level: Optional[int] = None  # heading level 1-6; None for paragraphs
-	text_length: int = 0         # chars
-	text_preview: str = ""       # first ~60 chars, for fixture readability only
+	textLength: int = 0         # chars
+	textPreview: str = ""       # first ~60 chars, for fixture readability only
 	# True when this paragraph is a figure caption / photo credit. Computed
 	# at walk time over the FULL chunk text (not the truncated preview),
 	# because the giveaway — a trailing "(Getty Images)"-style credit — is
 	# usually past the 60-char preview cutoff. Landing finders skip these.
-	is_caption: bool = False
+	isCaption: bool = False
 	# True when this paragraph is legal footer boilerplate — a copyright
 	# line ("Copyright ©2026 ... All rights reserved.") or a CCPA links row
 	# ("Do Not Sell My Personal Information"). Computed at walk time over
-	# the FULL chunk text, same as is_caption (the "All rights reserved"
+	# the FULL chunk text, same as isCaption (the "All rights reserved"
 	# tail commonly sits past the 60-char preview cutoff). Landing finders
-	# skip these, and _hero_paragraph_chars ignores them so a not-yet-
+	# skip these, and _heroParagraphChars ignores them so a not-yet-
 	# hydrated SPA shell whose only substantial text is the footer
 	# copyright (Zoom webinar registration was the canonical case) can't
 	# classify as ARTICLE and land the user on the copyright line.
-	is_boilerplate: bool = False
+	isBoilerplate: bool = False
 	# True when this paragraph is an editorial disclosure — an affiliate /
 	# referral note, a syndication credit, or marketing-consent boilerplate.
 	# Computed at walk time over the FULL chunk text for two reasons, not one:
@@ -77,7 +77,7 @@ class MainNode:
 	# code, so a long genuine lede whose opening 60 chars mentioned affiliate
 	# links was chrome-flagged with no length protection. Landing finders skip
 	# these.
-	is_disclosure: bool = False
+	isDisclosure: bool = False
 	# True when the FULL chunk text ends like a sentence (terminal . ! ? or
 	# ellipsis, allowing trailing closing quotes/brackets). Computed at walk
 	# time because the terminal punctuation on a 61+ char line sits past the
@@ -85,7 +85,7 @@ class MainNode:
 	# detection/web.py: runs of consecutive SHORT lines (tweet/chat text
 	# split line-per-paragraph) qualify as content only when most lines end
 	# like sentences — nav menus and form-label runs don't.
-	ends_sentence: bool = False
+	endsSentence: bool = False
 
 
 @dataclass
@@ -93,59 +93,59 @@ class TreeSummary:
 	url: str = ""
 
 	# Landmark / structural signals
-	has_main_landmark: bool = False
-	article_count: int = 0          # number of <article> elements in the document
+	hasMainLandmark: bool = False
+	articleCount: int = 0          # number of <article> elements in the document
 
-	# True when main_nodes came from a POSITIONAL walk scoped to a single
+	# True when mainNodes came from a POSITIONAL walk scoped to a single
 	# <article> (no <main> landmark, exactly one article). The tree is then
 	# free of nav/comments/footer chrome, so landing finders can trust the
 	# first substantial paragraph as the real content start instead of applying
 	# the defensive hero/cluster gates that exist only for noisy unscoped trees.
-	positionally_scoped: bool = False
+	positionallyScoped: bool = False
 
 	# Document-order interleaved nodes inside <main>.
-	main_nodes: list[MainNode] = field(default_factory=list)
+	mainNodes: list[MainNode] = field(default_factory=list)
 
 	# Interactive controls inside <main>.
-	form_input_count: int = 0           # editable inputs, comboboxes, etc.
-	interactive_control_count: int = 0  # all interactive: buttons + inputs + links + widgets
+	formInputCount: int = 0           # editable inputs, comboboxes, etc.
+	interactiveControlCount: int = 0  # all interactive: buttons + inputs + links + widgets
 
 	# Guardrail #6: did the page auto-focus an editable control before we fired?
-	focused_control_is_editable: bool = False
+	focusedControlIsEditable: bool = False
 
-	# Set by tree_summary when any node's text matches a status-keyword regex
+	# Set by treeSummary when any node's text matches a status-keyword regex
 	# (success/submission/closed/expired/maintenance/error patterns). Used by
 	# the NOTICE intent to boost confidence when the page shape is ambiguous.
-	notice_keyword_match: bool = False
+	noticeKeywordMatch: bool = False
 
-	# Set by tree_summary when the counts phase hit its wall-clock budget or
-	# a scan cap, so form_input_count / interactive_control_count may be
+	# Set by treeSummary when the counts phase hit its wall-clock budget or
+	# a scan cap, so formInputCount / interactiveControlCount may be
 	# UNDERCOUNTS. Undercounting is fail-safe for FORM and APP (both fire on
 	# LARGE counts), but NOTICE's shape-only path and KEY_RESULT fire on
 	# SMALL counts — a truncated interactive count of 0 on a busy page would
 	# make them MORE likely, so they must decline when this is set and leave
 	# the page to the 1500 ms retry instead.
-	counts_truncated: bool = False
+	countsTruncated: bool = False
 
 	# Set when the paragraph WALK stopped on a limit (the 2.0 s time budget
 	# or the node cap) instead of reaching the end of the document, so
-	# main_nodes is a PREFIX of the page. Anything keyed on the ABSENCE of
+	# mainNodes is a PREFIX of the page. Anything keyed on the ABSENCE of
 	# a node shape must treat that absence as unknown when this is set —
-	# form_wants_browse_landing was the incident: a slow hydrating refresh
+	# formWantsBrowseLanding was the incident: a slow hydrating refresh
 	# of store.payproglobal.com's checkout truncated the walk before the
 	# 200+ char preamble paragraphs, "no rich preamble" selected the
 	# bare-form path, and keyboard focus jumped to the Quantity field,
 	# while a fast walk of the same page landed in browse mode at the top
 	# of the order (2026-07-17). Landing must not depend on walk timing.
-	walk_truncated: bool = False
+	walkTruncated: bool = False
 
 	# Set when the ARTICLE count specifically was truncated (budget, scan
-	# cap, or iterator exception). Tracked separately from counts_truncated
-	# because article_count==0 is the undercount that is NOT fail-safe: it
-	# drops the has_editorial_content FORM block, and FORM moves keyboard
+	# cap, or iterator exception). Tracked separately from countsTruncated
+	# because articleCount==0 is the undercount that is NOT fail-safe: it
+	# drops the hasEditorialContent FORM block, and FORM moves keyboard
 	# focus. When set, FORM treats editorial content as UNKNOWN and blocks
 	# (with the same form-URL escape hatch as a present <article>).
-	article_count_truncated: bool = False
+	articleCountTruncated: bool = False
 
 
 @dataclass
@@ -169,7 +169,7 @@ PARAGRAPH_CLUSTER_MIN_CHARS = 500 # combined chars across the cluster
 # Two ADJACENT paragraphs this long each are unambiguous editorial content
 # even though they miss the 3-paragraph cluster bar. armstrongeconomics.com
 # blog posts are the canonical case: two 600-char body paragraphs plus a
-# 6-input newsletter widget classified as FORM (article_count=0 on that
+# 6-input newsletter widget classified as FORM (articleCount=0 on that
 # WordPress theme, so the <article> editorial block never engaged) and the
 # user landed on the H1 via the form-title path instead of the lede.
 MASSIVE_DUO_MIN_CHARS_EACH = 200
@@ -201,22 +201,22 @@ _AUTH_URL_SEGMENT_RE = re.compile(
 	r"(?:log-?in|sign-?in|sign-?up|register|registration|createaccount|userlogin|auth)"
 	r"(?:$|[/?#&.:])"
 )
-# When form_input_count crosses this bar, the page is unambiguously a form
-# regardless of how much hero_chars or other "looks like article" signal
+# When formInputCount crosses this bar, the page is unambiguously a form
+# regardless of how much heroChars or other "looks like article" signal
 # accumulates from form label text in the lead run. Without this override,
 # multi-checkbox Google Forms (Pre-ETS Vendor Fair etc.) had ARTICLE-hero
 # winning and landing the user on a checkbox label instead of dispatching
 # to the FORM path. A page with this many form inputs but a real article body
-# would still have has_body_cluster_strong block FORM via the other gate.
+# would still have hasBodyClusterStrong block FORM via the other gate.
 #
 # 5 -> 4 on 2026-07-14, because THE THING BEING MEASURED CHANGED. This bar was
-# calibrated when form_input_count came from NVDA's "formField" quick-nav type,
+# calibrated when formInputCount came from NVDA's "formField" quick-nav type,
 # which counts BUTTONS as form fields. So "5" never meant five inputs; it meant
 # five inputs-and-buttons, which any control-dense page clears trivially (IMDb
 # and a TV station front page both reported 10, and got their focus hijacked
 # into a search box as a result).
 #
-# tree_summary now counts only real inputs (edit / comboBox / checkBox /
+# treeSummary now counts only real inputs (edit / comboBox / checkBox /
 # radioButton). Honest counts are much smaller: Wikipedia's account-creation
 # form and WebAIM's contact form both report 4. Left at 5, those fall below the
 # bar, the hero-paragraph gate blocks FORM, and a genuine registration form
@@ -325,7 +325,7 @@ URL_HINTS = {
 
 def classify(tree: TreeSummary) -> ClassifierResult:
 	# 1. Guardrail #6 — honor website-placed focus on form controls.
-	if tree.focused_control_is_editable:
+	if tree.focusedControlIsEditable:
 		return ClassifierResult(
 			Intent.SILENT_FOCUS_HONORED, 1.0,
 			"Focused editable control — honoring page-placed focus",
@@ -335,9 +335,9 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 
 	# Compute hero/cluster signals once — used to gate FORM and later by
 	# article/list paths.
-	body_size, body_chars = _largest_paragraph_cluster(tree.main_nodes)
-	heading_size, heading_level = _largest_heading_cluster(tree.main_nodes)
-	hero_chars = _hero_paragraph_chars(tree.main_nodes)
+	bodySize, bodyChars = _largestParagraphCluster(tree.mainNodes)
+	headingSize, headingLevel = _largestHeadingCluster(tree.mainNodes)
+	heroChars = _heroParagraphChars(tree.mainNodes)
 
 	# 1.5: High-confidence NOTICE — keyword match on a notice-shaped page is
 	# a strong "this is a status message" signal that should win over a
@@ -346,10 +346,10 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# at 0.65 via the hero rule before NOTICE (0.85) gets a chance.
 	# Functionally both land on the same paragraph, but the intent label
 	# matters for downstream features (Z-sequence phasing in SPEC).
-	if tree.notice_keyword_match:
-		early_notice = _classify_notice(tree)
-		if early_notice is not None and early_notice.confidence >= 0.85:
-			return early_notice
+	if tree.noticeKeywordMatch:
+		earlyNotice = _classifyNotice(tree)
+		if earlyNotice is not None and earlyNotice.confidence >= 0.85:
+			return earlyNotice
 
 	# 2. Form intent. Threshold + URL boost. Blocked when the page is
 	#    ALSO obviously content:
@@ -359,11 +359,11 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	#      a form page, regardless of how many search/login widgets
 	#      live in the sidebar
 	#    - substantial body cluster (article page with embedded search etc.)
-	strong_article_cluster = tree.article_count >= ARTICLE_DEMOTE_TO_LIST_AT
-	has_hero = hero_chars >= HERO_PARAGRAPH_MIN_CHARS
-	has_body_cluster_strong = (
-		body_size >= PARAGRAPH_CLUSTER_MIN_SIZE
-		and body_chars >= PARAGRAPH_CLUSTER_MIN_CHARS
+	strongArticleCluster = tree.articleCount >= ARTICLE_DEMOTE_TO_LIST_AT
+	hasHero = heroChars >= HERO_PARAGRAPH_MIN_CHARS
+	hasBodyClusterStrong = (
+		bodySize >= PARAGRAPH_CLUSTER_MIN_SIZE
+		and bodyChars >= PARAGRAPH_CLUSTER_MIN_CHARS
 	)
 	# Strong form signal (>= STRONG_FORM_INPUT_COUNT inputs) overrides the
 	# hero block — a page with 5+ form inputs is a form even if its label
@@ -376,11 +376,11 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# 3-input registration form sits below STRONG_FORM_INPUT_COUNT, so
 	# without the hatch the page classified ARTICLE and the prose-run gate
 	# landed the user on the password hint mid-form (2026-07-16).
-	strong_form_signal = tree.form_input_count >= STRONG_FORM_INPUT_COUNT
+	strongFormSignal = tree.formInputCount >= STRONG_FORM_INPUT_COUNT
 	# Any <article> element on the page is a strong editorial-content
 	# signal. A news article (CNET, Wired, NYT, etc.) commonly wraps the
 	# story body in <article> AND has 5+ form fields scattered around the
-	# page (newsletter signup, search, comment box). The strong_form_signal
+	# page (newsletter signup, search, comment box). The strongFormSignal
 	# check would otherwise dispatch these as FORM and move keyboard focus
 	# to whichever input came first — usually the newsletter signup box.
 	# Block FORM whenever <article> is present unless the URL explicitly
@@ -392,13 +392,13 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# undercount here is the one truncation that would make FORM MORE
 	# likely, and FORM moves keyboard focus. The form-URL escape hatch
 	# still applies, so a genuine /register page survives.
-	has_editorial_content = tree.article_count >= 1 or tree.article_count_truncated
+	hasEditorialContent = tree.articleCount >= 1 or tree.articleCountTruncated
 	# A pair of ADJACENT massive paragraphs (>= MASSIVE_DUO_MIN_CHARS_EACH
 	# each, no heading between) is article body even though it misses the
 	# 3-paragraph cluster bar. Same URL escape hatch as the <article>
 	# block: a registration page with a rich two-paragraph description
 	# (/register, /signup, ...) legitimately stays FORM.
-	has_massive_duo = _has_massive_paragraph_duo(tree.main_nodes)
+	hasMassiveDuo = _hasMassiveParagraphDuo(tree.mainNodes)
 	# An editorial URL (/news/, /blog/, /podcast, /article/, ...) is the
 	# mirror image of the FORM URL escape hatch: content pages carry
 	# comment boxes, logins, search and newsletter widgets that add up to
@@ -410,28 +410,28 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# loose substring hints, not weaker) — without this, a 2-input login on
 	# a URL the loose hints miss (e.g. /auth with no trailing slash) would
 	# meet the bar but stall at 0.52 confidence and return UNKNOWN.
-	is_auth_url = _url_is_auth_form(url)
-	form_url_hint = _url_matches(url, Intent.FORM) or is_auth_url
-	has_editorial_url = _url_matches(url, Intent.ARTICLE) and not form_url_hint
-	form_blocked = (
-		strong_article_cluster
-		or has_body_cluster_strong
-		or (has_hero and not strong_form_signal and not form_url_hint)
-		or (has_editorial_content and not form_url_hint)
-		or (has_massive_duo and not form_url_hint)
-		or has_editorial_url
+	isAuthUrl = _urlIsAuthForm(url)
+	formUrlHint = _urlMatches(url, Intent.FORM) or isAuthUrl
+	hasEditorialUrl = _urlMatches(url, Intent.ARTICLE) and not formUrlHint
+	formBlocked = (
+		strongArticleCluster
+		or hasBodyClusterStrong
+		or (hasHero and not strongFormSignal and not formUrlHint)
+		or (hasEditorialContent and not formUrlHint)
+		or (hasMassiveDuo and not formUrlHint)
+		or hasEditorialUrl
 	)
-	meets_input_bar = tree.form_input_count >= FORM_INPUT_THRESHOLD or (
-		is_auth_url and tree.form_input_count >= AUTH_FORM_MIN_INPUTS
+	meetsInputBar = tree.formInputCount >= FORM_INPUT_THRESHOLD or (
+		isAuthUrl and tree.formInputCount >= AUTH_FORM_MIN_INPUTS
 	)
-	if meets_input_bar and not form_blocked:
-		confidence = min(0.6 + 0.08 * (tree.form_input_count - FORM_INPUT_THRESHOLD), 0.9)
-		if form_url_hint:
+	if meetsInputBar and not formBlocked:
+		confidence = min(0.6 + 0.08 * (tree.formInputCount - FORM_INPUT_THRESHOLD), 0.9)
+		if formUrlHint:
 			confidence = min(confidence + 0.15, 0.99)
 		if confidence >= CONFIDENCE_THRESHOLD:
 			return ClassifierResult(
 				Intent.FORM, confidence,
-				f"{tree.form_input_count} form inputs in main content",
+				f"{tree.formInputCount} form inputs in main content",
 			)
 
 	# (cluster measurements already computed above for the FORM gate.)
@@ -440,52 +440,52 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	#    or a strong heading cluster demote what would otherwise look like an
 	#    article into a list. EXCEPT: a substantial hero paragraph or body
 	#    cluster blocks BOTH list paths. News article pages commonly wrap
-	#    each related-stories card in <article>, inflating article_count to
+	#    each related-stories card in <article>, inflating articleCount to
 	#    5+ even on a single-article page — but the article also has a
 	#    substantial hero or body cluster that should win.
-	is_list_by_articles = (
-		strong_article_cluster
-		and not has_hero
-		and not has_body_cluster_strong
+	isListByArticles = (
+		strongArticleCluster
+		and not hasHero
+		and not hasBodyClusterStrong
 	)
-	is_list_by_headings = (
-		heading_size >= HEADING_CLUSTER_MIN_SIZE
-		and hero_chars < HERO_OVERRIDES_LIST_CHARS
+	isListByHeadings = (
+		headingSize >= HEADING_CLUSTER_MIN_SIZE
+		and heroChars < HERO_OVERRIDES_LIST_CHARS
 	)
-	if is_list_by_articles or is_list_by_headings:
+	if isListByArticles or isListByHeadings:
 		confidence = 0.7
-		if tree.article_count >= 5:
+		if tree.articleCount >= 5:
 			confidence = 0.85
-		if heading_size >= 10:
+		if headingSize >= 10:
 			confidence = max(confidence, 0.9)
-		if _url_matches(url, Intent.LIST):
+		if _urlMatches(url, Intent.LIST):
 			confidence = min(confidence + 0.1, 0.99)
 		if confidence >= CONFIDENCE_THRESHOLD:
 			return ClassifierResult(
 				Intent.LIST, confidence,
-				f"article_count={tree.article_count}, "
-				f"heading_cluster={heading_size}@L{heading_level}, "
-				f"body_cluster={body_size}",
+				f"article_count={tree.articleCount}, "
+				f"heading_cluster={headingSize}@L{headingLevel}, "
+				f"body_cluster={bodySize}",
 			)
 
 	# 5. Article intent.
-	has_article_element = tree.article_count == 1
-	has_body_cluster = (
-		body_size >= PARAGRAPH_CLUSTER_MIN_SIZE
-		and body_chars >= PARAGRAPH_CLUSTER_MIN_CHARS
+	hasArticleElement = tree.articleCount == 1
+	hasBodyCluster = (
+		bodySize >= PARAGRAPH_CLUSTER_MIN_SIZE
+		and bodyChars >= PARAGRAPH_CLUSTER_MIN_CHARS
 	)
-	if has_article_element and has_body_cluster:
+	if hasArticleElement and hasBodyCluster:
 		return ClassifierResult(
 			Intent.ARTICLE, 0.9,
-			f"<article> element + body cluster ({body_size} paragraphs, {body_chars} chars)",
+			f"<article> element + body cluster ({bodySize} paragraphs, {bodyChars} chars)",
 		)
-	if has_body_cluster:
+	if hasBodyCluster:
 		confidence = 0.7
-		if _url_matches(url, Intent.ARTICLE):
+		if _urlMatches(url, Intent.ARTICLE):
 			confidence = 0.85
 		return ClassifierResult(
 			Intent.ARTICLE, confidence,
-			f"body cluster ({body_size} paragraphs, {body_chars} chars), "
+			f"body cluster ({bodySize} paragraphs, {bodyChars} chars), "
 			f"no <article> wrapper",
 		)
 
@@ -496,39 +496,39 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	#      articles with embedded "Score: 5" mentions never match) and only
 	#      at lead position (the pattern must appear before any 100+ char
 	#      body paragraph).
-	key_result = _classify_key_result(tree)
-	if key_result is not None:
-		return key_result
+	keyResult = _classifyKeyResult(tree)
+	if keyResult is not None:
+		return keyResult
 
 	# 5b. Article fallback — landing-page / hero-paragraph pattern.
 	#     A page with substantial paragraph text in a contiguous lead run but
 	#     no full body cluster. Catches mission-statement homepages, About-style
 	#     pages, and landing pages whose intro paragraph is followed by cards.
-	if heading_size < HEADING_CLUSTER_MIN_SIZE or hero_chars >= HERO_OVERRIDES_LIST_CHARS:
-		if hero_chars >= HERO_PARAGRAPH_MIN_CHARS:
+	if headingSize < HEADING_CLUSTER_MIN_SIZE or heroChars >= HERO_OVERRIDES_LIST_CHARS:
+		if heroChars >= HERO_PARAGRAPH_MIN_CHARS:
 			confidence = 0.65
-			if tree.article_count == 1:
+			if tree.articleCount == 1:
 				confidence = 0.75
-			if _url_matches(url, Intent.ARTICLE):
+			if _urlMatches(url, Intent.ARTICLE):
 				confidence = min(confidence + 0.1, 0.9)
 			if confidence >= CONFIDENCE_THRESHOLD:
 				return ClassifierResult(
 					Intent.ARTICLE, confidence,
-					f"hero paragraph ({hero_chars} chars in lead position), no body cluster",
+					f"hero paragraph ({heroChars} chars in lead position), no body cluster",
 				)
 
 	# 6. App intent.
-	has_many_controls = tree.interactive_control_count >= APP_CONTROL_FLOOR
-	no_body_cluster = body_size < PARAGRAPH_CLUSTER_MIN_SIZE
-	no_heading_cluster = heading_size < HEADING_CLUSTER_MIN_SIZE
-	if has_many_controls and no_body_cluster and no_heading_cluster:
+	hasManyControls = tree.interactiveControlCount >= APP_CONTROL_FLOOR
+	noBodyCluster = bodySize < PARAGRAPH_CLUSTER_MIN_SIZE
+	noHeadingCluster = headingSize < HEADING_CLUSTER_MIN_SIZE
+	if hasManyControls and noBodyCluster and noHeadingCluster:
 		confidence = 0.65
-		if _url_matches(url, Intent.APP):
+		if _urlMatches(url, Intent.APP):
 			confidence = 0.8
 		if confidence >= CONFIDENCE_THRESHOLD:
 			return ClassifierResult(
 				Intent.APP, confidence,
-				f"{tree.interactive_control_count} interactive controls, no body or heading cluster",
+				f"{tree.interactiveControlCount} interactive controls, no body or heading cluster",
 			)
 
 	# 7. Notice intent — last meaningful check before UNKNOWN.
@@ -536,7 +536,7 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	#    "Account created" confirmations, maintenance pages. Strictly small
 	#    pages only — anything with real article body or many controls has
 	#    already been claimed above.
-	notice = _classify_notice(tree)
+	notice = _classifyNotice(tree)
 	if notice is not None:
 		return notice
 
@@ -547,24 +547,24 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	)
 
 
-def _classify_notice(tree: TreeSummary) -> Optional[ClassifierResult]:
+def _classifyNotice(tree: TreeSummary) -> Optional[ClassifierResult]:
 	# NOTICE's shape evidence is SMALL counts, and truncated counts read as
 	# small — a busy page whose count phase timed out at 0 interactives
-	# would sail through shape_ok. When the counts are untrustworthy, only
+	# would sail through shapeOk. When the counts are untrustworthy, only
 	# the keyword path (real text evidence from the walk) may proceed.
-	if tree.counts_truncated and not tree.notice_keyword_match:
+	if tree.countsTruncated and not tree.noticeKeywordMatch:
 		return None
 	# Shape: small total text, few headings, few interactives, no real form.
-	total_chars = sum(n.text_length for n in tree.main_nodes)
-	heading_count = sum(1 for n in tree.main_nodes if n.kind == "heading")
+	totalChars = sum(n.textLength for n in tree.mainNodes)
+	headingCount = sum(1 for n in tree.mainNodes if n.kind == "heading")
 
-	shape_ok = (
-		total_chars >= NOTICE_MIN_TEXT_CHARS
-		and total_chars <= NOTICE_MAX_TOTAL_CHARS
-		and heading_count <= NOTICE_MAX_HEADINGS
-		and tree.interactive_control_count <= NOTICE_MAX_INTERACTIVES
+	shapeOk = (
+		totalChars >= NOTICE_MIN_TEXT_CHARS
+		and totalChars <= NOTICE_MAX_TOTAL_CHARS
+		and headingCount <= NOTICE_MAX_HEADINGS
+		and tree.interactiveControlCount <= NOTICE_MAX_INTERACTIVES
 	)
-	if not shape_ok:
+	if not shapeOk:
 		return None
 
 	# Two paths above the confidence threshold:
@@ -576,16 +576,16 @@ def _classify_notice(tree: TreeSummary) -> Optional[ClassifierResult]:
 	#   confidence (catches closed forms / error pages whose text doesn't
 	#   match our keyword list). Requires ZERO form fields so small real
 	#   forms (login pages) can't classify as notices.
-	if tree.notice_keyword_match and tree.form_input_count <= NOTICE_KEYWORD_MAX_FORM_INPUTS:
+	if tree.noticeKeywordMatch and tree.formInputCount <= NOTICE_KEYWORD_MAX_FORM_INPUTS:
 		return ClassifierResult(
 			Intent.NOTICE, 0.85,
-			f"notice shape ({total_chars} chars, {heading_count} headings) "
+			f"notice shape ({totalChars} chars, {headingCount} headings) "
 			f"+ status keyword match",
 		)
-	if tree.form_input_count == 0 and 1 <= heading_count <= 2:
+	if tree.formInputCount == 0 and 1 <= headingCount <= 2:
 		return ClassifierResult(
 			Intent.NOTICE, 0.65,
-			f"notice shape ({total_chars} chars, {heading_count} heading(s))",
+			f"notice shape ({totalChars} chars, {headingCount} heading(s))",
 		)
 	return None
 
@@ -594,9 +594,9 @@ def _classify_notice(tree: TreeSummary) -> Optional[ClassifierResult]:
 # Cluster helpers — walk the interleaved node list once each.
 # ---------------------------------------------------------------------------
 
-def _largest_paragraph_cluster(nodes: list[MainNode]) -> tuple[int, int]:
+def _largestParagraphCluster(nodes: list[MainNode]) -> tuple[int, int]:
 	# Largest run of consecutive paragraph nodes, each >= PARAGRAPH_MIN_CHARS,
-	# uninterrupted by any heading. Returns (cluster_size, total_chars).
+	# uninterrupted by any heading. Returns (cluster_size, totalChars).
 	#
 	# Caption/boilerplate-flagged paragraphs are TRANSPARENT — skipped, not
 	# run-breaking. They must not COUNT as body: store.payproglobal.com's
@@ -608,68 +608,68 @@ def _largest_paragraph_cluster(nodes: list[MainNode]) -> tuple[int, int]:
 	# But they must not BREAK the run either: a long mid-article figure
 	# caption splitting a real article's body cluster would drop the very
 	# FORM block that keeps keyboard focus out of a news page's widgets.
-	best_size, best_chars = 0, 0
-	cur_size, cur_chars = 0, 0
+	bestSize, bestChars = 0, 0
+	curSize, curChars = 0, 0
 	for n in nodes:
 		if n.kind == "heading":
-			cur_size, cur_chars = 0, 0
+			curSize, curChars = 0, 0
 		elif n.kind == "paragraph":
-			if n.is_caption or n.is_boilerplate:
+			if n.isCaption or n.isBoilerplate:
 				continue
-			if n.text_length >= PARAGRAPH_MIN_CHARS:
-				cur_size += 1
-				cur_chars += n.text_length
-				if cur_size > best_size:
-					best_size, best_chars = cur_size, cur_chars
+			if n.textLength >= PARAGRAPH_MIN_CHARS:
+				curSize += 1
+				curChars += n.textLength
+				if curSize > bestSize:
+					bestSize, bestChars = curSize, curChars
 			else:
-				cur_size, cur_chars = 0, 0
-	return best_size, best_chars
+				curSize, curChars = 0, 0
+	return bestSize, bestChars
 
 
-def _has_massive_paragraph_duo(nodes: list[MainNode]) -> bool:
+def _hasMassiveParagraphDuo(nodes: list[MainNode]) -> bool:
 	# True when two ADJACENT paragraph nodes are each >=
 	# MASSIVE_DUO_MIN_CHARS_EACH chars, with nothing between them and
 	# neither flagged as caption/boilerplate. See classify()'s FORM gate.
-	prev_massive = False
+	prevMassive = False
 	for n in nodes:
 		if (
 			n.kind == "paragraph"
-			and n.text_length >= MASSIVE_DUO_MIN_CHARS_EACH
-			and not n.is_caption
-			and not n.is_boilerplate
+			and n.textLength >= MASSIVE_DUO_MIN_CHARS_EACH
+			and not n.isCaption
+			and not n.isBoilerplate
 		):
-			if prev_massive:
+			if prevMassive:
 				return True
-			prev_massive = True
+			prevMassive = True
 		else:
-			prev_massive = False
+			prevMassive = False
 	return False
 
 
-def _largest_heading_cluster(nodes: list[MainNode]) -> tuple[int, int]:
+def _largestHeadingCluster(nodes: list[MainNode]) -> tuple[int, int]:
 	# Largest run of same-level headings, allowing up to
 	# HEADING_CLUSTER_MAX_CHARS_BETWEEN chars of paragraph text between
 	# consecutive members. Returns (run_size, level).
-	best_size, best_level = 0, 0
-	cur_size, cur_level = 0, 0
-	chars_since_last = 0
+	bestSize, bestLevel = 0, 0
+	curSize, curLevel = 0, 0
+	charsSinceLast = 0
 
 	for n in nodes:
 		if n.kind == "heading":
-			if cur_level == n.level and chars_since_last <= HEADING_CLUSTER_MAX_CHARS_BETWEEN:
-				cur_size += 1
+			if curLevel == n.level and charsSinceLast <= HEADING_CLUSTER_MAX_CHARS_BETWEEN:
+				curSize += 1
 			else:
-				cur_size = 1
-				cur_level = n.level
-			chars_since_last = 0
-			if cur_size > best_size:
-				best_size, best_level = cur_size, cur_level
+				curSize = 1
+				curLevel = n.level
+			charsSinceLast = 0
+			if curSize > bestSize:
+				bestSize, bestLevel = curSize, curLevel
 		elif n.kind == "paragraph":
-			chars_since_last += n.text_length
-	return best_size, best_level
+			charsSinceLast += n.textLength
+	return bestSize, bestLevel
 
 
-def _hero_paragraph_chars(nodes: list[MainNode]) -> int:
+def _heroParagraphChars(nodes: list[MainNode]) -> int:
 	# Largest run of consecutive paragraphs (no heading between) that contains
 	# at least one paragraph >= HERO_PARAGRAPH_MIN_CHARS. Returns the total
 	# char count summed across the run.
@@ -687,14 +687,14 @@ def _hero_paragraph_chars(nodes: list[MainNode]) -> int:
 	# A page of short link-list items never qualifies because none of the
 	# items is itself substantial enough.
 	best = 0
-	cur_chars = 0
-	cur_has_substantial = False
+	curChars = 0
+	curHasSubstantial = False
 	for n in nodes:
 		if n.kind == "heading":
-			if cur_has_substantial and cur_chars > best:
-				best = cur_chars
-			cur_chars = 0
-			cur_has_substantial = False
+			if curHasSubstantial and curChars > best:
+				best = curChars
+			curChars = 0
+			curHasSubstantial = False
 		elif n.kind == "paragraph":
 			# Legal footer boilerplate (copyright lines, CCPA links rows)
 			# never counts as hero text. On a not-yet-hydrated SPA shell the
@@ -703,21 +703,21 @@ def _hero_paragraph_chars(nodes: list[MainNode]) -> int:
 			# the user on the copyright (Zoom webinar registration). Skipping
 			# it here leaves the shell with no signal → no landing → the
 			# generic 1500 ms retry gets its chance against the hydrated page.
-			if n.is_boilerplate:
+			if n.isBoilerplate:
 				continue
-			cur_chars += n.text_length
-			if n.text_length >= HERO_PARAGRAPH_MIN_CHARS:
-				cur_has_substantial = True
-	if cur_has_substantial and cur_chars > best:
-		best = cur_chars
+			curChars += n.textLength
+			if n.textLength >= HERO_PARAGRAPH_MIN_CHARS:
+				curHasSubstantial = True
+	if curHasSubstantial and curChars > best:
+		best = curChars
 	return best
 
 
-def _url_matches(url: str, intent: Intent) -> bool:
+def _urlMatches(url: str, intent: Intent) -> bool:
 	return any(hint in url for hint in URL_HINTS.get(intent, ()))
 
 
-def _url_is_auth_form(url: str) -> bool:
+def _urlIsAuthForm(url: str) -> bool:
 	# Whole-path-segment auth-page match (see _AUTH_URL_SEGMENT_RE). Caller
 	# passes the already-lowercased URL.
 	return bool(_AUTH_URL_SEGMENT_RE.search(url))
@@ -727,28 +727,28 @@ def _url_is_auth_form(url: str) -> bool:
 # KEY_RESULT pattern detection.
 # ---------------------------------------------------------------------------
 
-def _classify_key_result(tree: TreeSummary) -> Optional[ClassifierResult]:
+def _classifyKeyResult(tree: TreeSummary) -> Optional[ClassifierResult]:
 	# Apps and forms don't qualify — too much interactivity to be a single
 	# key-result widget page.
-	if tree.interactive_control_count > APP_CONTROL_FLOOR:
+	if tree.interactiveControlCount > APP_CONTROL_FLOOR:
 		return None
-	if tree.form_input_count > 0:
+	if tree.formInputCount > 0:
 		return None
 	# Both gates above lean on counts being real. A count phase that hit its
 	# budget can report 0 controls on a control-dense page, so decline and
 	# let the retry see the page with honest counts.
-	if tree.counts_truncated:
+	if tree.countsTruncated:
 		return None
-	label_idx = find_key_result_pattern_index(tree.main_nodes)
-	if label_idx is None:
+	labelIdx = findKeyResultPatternIndex(tree.mainNodes)
+	if labelIdx is None:
 		return None
 	return ClassifierResult(
 		Intent.KEY_RESULT, 0.8,
-		f"label+value[+unit] pattern at idx {label_idx}",
+		f"label+value[+unit] pattern at idx {labelIdx}",
 	)
 
 
-def find_key_result_pattern_index(nodes: list[MainNode]) -> Optional[int]:
+def findKeyResultPatternIndex(nodes: list[MainNode]) -> Optional[int]:
 	"""Find a "label + value [+ unit]" pattern at lead position.
 
 	Returns the LABEL node's index, or None.
@@ -758,7 +758,7 @@ def find_key_result_pattern_index(nodes: list[MainNode]) -> Optional[int]:
 	that mention "Score: 5" inline can't match because the article body
 	would already have triggered the stop condition.
 
-	Exposed publicly so detection/web.py's find_key_result_landing can
+	Exposed publicly so detection/web.py's findKeyResultLanding can
 	re-locate the same idx without duplicating the matching logic.
 	"""
 	count = len(nodes)
@@ -766,18 +766,18 @@ def find_key_result_pattern_index(nodes: list[MainNode]) -> Optional[int]:
 		n = nodes[i]
 		# Stop searching as soon as we hit substantial body content — the
 		# pattern is invalid below that point (it's article material).
-		if n.kind == "paragraph" and n.text_length >= PARAGRAPH_MIN_CHARS:
+		if n.kind == "paragraph" and n.textLength >= PARAGRAPH_MIN_CHARS:
 			return None
 		if i + 1 >= count:
 			break
 		label = nodes[i]
 		value = nodes[i + 1]
-		if not _looks_like_key_result_label(label):
+		if not _looksLikeKeyResultLabel(label):
 			continue
-		if not _looks_like_key_result_value(value):
+		if not _looksLikeKeyResultValue(value):
 			continue
 		# Implicit unit (% in value, $ in value, etc.) is enough.
-		if any(c in value.text_preview for c in _KEY_RESULT_IMPLICIT_UNIT_CHARS):
+		if any(c in value.textPreview for c in _KEY_RESULT_IMPLICIT_UNIT_CHARS):
 			return i
 		# Otherwise look for an explicit unit within the next few nodes.
 		# Allows for intermediate notes (e.g. fast.com renders a caveat
@@ -785,33 +785,33 @@ def find_key_result_pattern_index(nodes: list[MainNode]) -> Optional[int]:
 		end = min(i + 2 + KEY_RESULT_UNIT_LOOKAHEAD, count)
 		for j in range(i + 2, end):
 			u = nodes[j]
-			if _looks_like_key_result_unit(u):
+			if _looksLikeKeyResultUnit(u):
 				return i
 	return None
 
 
-def _looks_like_key_result_label(node: MainNode) -> bool:
+def _looksLikeKeyResultLabel(node: MainNode) -> bool:
 	if node.kind != "paragraph":
 		return False
-	if not (KEY_RESULT_LABEL_MIN_CHARS <= node.text_length <= KEY_RESULT_LABEL_MAX_CHARS):
+	if not (KEY_RESULT_LABEL_MIN_CHARS <= node.textLength <= KEY_RESULT_LABEL_MAX_CHARS):
 		return False
-	s = node.text_preview.strip()
+	s = node.textPreview.strip()
 	if not s:
 		return False
 	# Labels are mostly non-digit text. If a chunk is >30% digits, it's a
 	# value, not a label.
-	digit_count = sum(c.isdigit() for c in s)
-	if digit_count > len(s) * 0.3:
+	digitCount = sum(c.isdigit() for c in s)
+	if digitCount > len(s) * 0.3:
 		return False
 	return True
 
 
-def _looks_like_key_result_value(node: MainNode) -> bool:
+def _looksLikeKeyResultValue(node: MainNode) -> bool:
 	if node.kind != "paragraph":
 		return False
-	if not (1 <= node.text_length <= KEY_RESULT_VALUE_MAX_CHARS):
+	if not (1 <= node.textLength <= KEY_RESULT_VALUE_MAX_CHARS):
 		return False
-	s = node.text_preview.strip()
+	s = node.textPreview.strip()
 	if not s:
 		return False
 	# Must contain at least one digit and be predominantly value-shaped
@@ -825,10 +825,10 @@ def _looks_like_key_result_value(node: MainNode) -> bool:
 	return allowed >= len(s) * 0.7
 
 
-def _looks_like_key_result_unit(node: MainNode) -> bool:
+def _looksLikeKeyResultUnit(node: MainNode) -> bool:
 	if node.kind != "paragraph":
 		return False
-	if not (1 <= node.text_length <= KEY_RESULT_UNIT_MAX_CHARS):
+	if not (1 <= node.textLength <= KEY_RESULT_UNIT_MAX_CHARS):
 		return False
-	s = node.text_preview.strip().lower()
+	s = node.textPreview.strip().lower()
 	return s in _KEY_RESULT_UNIT_WORDS

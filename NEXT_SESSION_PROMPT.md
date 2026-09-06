@@ -49,7 +49,7 @@ his local build. v1.0.15 ends that ambiguity.
    On a fresh dev machine, forget it and your own data silently stops arriving,
    which looks exactly like broken logging. Asking a USER for a log is a
    two-step request, and they deserve to be told what the file holds.
-2. **Still unobserved in production: `field_drops` doing real work.** Everything
+2. **Still unobserved in production: `fieldDrops` doing real work.** Everything
    measured so far was landmark-free or simple-nav. Pages in Casey's history
    with no `<main>` but marked chrome: thurrott.com, bleepingcomputer,
    disabilityscoop, breitbart (6 chrome ranges), vovsoft.
@@ -62,20 +62,20 @@ his local build. v1.0.15 ends that ambiguity.
 
 ## Open, none of them blockers
 
-- `_count_in_scope` (`tree_summary.py:1712`) DROPS an item whose `obj is None`
-  without setting `truncated_out` — a TRUSTED undercount, poison for NOTICE and
-  KEY_RESULT which fire on SMALL counts. Its sibling `_count_in_range` biases
+- `_countInScope` (`treeSummary.py:1712`) DROPS an item whose `obj is None`
+  without setting `truncatedOut` — a TRUSTED undercount, poison for NOTICE and
+  KEY_RESULT which fire on SMALL counts. Its sibling `_countInRange` biases
   the OPPOSITE way on the same evidence.
 - Objectless chunks still fail open on the plain-chrome and range-error identity
   branches (`chrome-pos` correctly refuses them). Pre-existing; both reviewers
   say CLAUDE.md mis-files this as an accepted limitation.
-- `classifier.py:448` bumps LIST confidence at `article_count >= 5` while
+- `classifier.py:448` bumps LIST confidence at `articleCount >= 5` while
   `_ARTICLE_LIMIT = 4` caps it. Dead branch.
 - The depleted-scope net is UNVERIFIED (never fired in 245 loads). Do not refine
   it; watch the persistent log for `unscoped-depleted` and delete it if it stays
   absent. Its shelved refinement, and a live Codex/Fable disagreement about
   whether `_SCOPE_RANGE_DROP` may be treated as trusted, are recorded in
-  `_scope_looks_depleted`'s docstring.
+  `_scopeLooksDepleted`'s docstring.
 - `main-id` via `controlIdentifier_docHandle`/`_ID`, behind its own probe.
 - Whether `_LANDED_SUPPRESS_SEC` should be TI-aware rather than URL-only.
 - Both concrete code items in this list were re-verified on 2026-08-24 and still

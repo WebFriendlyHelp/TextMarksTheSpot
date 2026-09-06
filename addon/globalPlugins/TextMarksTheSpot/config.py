@@ -37,7 +37,7 @@ def load():
 		pass
 
 
-def get_disabled_sites() -> list:
+def getDisabledSites() -> list:
 	"""Return the list of disabled hostnames. Empty list if unavailable."""
 	if not _NVDA_AVAILABLE:
 		return []
@@ -47,20 +47,20 @@ def get_disabled_sites() -> list:
 		return []
 
 
-def is_site_disabled(hostname: str) -> bool:
+def isSiteDisabled(hostname: str) -> bool:
 	"""Check if hostname is in the disabled-sites list. Case-insensitive."""
 	if not hostname:
 		return False
 	lower = hostname.lower()
-	return any(h.lower() == lower for h in get_disabled_sites())
+	return any(h.lower() == lower for h in getDisabledSites())
 
 
-def add_disabled_site(hostname: str) -> bool:
+def addDisabledSite(hostname: str) -> bool:
 	"""Add a hostname to the disabled-sites list. Returns True if added,
 	False if already present or NVDA config unavailable."""
 	if not _NVDA_AVAILABLE or not hostname:
 		return False
-	current = get_disabled_sites()
+	current = getDisabledSites()
 	if any(h.lower() == hostname.lower() for h in current):
 		return False
 	current.append(hostname)
@@ -71,18 +71,18 @@ def add_disabled_site(hostname: str) -> bool:
 		return False
 
 
-def remove_disabled_site(hostname: str) -> bool:
+def removeDisabledSite(hostname: str) -> bool:
 	"""Remove a hostname from the disabled-sites list. Returns True if
 	removed, False if not present or NVDA config unavailable."""
 	if not _NVDA_AVAILABLE or not hostname:
 		return False
-	current = get_disabled_sites()
+	current = getDisabledSites()
 	lower = hostname.lower()
-	new_list = [h for h in current if h.lower() != lower]
-	if len(new_list) == len(current):
+	newList = [h for h in current if h.lower() != lower]
+	if len(newList) == len(current):
 		return False
 	try:
-		nvdaConfig.conf[CONFIG_SECTION]["disabledSites"] = new_list
+		nvdaConfig.conf[CONFIG_SECTION]["disabledSites"] = newList
 		return True
 	except Exception:
 		return False

@@ -157,7 +157,7 @@ Text Marks the Spot/
 │   └── globalPlugins/TextMarksTheSpot/
 │       ├── __init__.py                    GlobalPlugin entry, event hooks
 │       ├── classifier.py                  pure-logic intent classifier
-│       ├── tree_summary.py                NVDA-binding: tree → TreeSummary
+│       ├── treeSummary.py                NVDA-binding: tree → TreeSummary
 │       ├── detection/
 │       │   ├── __init__.py                per-intent strategy dispatcher
 │       │   ├── web.py                     article landing strategy
@@ -196,7 +196,7 @@ Status: working public add-on, version 1.0.8 in `buildVars.py`, end-to-end in Fi
 
 **Implemented:**
 - Intent-first classifier (`classifier.py`) over `TreeSummary`. Current intents include `SILENT_FOCUS_HONORED`, `FORM`, `ARTICLE`, `LIST`, `APP`, `NOTICE`, `KEY_RESULT`, and `UNKNOWN`.
-- NVDA-binding layer (`tree_summary.py`) walks browse-mode text by `UNIT_PARAGRAPH`, captures parallel textInfo positions, computes notice-keyword and caption flags from full chunk text, and logs `[TMTS perf]` timing data.
+- NVDA-binding layer (`treeSummary.py`) walks browse-mode text by `UNIT_PARAGRAPH`, captures parallel textInfo positions, computes notice-keyword and caption flags from full chunk text, and logs `[TMTS perf]` timing data.
 - Tree-summary fallback is now main-scoped walk to unscoped walk. The older intermediate chrome-filtered fallback was removed for performance because it used the same unreliable parent-chain mechanism as the main-scoped walk.
 - Positional article scoping is implemented for the no-`<main>` / exactly-one-`<article>` case. This excludes nav before the article and comments/footer/sidebar after it, then marks `TreeSummary.positionally_scoped=True`.
 - Landing strategies (`detection/web.py`) cover ARTICLE, LIST, FORM, NOTICE, KEY_RESULT, and Z forward scan. Article landing skips tag lists, share-link payloads, accessibility instructions, figure captions/photo credits, and protects short news dateline ledes.
@@ -213,7 +213,7 @@ Status: working public add-on, version 1.0.8 in `buildVars.py`, end-to-end in Fi
 - Video-specific behavior remains silent. FORM is already implemented.
 - Z key sequence state machine for richer next-likely actions. Current Z is a content-forward scan, not a per-intent sequence.
 - Translation infrastructure — English only.
-- **Visual saliency detection (designed, deferred).** Some sites (fast.com, hand-coded blogs, older WordPress themes) style what is logically a heading as a styled `<div>` instead of an `<h1>` — so NVDA's role-based heading detection misses it. The principled fix is a saliency walker that records `(text, role, x, y, w, h)` per chunk from `obj.location`, computes the page's median chunk height and typical vertical rhythm, and flags chunks that are significantly taller than median, surrounded by larger-than-typical whitespace, or horizontally centered. Those get treated as synthetic headings in `main_nodes`. The principle is "what sighted readers notice" — visual difference from neighbors — not "matches a heading formatting pattern." Estimated 200–300 lines + a tuning loop against real pages. **Does NOT fix fast.com** by itself; fast.com's separate problem is that NVDA's `UNIT_PARAGRAPH` walk produces only 4 nodes total on that page (heavy styled-div DOM), so the speed widget isn't in our walk at all and saliency can't see it. Fast.com would need both saliency + a richer walk strategy.
+- **Visual saliency detection (designed, deferred).** Some sites (fast.com, hand-coded blogs, older WordPress themes) style what is logically a heading as a styled `<div>` instead of an `<h1>` — so NVDA's role-based heading detection misses it. The principled fix is a saliency walker that records `(text, role, x, y, w, h)` per chunk from `obj.location`, computes the page's median chunk height and typical vertical rhythm, and flags chunks that are significantly taller than median, surrounded by larger-than-typical whitespace, or horizontally centered. Those get treated as synthetic headings in `mainNodes`. The principle is "what sighted readers notice" — visual difference from neighbors — not "matches a heading formatting pattern." Estimated 200–300 lines + a tuning loop against real pages. **Does NOT fix fast.com** by itself; fast.com's separate problem is that NVDA's `UNIT_PARAGRAPH` walk produces only 4 nodes total on that page (heavy styled-div DOM), so the speed widget isn't in our walk at all and saliency can't see it. Fast.com would need both saliency + a richer walk strategy.
 
 **Known issues / limitations:**
 - Speed budget (<50ms target) currently missed. Real-world detection is 0.5–10s depending on page complexity. Caching helped 3-10x but the underlying NVDA tree walk on large pages is intrinsically slow.
