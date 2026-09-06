@@ -7,9 +7,9 @@
 # figure captions and social-share blocks.
 #
 # This module is pure logic on a TreeSummary. No NVDA imports. Returns an
-# index into tree.main_nodes; the NVDA-binding caller maps that index back
+# index into tree.mainNodes; the NVDA-binding caller maps that index back
 # to a real textInfo position when walking the document the same way
-# tree_summary did.
+# treeSummary did.
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ except ImportError:
 
 # Directory-page redirect cap: the "land on the title heading instead of a
 # lone far-away paragraph" rule only applies to pages up to this many
-# main_nodes. Big content pages must never redirect. 30 covered the
+# mainNodes. Big content pages must never redirect. 30 covered the
 # Montgomery probate forms page; 40 also covers the signed-in Zoom webinar
 # registration shell (36 nodes, content hidden in closed accordions).
 _DIRECTORY_REDIRECT_MAX_NODES = 40
@@ -46,7 +46,7 @@ LANDING_MIN_PARAGRAPH_CHARS = 50
 # real content (e.g. Calendar's 181-char first appointment).
 HERO_PATTERN_MIN_CHARS = 100
 
-# How far below the page's H1 the lede may sit before _find_title_lede_landing
+# How far below the page's H1 the lede may sit before _findTitleLedeLanding
 # stops looking. On MacRumors it is two nodes down (the byline sits between).
 # Sized for "title, maybe a byline, maybe a timestamp, then the lede" and no
 # further -- past that we would be guessing at which paragraph is the opening.
@@ -146,15 +146,15 @@ _DEFINITIONAL_COPULAS = (" is a", " is an", " is the")
 _DEFINITIONAL_MIN_SUBJECT_CHARS = 4
 
 
-def _page_subject(nodes) -> str:
+def _pageSubject(nodes) -> str:
 	"""The page's first heading — what the page is about."""
 	for node in nodes:
 		if node.kind == "heading":
-			return (node.text_preview or "").strip()
+			return (node.textPreview or "").strip()
 	return ""
 
 
-def _looks_like_definitional_lede(text: str, subject: str) -> bool:
+def _looksLikeDefinitionalLede(text: str, subject: str) -> bool:
 	"""True when this paragraph names the page's subject and says what it IS."""
 	if not subject or len(subject) < _DEFINITIONAL_MIN_SUBJECT_CHARS:
 		return False
@@ -167,7 +167,7 @@ def _looks_like_definitional_lede(text: str, subject: str) -> bool:
 	return any(copula in tail for copula in _DEFINITIONAL_COPULAS)
 
 
-def _find_definitional_lede(nodes, start, min_chars, subject) -> Optional[int]:
+def _findDefinitionalLede(nodes, start, minChars, subject) -> Optional[int]:
 	"""A definitional lede within _DEFINITIONAL_LOOKAHEAD nodes after `start`,
 	stopping at the next heading. Returns None when there is none, which is the
 	common case and leaves the caller's own choice untouched.
@@ -177,17 +177,17 @@ def _find_definitional_lede(nodes, start, min_chars, subject) -> Optional[int]:
 		node = nodes[j]
 		if node.kind == "heading":
 			break
-		if node.kind != "paragraph" or node.text_length < min_chars:
+		if node.kind != "paragraph" or node.textLength < minChars:
 			continue
-		if _is_chrome_paragraph(node):
+		if _isChromeParagraph(node):
 			continue
-		if _looks_like_definitional_lede(node.text_preview, subject):
+		if _looksLikeDefinitionalLede(node.textPreview, subject):
 			return j
 	return None
 
 
 # How far past a content-section heading its paragraph may sit. Matches the
-# hero gate's lookahead (web.py, hero_lookahead = 4) for the same reason: a
+# hero gate's lookahead (web.py, heroLookahead = 4) for the same reason: a
 # heading vouches for the text it INTRODUCES, not for everything downstream of
 # it.
 #
@@ -203,7 +203,7 @@ def _find_definitional_lede(nodes, start, min_chars, subject) -> Optional[int]:
 _CONTENT_SECTION_MAX_DISTANCE = 4
 
 
-def _find_content_section_landing(nodes, min_chars):
+def _findContentSectionLanding(nodes, minChars):
 	"""Look for a heading whose text matches a known "real content lives
 	here" phrase (e.g. "About this item", "Description", "Overview") and
 	return the index of the first substantial paragraph following it.
@@ -219,8 +219,8 @@ def _find_content_section_landing(nodes, min_chars):
 	for i, node in enumerate(nodes):
 		if node.kind != "heading":
 			continue
-		heading_text = (node.text_preview or "").strip().lower()
-		if not heading_text:
+		headingText = (node.textPreview or "").strip().lower()
+		if not headingText:
 			continue
 		# Tight match only. Real product/recipe section headings are short
 		# labels ("Description", "Features", "Overview", "Specifications",
@@ -229,9 +229,9 @@ def _find_content_section_landing(nodes, min_chars):
 		# features included") should NOT match. Cap at 25 chars: the longest
 		# canonical phrase is "what is in the box" (18 chars), so 25 covers
 		# all real cases with a small buffer.
-		if len(heading_text) > 25:
+		if len(headingText) > 25:
 			continue
-		if not any(phrase in heading_text for phrase in _CONTENT_SECTION_HEADING_PHRASES):
+		if not any(phrase in headingText for phrase in _CONTENT_SECTION_HEADING_PHRASES):
 			continue
 		# Found a matching section. Look for the first substantial paragraph
 		# before the next heading AND within _CONTENT_SECTION_MAX_DISTANCE;
@@ -241,15 +241,15 @@ def _find_content_section_landing(nodes, min_chars):
 			n = nodes[j]
 			if n.kind == "heading":
 				break
-			if n.kind != "paragraph" or n.text_length < min_chars:
+			if n.kind != "paragraph" or n.textLength < minChars:
 				continue
-			if _is_chrome_paragraph(n):
+			if _isChromeParagraph(n):
 				continue
 			return j
 	return None
 
 
-def _find_lead_section_landing(nodes) -> Optional[int]:
+def _findLeadSectionLanding(nodes) -> Optional[int]:
 	"""Land on a lone substantial paragraph in the page's LEAD SECTION.
 
 	The section is the span between the FIRST heading and the NEXT heading. If it
@@ -270,7 +270,7 @@ def _find_lead_section_landing(nodes) -> Optional[int]:
 	Two things people get wrong about this bug, both checked against the real
 	node trail rather than assumed:
 	  - The clip titles END IN QUESTION MARKS ("...Jared, Heath, or Jack?"), so
-	    ends_like_sentence is genuinely True for them. The sentence-strict pass is
+	    endsLikeSentence is genuinely True for them. The sentence-strict pass is
 	    right to keep them; it is not the culprit.
 	  - A heading WAS seen before the plot summary (the H1). The hero gate fails
 	    on lookahead DISTANCE, not on heading absence.
@@ -286,22 +286,22 @@ def _find_lead_section_landing(nodes) -> Optional[int]:
 	Not a threshold change -- a new structural signal. Returns None to mean "not
 	my case; run the normal cascade."
 	"""
-	first_heading = next(
+	firstHeading = next(
 		(i for i, n in enumerate(nodes) if n.kind == "heading"), None
 	)
-	if first_heading is None:
+	if firstHeading is None:
 		return None
-	next_heading = next(
-		(j for j in range(first_heading + 1, len(nodes)) if nodes[j].kind == "heading"),
+	nextHeading = next(
+		(j for j in range(firstHeading + 1, len(nodes)) if nodes[j].kind == "heading"),
 		len(nodes),
 	)
 	candidates = [
 		j
-		for j in range(first_heading + 1, next_heading)
+		for j in range(firstHeading + 1, nextHeading)
 		if nodes[j].kind == "paragraph"
-		and nodes[j].text_length >= HERO_PATTERN_MIN_CHARS
-		and not _is_chrome_paragraph(nodes[j])
-		and _node_ends_sentence(nodes[j])
+		and nodes[j].textLength >= HERO_PATTERN_MIN_CHARS
+		and not _isChromeParagraph(nodes[j])
+		and _nodeEndsSentence(nodes[j])
 	]
 	if len(candidates) != 1:
 		return None
@@ -312,7 +312,7 @@ def _find_lead_section_landing(nodes) -> Optional[int]:
 		if (
 			0 <= k < len(nodes)
 			and nodes[k].kind == "paragraph"
-			and nodes[k].text_length >= LANDING_MIN_PARAGRAPH_CHARS
+			and nodes[k].textLength >= LANDING_MIN_PARAGRAPH_CHARS
 		):
 			return None
 	return idx
@@ -327,7 +327,7 @@ _READING_TIME_RE = _re.compile(r"\b\d+\s*min(?:ute)?s?\s+read\b", _re.IGNORECASE
 _NUMERIC_DATE_LINE_RE = _re.compile(r"^\s*\d{1,2}/\d{1,2}/\d{2,4}\s*$")
 
 
-def _looks_like_article_meta(node) -> bool:
+def _looksLikeArticleMeta(node) -> bool:
 	"""True when a node is an author-meta line (read-time or a standalone date).
 
 	These mark the byline/meta block that a magazine or blog layout sits
@@ -337,19 +337,19 @@ def _looks_like_article_meta(node) -> bool:
 	(which only makes the title-lede gate decline in favour of the body
 	cascade) is very unlikely.
 	"""
-	text = (node.text_preview or "").strip()
+	text = (node.textPreview or "").strip()
 	if not text:
 		return False
 	if _READING_TIME_RE.search(text):
 		return True
 	if _NUMERIC_DATE_LINE_RE.match(text):
 		return True
-	if getattr(node, "text_length", len(text)) <= 40 and _BYLINE_FULLDATE_RE.search(text):
+	if getattr(node, "textLength", len(text)) <= 40 and _BYLINE_FULLDATE_RE.search(text):
 		return True
 	return False
 
 
-def _find_title_lede_landing(nodes) -> Optional[int]:
+def _findTitleLedeLanding(nodes) -> Optional[int]:
 	"""Land on the article's opening sentence when an embedded widget cuts it
 	off from the body.
 
@@ -407,9 +407,9 @@ def _find_title_lede_landing(nodes) -> Optional[int]:
 			return None
 		if node.kind != "paragraph":
 			continue
-		if node.text_length < LANDING_MIN_PARAGRAPH_CHARS:
+		if node.textLength < LANDING_MIN_PARAGRAPH_CHARS:
 			continue
-		if _is_chrome_paragraph(node) or not _node_ends_sentence(node):
+		if _isChromeParagraph(node) or not _nodeEndsSentence(node):
 			# Bylines, timestamps and dateline fragments live in this slot too.
 			# They are not disqualifying -- keep scanning past them.
 			continue
@@ -417,7 +417,7 @@ def _find_title_lede_landing(nodes) -> Optional[int]:
 		if (
 			nxt is not None
 			and nxt.kind == "paragraph"
-			and nxt.text_length >= LANDING_MIN_PARAGRAPH_CHARS
+			and nxt.textLength >= LANDING_MIN_PARAGRAPH_CHARS
 		):
 			# Guard 2: the ordinary cluster gate owns this shape.
 			return None
@@ -435,17 +435,17 @@ def _find_title_lede_landing(nodes) -> Optional[int]:
 			peek = nodes[k]
 			if (
 				peek.kind == "paragraph"
-				and peek.text_length >= LANDING_MIN_PARAGRAPH_CHARS
-				and not _is_chrome_paragraph(peek)
+				and peek.textLength >= LANDING_MIN_PARAGRAPH_CHARS
+				and not _isChromeParagraph(peek)
 			):
 				break  # body reached before any meta line -- candidate is the lede
-			if _looks_like_article_meta(peek):
+			if _looksLikeArticleMeta(peek):
 				return None
 		return i
 	return None
 
 
-def _looks_like_accessibility_instructions(text: str) -> bool:
+def _looksLikeAccessibilityInstructions(text: str) -> bool:
 	"""Detect screen-reader instructional text appended to interactive
 	widgets. Amazon product pages are the canonical case — dropdowns and
 	picker controls carry text like "Shop by Room, You are currently on
@@ -466,7 +466,7 @@ def _looks_like_accessibility_instructions(text: str) -> bool:
 	return any(phrase in lower for phrase in _ACCESSIBILITY_INSTRUCTION_PHRASES)
 
 
-def _looks_like_tag_list(text: str) -> bool:
+def _looksLikeTagList(text: str) -> bool:
 	"""Detect a comma-joined list of tags/categories rather than prose.
 
 	Tag/category rows on blogs and news sites are commonly rendered as
@@ -485,17 +485,17 @@ def _looks_like_tag_list(text: str) -> bool:
 	"""
 	if not text:
 		return False
-	no_space_commas = text.count(",") - text.count(", ")
-	if no_space_commas < 2:
+	noSpaceCommas = text.count(",") - text.count(", ")
+	if noSpaceCommas < 2:
 		return False
-	spaced_commas = text.count(", ")
-	return no_space_commas > spaced_commas
+	spacedCommas = text.count(", ")
+	return noSpaceCommas > spacedCommas
 
 
 _URL_ENCODED_TRIPLET_RE = _re.compile(r"%[0-9A-Fa-f]{2}")
 
 
-def _looks_like_share_link_payload(text: str) -> bool:
+def _looksLikeShareLinkPayload(text: str) -> bool:
 	"""Detect text that's really a URL-parameter string from a social-share
 	button — typically exposed as a "paragraph" when accessibility layers
 	stringify the button's href or data-url attribute.
@@ -538,7 +538,7 @@ def _looks_like_share_link_payload(text: str) -> bool:
 _BREADCRUMB_SEP_RE = _re.compile(r"\s[>›»]\s")
 
 
-def _looks_like_url_slug(text: str) -> bool:
+def _looksLikeUrlSlug(text: str) -> bool:
 	"""A URL slug exposed as a text node: hyphen-joined words with NO spaces,
 	e.g. "when-your-vehicle-outlives-its-cloud" (Ars Technica lists each story's
 	slug as a line above its headline). Read aloud it is "when hyphen your
@@ -551,7 +551,7 @@ def _looks_like_url_slug(text: str) -> bool:
 	return stripped.count("-") >= 2
 
 
-def _looks_like_breadcrumb(text: str) -> bool:
+def _looksLikeBreadcrumb(text: str) -> bool:
 	if not text:
 		return False
 	stripped = text.strip()
@@ -596,7 +596,7 @@ _PHOTO_CREDIT_PHRASES = (
 _SLASH_NUMBER_RE = _re.compile(r"\d\s*/\s*\d")
 
 
-def _looks_like_photo_credit_chain(text: str) -> bool:
+def _looksLikePhotoCreditChain(text: str) -> bool:
 	"""Detect a slash-separated photo-credit chain with no parentheses.
 
 	The breitbart.com case (2026-07-14 soak): the whole paragraph is
@@ -623,12 +623,12 @@ def _looks_like_photo_credit_chain(text: str) -> bool:
 		return False
 	if _SLASH_NUMBER_RE.search(stripped):
 		return False
-	if ends_like_sentence(stripped):
+	if endsLikeSentence(stripped):
 		return False
 	return True
 
 
-def _looks_like_image_caption(text: str) -> bool:
+def _looksLikeImageCaption(text: str) -> bool:
 	"""Detect a figure caption / photo credit masquerading as a body paragraph.
 
 	Three signals, any one is enough:
@@ -646,25 +646,25 @@ def _looks_like_image_caption(text: str) -> bool:
 		return False
 	if _PHOTO_CREDIT_END_RE.search(text):
 		return True
-	if _looks_like_photo_credit_chain(text):
+	if _looksLikePhotoCreditChain(text):
 		return True
 	lower = text.lower()
 	return any(phrase in lower for phrase in _PHOTO_CREDIT_PHRASES)
 
 
-def _node_is_caption(node) -> bool:
+def _nodeIsCaption(node) -> bool:
 	"""True if a node is a figure caption / photo credit.
 
-	Prefers the precomputed ``is_caption`` flag, which tree_summary sets at
+	Prefers the precomputed ``isCaption`` flag, which treeSummary sets at
 	walk time over the FULL chunk text — the only place the trailing credit
-	is visible, since text_preview is truncated to 60 chars. Falls back to
-	re-checking text_preview so unit-test fixtures (which carry full text in
+	is visible, since textPreview is truncated to 60 chars. Falls back to
+	re-checking textPreview so unit-test fixtures (which carry full text in
 	the preview and don't set the flag) and the rare credit-within-60-chars
 	case are still caught.
 	"""
-	if getattr(node, "is_caption", False):
+	if getattr(node, "isCaption", False):
 		return True
-	return _looks_like_image_caption(node.text_preview or "")
+	return _looksLikeImageCaption(node.textPreview or "")
 
 
 # Legal footer boilerplate: copyright lines and CCPA/privacy links rows.
@@ -702,7 +702,7 @@ _LEGAL_BOILERPLATE_RE = _re.compile(
 )
 
 
-def _looks_like_legal_boilerplate(text: str) -> bool:
+def _looksLikeLegalBoilerplate(text: str) -> bool:
 	"""Detect a copyright / legal-footer line masquerading as a body paragraph.
 
 	Conservative by design: every signal is language that effectively never
@@ -715,19 +715,19 @@ def _looks_like_legal_boilerplate(text: str) -> bool:
 	return bool(_LEGAL_BOILERPLATE_RE.search(text))
 
 
-def _node_is_boilerplate(node) -> bool:
+def _nodeIsBoilerplate(node) -> bool:
 	"""True if a node is legal footer boilerplate.
 
-	Same two-layer scheme as _node_is_caption: prefer the walk-time
-	``is_boilerplate`` flag (computed over the FULL chunk text — the
+	Same two-layer scheme as _nodeIsCaption: prefer the walk-time
+	``isBoilerplate`` flag (computed over the FULL chunk text — the
 	"All rights reserved" tail commonly sits past the 60-char preview
 	cutoff), fall back to re-checking the preview for fixtures and for
 	lines whose signal appears early ("Copyright ©2026 ..." matches
 	within the first 60 chars).
 	"""
-	if getattr(node, "is_boilerplate", False):
+	if getattr(node, "isBoilerplate", False):
 		return True
-	return _looks_like_legal_boilerplate(node.text_preview or "")
+	return _looksLikeLegalBoilerplate(node.textPreview or "")
 
 
 # Related-article promo teasers: news sites drop "READ MORE:" / "RELATED:"
@@ -747,7 +747,7 @@ _PROMO_TEASER_RE = _re.compile(
 # ledes with it, so filtering it would skip genuine article openings.
 
 
-def _looks_like_promo_teaser(text: str) -> bool:
+def _looksLikePromoTeaser(text: str) -> bool:
 	"""Detect an all-caps "READ MORE:"-style related-article promo line."""
 	if not text:
 		return False
@@ -792,7 +792,7 @@ _BYLINE_TEMPORAL_OPENERS = frozenset({
 _DATED_BYLINE_MAX_CHARS = 120
 
 
-def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
+def _looksLikeByline(text: str, fullLength: Optional[int] = None) -> bool:
 	"""Detect a news byline masquerading as a body paragraph. Two forms:
 
 	1. All-caps "By ..." (Daily Mail): starts with exactly "By " and at
@@ -806,27 +806,27 @@ def _looks_like_byline(text: str, full_length: Optional[int] = None) -> bool:
 	   (Phoronix): mixed case allowed, capped at 120 chars — see
 	   _PARTICIPLE_BYLINE_RE above.
 
-	full_length: the paragraph's FULL text length when `text` is a
-	truncated 60-char preview (as passed by _is_chrome_paragraph). The
+	fullLength: the paragraph's FULL text length when `text` is a
+	truncated 60-char preview (as passed by _isChromeParagraph). The
 	participle cap must judge the real length, not the preview's.
 	"""
 	if not text:
 		return False
-	effective_length = full_length if full_length is not None else len(text)
+	effectiveLength = fullLength if fullLength is not None else len(text)
 	if (
-		effective_length <= _PARTICIPLE_BYLINE_MAX_CHARS
+		effectiveLength <= _PARTICIPLE_BYLINE_MAX_CHARS
 		and _PARTICIPLE_BYLINE_RE.match(text)
 	):
 		return True
 	if not text.startswith("By "):
 		return False
 	# Dated byline: "By Name ... Month DD, YYYY [time]". See _BYLINE_FULLDATE_RE.
-	if effective_length <= _DATED_BYLINE_MAX_CHARS:
+	if effectiveLength <= _DATED_BYLINE_MAX_CHARS:
 		rest = text[3:].lstrip()
-		first_word = rest.split(maxsplit=1)[0] if rest else ""
+		firstWord = rest.split(maxsplit=1)[0] if rest else ""
 		if (
-			first_word[:1].isupper()
-			and first_word.strip(".,'").lower() not in _BYLINE_TEMPORAL_OPENERS
+			firstWord[:1].isupper()
+			and firstWord.strip(".,'").lower() not in _BYLINE_TEMPORAL_OPENERS
 			and _BYLINE_FULLDATE_RE.search(text)
 		):
 			return True
@@ -972,7 +972,7 @@ _NEWSLETTER_PROMO = (
 _EDITORIAL_DISCLOSURE_MAX_CHARS = 300
 
 
-def _looks_like_editorial_disclosure(text: str, full_length: int = None) -> bool:
+def _looksLikeEditorialDisclosure(text: str, fullLength: int = None) -> bool:
 	"""Affiliate/referral disclosure or a syndication note, both of which sit
 	between the headline and the real lede and read as ordinary prose.
 
@@ -981,19 +981,19 @@ def _looks_like_editorial_disclosure(text: str, full_length: int = None) -> bool
 	  "This article was written by WTOP's news partner, The Banner
 	   Montgomery, and republished with permission."                 (WTOP)
 
-	`full_length` is the chunk's REAL length when the caller only has the
+	`fullLength` is the chunk's REAL length when the caller only has the
 	60-char preview. Without it the length guard below was dead code at runtime
 	(a 60-char preview can never exceed 300), which broke the rule in BOTH
 	directions: it could never reject a long paragraph, so an article whose
 	opening 60 chars mention affiliate links got chrome-flagged with no length
 	protection at all. Same fix, and same reason, as the byline filter's
-	`full_length`. The unit tests pass whole sentences straight in, which is why
+	`fullLength`. The unit tests pass whole sentences straight in, which is why
 	they validated a guard the runtime never actually applied.
 	"""
 	stripped = (text or "").strip()
 	if not stripped:
 		return False
-	length = full_length if full_length is not None else len(stripped)
+	length = fullLength if fullLength is not None else len(stripped)
 	if length > _EDITORIAL_DISCLOSURE_MAX_CHARS:
 		return False
 	lower = stripped.lower()
@@ -1016,24 +1016,24 @@ def _looks_like_editorial_disclosure(text: str, full_length: int = None) -> bool
 	)
 
 
-def _node_is_disclosure(node) -> bool:
+def _nodeIsDisclosure(node) -> bool:
 	"""True if a node is an editorial disclosure / syndication note.
 
-	Same two-layer scheme as _node_is_caption and _node_is_boilerplate: prefer
-	the walk-time ``is_disclosure`` flag, computed over the FULL chunk text
+	Same two-layer scheme as _nodeIsCaption and _nodeIsBoilerplate: prefer
+	the walk-time ``isDisclosure`` flag, computed over the FULL chunk text
 	because the giveaway phrase routinely sits past the 60-char preview cutoff
 	("To receive license key and use all features of the software, " is already
 	61 chars). Falls back to re-checking the preview for fixtures, passing the
 	node's real length so the 300-char guard still applies there.
 	"""
-	if getattr(node, "is_disclosure", False):
+	if getattr(node, "isDisclosure", False):
 		return True
-	return _looks_like_editorial_disclosure(
-		node.text_preview or "", full_length=getattr(node, "text_length", None),
+	return _looksLikeEditorialDisclosure(
+		node.textPreview or "", fullLength=getattr(node, "textLength", None),
 	)
 
 
-def _is_chrome_paragraph(node) -> bool:
+def _isChromeParagraph(node) -> bool:
 	"""Shared "never land here" filter for paragraph candidates.
 
 	Combines every chrome shape the landing finders skip: tag/category
@@ -1042,18 +1042,18 @@ def _is_chrome_paragraph(node) -> bool:
 	by every landing cascade so a new chrome shape only needs adding in
 	one place.
 	"""
-	text = node.text_preview or ""
+	text = node.textPreview or ""
 	return (
-		_looks_like_tag_list(text)
-		or _looks_like_share_link_payload(text)
-		or _looks_like_url_slug(text)
-		or _looks_like_breadcrumb(text)
-		or _looks_like_accessibility_instructions(text)
-		or _looks_like_promo_teaser(text)
-		or _node_is_disclosure(node)
-		or _looks_like_byline(text, full_length=node.text_length)
-		or _node_is_caption(node)
-		or _node_is_boilerplate(node)
+		_looksLikeTagList(text)
+		or _looksLikeShareLinkPayload(text)
+		or _looksLikeUrlSlug(text)
+		or _looksLikeBreadcrumb(text)
+		or _looksLikeAccessibilityInstructions(text)
+		or _looksLikePromoTeaser(text)
+		or _nodeIsDisclosure(node)
+		or _looksLikeByline(text, fullLength=node.textLength)
+		or _nodeIsCaption(node)
+		or _nodeIsBoilerplate(node)
 	)
 
 
@@ -1078,11 +1078,11 @@ _PROSE_RUN_MIN_SENTENCE_ENDS = 2
 _SENTENCE_END_CLOSERS = "\"'”’)]»"
 
 
-def ends_like_sentence(text: str) -> bool:
+def endsLikeSentence(text: str) -> bool:
 	"""True when text ends with sentence-terminal punctuation (. ! ? or an
 	ellipsis), allowing trailing closing quotes/brackets after it. Called by
-	tree_summary at walk time over the FULL chunk text to set
-	MainNode.ends_sentence — the terminal character of a 61+ char line sits
+	treeSummary at walk time over the FULL chunk text to set
+	MainNode.endsSentence — the terminal character of a 61+ char line sits
 	past the 60-char preview cutoff, so a preview check is not enough.
 	"""
 	stripped = (text or "").rstrip()
@@ -1090,64 +1090,64 @@ def ends_like_sentence(text: str) -> bool:
 	return stripped.endswith((".", "!", "?", "…"))
 
 
-def _node_ends_sentence(node) -> bool:
+def _nodeEndsSentence(node) -> bool:
 	# Prefer the walk-time flag; fall back to the preview for fixtures and
 	# for lines short enough that the preview is the full text.
-	if getattr(node, "ends_sentence", False):
+	if getattr(node, "endsSentence", False):
 		return True
-	if node.text_length <= 60:
-		return ends_like_sentence(node.text_preview or "")
+	if node.textLength <= 60:
+		return endsLikeSentence(node.textPreview or "")
 	return False
 
 
-def _find_prose_run_landing(nodes) -> Optional[int]:
+def _findProseRunLanding(nodes) -> Optional[int]:
 	"""Find the first qualifying prose run and return the index of its first
 	line, or None. See the _PROSE_RUN_* constants above for what qualifies.
 	Only runs that start AFTER a heading are considered — pre-heading
 	sentence-shaped runs are typically cookie banners / publisher
 	disclaimers, the same pre-H1 chrome the hero gate guards against.
 	"""
-	seen_heading = False
-	run_start = None
-	run_total = 0
-	run_len = 0
-	run_sentence_ends = 0
-	run_started_after_heading = False
+	seenHeading = False
+	runStart = None
+	runTotal = 0
+	runLen = 0
+	runSentenceEnds = 0
+	runStartedAfterHeading = False
 
-	def run_qualifies() -> bool:
+	def runQualifies() -> bool:
 		return (
-			run_started_after_heading
-			and run_len >= _PROSE_RUN_MIN_LINES
-			and run_total >= _PROSE_RUN_MIN_TOTAL_CHARS
-			and run_sentence_ends >= _PROSE_RUN_MIN_SENTENCE_ENDS
-			and run_sentence_ends * 2 >= run_len
+			runStartedAfterHeading
+			and runLen >= _PROSE_RUN_MIN_LINES
+			and runTotal >= _PROSE_RUN_MIN_TOTAL_CHARS
+			and runSentenceEnds >= _PROSE_RUN_MIN_SENTENCE_ENDS
+			and runSentenceEnds * 2 >= runLen
 		)
 
 	for i, node in enumerate(nodes):
 		eligible = (
 			node.kind == "paragraph"
-			and node.text_length >= _PROSE_RUN_MIN_LINE_CHARS
-			and not _is_chrome_paragraph(node)
+			and node.textLength >= _PROSE_RUN_MIN_LINE_CHARS
+			and not _isChromeParagraph(node)
 		)
 		if eligible:
-			if run_start is None:
-				run_start = i
-				run_total = 0
-				run_len = 0
-				run_sentence_ends = 0
-				run_started_after_heading = seen_heading
-			run_total += node.text_length
-			run_len += 1
-			if _node_ends_sentence(node):
-				run_sentence_ends += 1
+			if runStart is None:
+				runStart = i
+				runTotal = 0
+				runLen = 0
+				runSentenceEnds = 0
+				runStartedAfterHeading = seenHeading
+			runTotal += node.textLength
+			runLen += 1
+			if _nodeEndsSentence(node):
+				runSentenceEnds += 1
 		else:
-			if run_start is not None and run_qualifies():
-				return run_start
-			run_start = None
+			if runStart is not None and runQualifies():
+				return runStart
+			runStart = None
 			if node.kind == "heading":
-				seen_heading = True
-	if run_start is not None and run_qualifies():
-		return run_start
+				seenHeading = True
+	if runStart is not None and runQualifies():
+		return runStart
 	return None
 
 
@@ -1155,13 +1155,13 @@ def _find_prose_run_landing(nodes) -> Optional[int]:
 # marks the genuine first line of the story body. The location is in capitals,
 # optionally followed by a parenthetical wire-service / station tag, then an
 # em-dash, en-dash, or spaced hyphen. It lives in the first ~30 chars, so the
-# 60-char text_preview always shows it. — = em-dash, – = en-dash.
+# 60-char textPreview always shows it. — = em-dash, – = en-dash.
 _NEWS_DATELINE_RE = _re.compile(
 	r"^[A-Z][A-Z.&'\- ]{1,30}?(?:\([A-Za-z0-9.\-/ ]+\)\s*)?[—–-]\s",
 )
 
 
-def _looks_like_news_dateline(text: str) -> bool:
+def _looksLikeNewsDateline(text: str) -> bool:
 	"""True if text opens with an AP-style dateline ("DENVER (KDVR) - ...").
 
 	Protects a short-but-real lede from the teaser-skip rule below. A news
@@ -1189,7 +1189,7 @@ _BLOGGING_PROMPT_LABELS = (
 )
 
 
-def _find_blogging_prompt_landing(nodes):
+def _findBloggingPromptLanding(nodes):
 	"""If a Jetpack daily-writing-prompt widget is present, return the index
 	of the prompt question (the node immediately after the label). Returns
 	None when no such widget is found, so the caller falls through to the
@@ -1197,7 +1197,7 @@ def _find_blogging_prompt_landing(nodes):
 	"""
 	count = len(nodes)
 	for i, node in enumerate(nodes):
-		text = (node.text_preview or "").strip().lower()
+		text = (node.textPreview or "").strip().lower()
 		if not text:
 			continue
 		if not any(text == lbl or text.startswith(lbl) for lbl in _BLOGGING_PROMPT_LABELS):
@@ -1207,13 +1207,13 @@ def _find_blogging_prompt_landing(nodes):
 			# The question should be the next text node, not another label or
 			# a stray short fragment. 15 chars clears "View all responses"-style
 			# link text while admitting any real question.
-			if nxt.kind == "paragraph" and nxt.text_length >= 15:
+			if nxt.kind == "paragraph" and nxt.textLength >= 15:
 				return i + 1
 	return None
 
 
-def _first_substantial_paragraph(nodes, min_chars) -> Optional[int]:
-	"""Return the index of the first paragraph >= min_chars, skipping the same
+def _firstSubstantialParagraph(nodes, minChars) -> Optional[int]:
+	"""Return the index of the first paragraph >= minChars, skipping the same
 	chrome shapes the main cascade skips (tag lists, share-link payloads,
 	accessibility instructions). Returns None if none qualifies.
 
@@ -1223,19 +1223,19 @@ def _first_substantial_paragraph(nodes, min_chars) -> Optional[int]:
 	hero/cluster gates that guard noisy unscoped trees.
 	"""
 	for i, node in enumerate(nodes):
-		if node.kind != "paragraph" or node.text_length < min_chars:
+		if node.kind != "paragraph" or node.textLength < minChars:
 			continue
-		if _is_chrome_paragraph(node):
+		if _isChromeParagraph(node):
 			continue
 		return i
 	return None
 
 
-def _sentence_strict_view(tree: TreeSummary) -> Optional[TreeSummary]:
+def _sentenceStrictView(tree: TreeSummary) -> Optional[TreeSummary]:
 	"""A copy of ``tree`` in which every PARAGRAPH that doesn't end like a
 	sentence is flagged as boilerplate, so the landing cascade skips it.
 
-	Indices align 1:1 with the original ``tree.main_nodes`` — nodes are
+	Indices align 1:1 with the original ``tree.mainNodes`` — nodes are
 	replaced, never removed — so an index found here is valid in the original.
 	Headings are left alone: they legitimately don't end in terminal
 	punctuation, and the directory-page redirect lands on one.
@@ -1251,23 +1251,23 @@ def _sentence_strict_view(tree: TreeSummary) -> Optional[TreeSummary]:
 	every bad one, so it's a pass over the whole cascade rather than four
 	more shape-matching filters.
 
-	This reuses is_boilerplate purely as the "skip me" channel that
-	_is_chrome_paragraph already honours — it avoids threading a strict-mode
+	This reuses isBoilerplate purely as the "skip me" channel that
+	_isChromeParagraph already honours — it avoids threading a strict-mode
 	flag through the eight functions that call it, and it mutates nothing.
 	"""
-	nodes = tree.main_nodes
+	nodes = tree.mainNodes
 	if not any(
-		n.kind == "paragraph" and _node_ends_sentence(n)
+		n.kind == "paragraph" and _nodeEndsSentence(n)
 		for n in nodes
 	):
 		return None
-	strict_nodes = [
-		_dataclasses.replace(n, is_boilerplate=True)
-		if (n.kind == "paragraph" and not n.is_boilerplate and not _node_ends_sentence(n))
+	strictNodes = [
+		_dataclasses.replace(n, isBoilerplate=True)
+		if (n.kind == "paragraph" and not n.isBoilerplate and not _nodeEndsSentence(n))
 		else n
 		for n in nodes
 	]
-	return _dataclasses.replace(tree, main_nodes=strict_nodes)
+	return _dataclasses.replace(tree, mainNodes=strictNodes)
 
 
 # Headline-list (index / homepage) landing. A news index is a WALL of headline
@@ -1284,7 +1284,7 @@ _HEADLINE_SENTENCE_FRAC_MAX = 0.5  # titles mostly don't end like sentences
 _HEADLINE_GAP_MAX = 2          # short/chrome nodes inside the wall are transparent
 
 
-def _has_article_body_cluster(nodes) -> bool:
+def _hasArticleBodyCluster(nodes) -> bool:
 	"""True when the page has a real article body: >= 2 consecutive non-chrome
 	sentence-ending paragraphs of >= 100 chars. This is what separates an ARTICLE
 	(with maybe a related-stories rail) from an INDEX (all titles, no body)."""
@@ -1292,24 +1292,24 @@ def _has_article_body_cluster(nodes) -> bool:
 	for node in nodes:
 		if (
 			node.kind == "paragraph"
-			and node.text_length >= 100
-			and node.ends_sentence
-			and not _is_chrome_paragraph(node)
+			and node.textLength >= 100
+			and node.endsSentence
+			and not _isChromeParagraph(node)
 		):
 			run += 1
 			if run >= 2:
 				return True
-		elif node.kind == "heading" or (node.kind == "paragraph" and node.text_length >= _HEADLINE_MIN_CHARS):
+		elif node.kind == "heading" or (node.kind == "paragraph" and node.textLength >= _HEADLINE_MIN_CHARS):
 			run = 0
 	return False
 
 
-def _find_headline_list_landing(nodes) -> Optional[int]:
+def _findHeadlineListLanding(nodes) -> Optional[int]:
 	"""Index/homepage detection: the FIRST run of >= _HEADLINE_RUN_MIN
 	consecutive headline-ish paragraphs (medium length, non-chrome), mostly
 	non-sentence-ending, on a page with no article body. Returns the first
 	member's index, or None. See the header comment above."""
-	if _has_article_body_cluster(nodes):
+	if _hasArticleBodyCluster(nodes):
 		return None
 	i, count = 0, len(nodes)
 	while i < count:
@@ -1320,8 +1320,8 @@ def _find_headline_list_landing(nodes) -> Optional[int]:
 				break
 			headlineish = (
 				node.kind == "paragraph"
-				and _HEADLINE_MIN_CHARS <= node.text_length <= _HEADLINE_MAX_CHARS
-				and not _is_chrome_paragraph(node)
+				and _HEADLINE_MIN_CHARS <= node.textLength <= _HEADLINE_MAX_CHARS
+				and not _isChromeParagraph(node)
 			)
 			if headlineish:
 				members.append(j)
@@ -1332,14 +1332,14 @@ def _find_headline_list_landing(nodes) -> Optional[int]:
 					break
 			j += 1
 		if len(members) >= _HEADLINE_RUN_MIN:
-			sent = sum(1 for m in members if _node_ends_sentence(nodes[m]))
+			sent = sum(1 for m in members if _nodeEndsSentence(nodes[m]))
 			if sent / len(members) <= _HEADLINE_SENTENCE_FRAC_MAX:
 				return members[0]
 		i = max(j, i + 1)
 	return None
 
 
-def find_article_landing(tree: TreeSummary) -> Optional[int]:
+def findArticleLanding(tree: TreeSummary) -> Optional[int]:
 	"""Land on real body prose, preferring paragraphs that end like a sentence.
 
 	Two passes over the same cascade:
@@ -1355,19 +1355,19 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 	page (stevequayle.com) every item is a bulleted headline and NOTHING ends
 	like a sentence; landing on the first headline is the CORRECT behavior
 	there. Without pass 2 such a page would land nowhere at all. There is a
-	test pinning this: test_article_landing_falls_back_when_no_sentence_enders.
+	test pinning this: testArticleLandingFallsBackWhenNoSentenceEnders.
 
 	Index/homepage pages (a wall of headline links, no article body) are handled
-	FIRST by _find_headline_list_landing, so a stray prose sentence in a
+	FIRST by _findHeadlineListLanding, so a stray prose sentence in a
 	newsletter box or footer can't hijack pass 1 into landing on chrome. This
 	closes the "known hole" the two passes alone left open.
 	"""
-	idx = _find_headline_list_landing(tree.main_nodes)
+	idx = _findHeadlineListLanding(tree.mainNodes)
 	if idx is not None:
 		return idx
-	strict = _sentence_strict_view(tree)
+	strict = _sentenceStrictView(tree)
 	if strict is not None:
-		idx = _find_article_landing_impl(strict)
+		idx = _findArticleLandingImpl(strict)
 		# Only TRUST the strict pass if it actually did the thing it exists to
 		# do: land on prose that ends like a sentence. If it lands anywhere
 		# else, it has nothing to offer and we fall back.
@@ -1378,22 +1378,22 @@ def find_article_landing(tree: TreeSummary) -> Optional[int]:
 		# terminal punctuation; flagging them as chrome shattered the
 		# consecutive run the prose-run gate needs, the cascade fell through
 		# to a weaker gate, and it returned the generic "Post" heading at
-		# index 0. Pinned by test_article_landing_prose_run_on_x_status_page.
+		# index 0. Pinned by testArticleLandingProseRunOnXStatusPage.
 		if idx is not None:
-			node = tree.main_nodes[idx]
-			if node.kind == "paragraph" and _node_ends_sentence(node):
+			node = tree.mainNodes[idx]
+			if node.kind == "paragraph" and _nodeEndsSentence(node):
 				return idx
-	return _find_article_landing_impl(tree)
+	return _findArticleLandingImpl(tree)
 
 
-def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
-	"""Pick the best landing index in tree.main_nodes for an ARTICLE-classified
+def _findArticleLandingImpl(tree: TreeSummary) -> Optional[int]:
+	"""Pick the best landing index in tree.mainNodes for an ARTICLE-classified
 	page. The browse cursor will be moved to that paragraph and NVDA will
 	speak it; we want to land on real BODY content, not on chrome (sidebar
 	links, recent-post widgets, byline boilerplate) that happens to be
 	substantial-length.
 
-	Strategy: walk main_nodes in document order. A substantial paragraph
+	Strategy: walk mainNodes in document order. A substantial paragraph
 	(>= LANDING_MIN_PARAGRAPH_CHARS) qualifies as a landing target only
 	when it has one of these neighboring shapes:
 
@@ -1412,16 +1412,16 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	substantial paragraph anywhere. Handles terse pages with one big
 	paragraph and otherwise scattered short text.
 
-	Returns None if nothing in main_nodes qualifies at all.
+	Returns None if nothing in mainNodes qualifies at all.
 	"""
-	nodes = tree.main_nodes
+	nodes = tree.mainNodes
 	count = len(nodes)
-	min_chars = LANDING_MIN_PARAGRAPH_CHARS
+	minChars = LANDING_MIN_PARAGRAPH_CHARS
 
 	# First: the Jetpack daily-writing-prompt widget, if present. The prompt
 	# question is the best orientation line on these posts but reliably loses
 	# the cluster/hero gates below, so match the widget shape and land on it.
-	idx = _find_blogging_prompt_landing(nodes)
+	idx = _findBloggingPromptLanding(nodes)
 	if idx is not None:
 		return idx
 
@@ -1431,8 +1431,8 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# chrome in noisy unscoped trees; on a clean tree they overshoot the genuine
 	# first paragraph (e.g. a 64-char prompt question followed by a short intro
 	# line, which the gates skip in favor of a later list cluster).
-	if getattr(tree, "positionally_scoped", False):
-		idx = _first_substantial_paragraph(nodes, min_chars)
+	if getattr(tree, "positionallyScoped", False):
+		idx = _firstSubstantialParagraph(nodes, minChars)
 		if idx is not None:
 			return idx
 
@@ -1442,7 +1442,7 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# the strongest signal we have on heavily-chromed pages (Amazon
 	# product pages, recipe sites, software docs) where article-shape
 	# heuristics struggle to distinguish content from chrome.
-	idx = _find_content_section_landing(nodes, min_chars)
+	idx = _findContentSectionLanding(nodes, minChars)
 	if idx is not None:
 		return idx
 
@@ -1452,8 +1452,8 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# EVIDENCE STRENGTH -- a weak two-paragraph cluster of 50-char fragments
 	# returns immediately and beats a stronger candidate sitting earlier in the
 	# document. That is precisely how IMDb's plot summary lost to a rail of video
-	# clip titles. See _find_lead_section_landing.
-	idx = _find_lead_section_landing(nodes)
+	# clip titles. See _findLeadSectionLanding.
+	idx = _findLeadSectionLanding(nodes)
 	if idx is not None:
 		return idx
 
@@ -1461,8 +1461,8 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# opening line, even when it is too short for the size gates and an embedded
 	# widget (a video player, a newsletter box) sits between it and the body so
 	# the cluster gate cannot see it. Declines whenever the cluster gate can
-	# handle the page itself. See _find_title_lede_landing.
-	idx = _find_title_lede_landing(nodes)
+	# handle the page itself. See _findTitleLedeLanding.
+	idx = _findTitleLedeLanding(nodes)
 	if idx is not None:
 		return idx
 
@@ -1472,30 +1472,30 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# next H2/H3 — e.g., acb.org has hero + 2 conference-banner lines
 	# before "Top Links" H2. Capped to prevent confusing distant content
 	# with a hero pattern.
-	hero_lookahead = 4
+	heroLookahead = 4
 
-	subject = _page_subject(nodes)
+	subject = _pageSubject(nodes)
 
-	seen_heading = False
+	seenHeading = False
 	for i, node in enumerate(nodes):
 		if node.kind == "heading":
-			seen_heading = True
-		if node.kind != "paragraph" or node.text_length < min_chars:
+			seenHeading = True
+		if node.kind != "paragraph" or node.textLength < minChars:
 			continue
 		# Chrome shapes (tag rows, share payloads, screen-reader help text,
 		# photo credits, legal boilerplate) are never landing candidates.
-		if _is_chrome_paragraph(node):
+		if _isChromeParagraph(node):
 			continue
 		# Very substantial paragraphs (>= 200 chars) are unambiguously
 		# article body — accept immediately. Without this rule, a long
 		# article intro can lose to later bullet-list clusters whose
 		# adjacent items both pass the 50-char "substantial" bar.
-		if node.text_length >= VERY_SUBSTANTIAL_PARAGRAPH_CHARS:
+		if node.textLength >= VERY_SUBSTANTIAL_PARAGRAPH_CHARS:
 			return i
 		if i + 1 >= count:
 			# Last node — can't check neighbors for hero/cluster pattern.
 			# Do NOT accept it just because it's last: on pages where the
-			# scoped walk failed and main_nodes contains nav + footer, the
+			# scoped walk failed and mainNodes contains nav + footer, the
 			# last substantial paragraph is often the footer disclaimer
 			# (bestmidi.com/bg/: "This website is not affiliated with
 			# Blizzard Entertainment." was winning over the actual intro).
@@ -1504,7 +1504,7 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 			continue
 		nxt = nodes[i + 1]
 		# A: cluster start — immediately adjacent substantial paragraph.
-		if nxt.kind == "paragraph" and nxt.text_length >= min_chars:
+		if nxt.kind == "paragraph" and nxt.textLength >= minChars:
 			# Teaser-skip: when the candidate is short (<100 chars) and the
 			# next paragraph is substantially longer (>2x AND >=150 chars),
 			# prefer the next. CNET news articles commonly carry an 80-char
@@ -1519,10 +1519,10 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 			# is the normal shape of a news story, so skipping to the long
 			# paragraph would overshoot where the article actually starts.
 			if (
-				node.text_length < 100
-				and nxt.text_length >= 150
-				and nxt.text_length > node.text_length * 2
-				and not _looks_like_news_dateline(node.text_preview)
+				node.textLength < 100
+				and nxt.textLength >= 150
+				and nxt.textLength > node.textLength * 2
+				and not _looksLikeNewsDateline(node.textPreview)
 			):
 				return i + 1
 			# The cluster's FIRST paragraph is not always what the page is
@@ -1530,11 +1530,11 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 			# feature line commonly sits above the sentence that says what the
 			# thing IS. Prefer that sentence when it is a few nodes below.
 			# Returns None on ordinary prose, leaving this landing as-is.
-			lede = _find_definitional_lede(nodes, i, min_chars, subject)
+			lede = _findDefinitionalLede(nodes, i, minChars, subject)
 			if lede is not None:
 				return lede
 			return i
-		# B: hero / section-intro — a heading appears within hero_lookahead
+		# B: hero / section-intro — a heading appears within heroLookahead
 		# nodes BEFORE any other substantial paragraph. The hero shortcut
 		# uses a STRICTER threshold (HERO_PATTERN_MIN_CHARS=100) than the
 		# 50-char "candidate" bar above: a 50-99 char paragraph followed
@@ -1543,29 +1543,29 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 		# wrong on app pages like calendar.google.com. Shorter candidates
 		# fall through to the largest-paragraph fallback below, which on
 		# app pages correctly picks the real content.
-		if node.text_length < HERO_PATTERN_MIN_CHARS:
+		if node.textLength < HERO_PATTERN_MIN_CHARS:
 			continue
 		# The hero shortcut also requires that we've ALREADY seen a heading
-		# in main_nodes. Without this, a substantial publisher disclaimer
+		# in mainNodes. Without this, a substantial publisher disclaimer
 		# / dek / byline paragraph BEFORE the article's H1 wins because
 		# the H1 itself is in the hero lookahead window. PCMag's "editors
 		# select and review products..." disclaimer (167 chars) was the
 		# canonical case. Article body comes AFTER the H1; pre-H1
 		# substantial paragraphs are almost always chrome.
-		if not seen_heading:
+		if not seenHeading:
 			continue
-		hero_qualifies = False
-		end = min(i + 1 + hero_lookahead, count)
+		heroQualifies = False
+		end = min(i + 1 + heroLookahead, count)
 		for j in range(i + 1, end):
 			peek = nodes[j]
 			if peek.kind == "heading":
-				hero_qualifies = True
+				heroQualifies = True
 				break
-			if peek.kind == "paragraph" and peek.text_length >= min_chars:
+			if peek.kind == "paragraph" and peek.textLength >= minChars:
 				# A later substantial paragraph means a cluster is coming;
 				# THIS paragraph isn't the hero.
 				break
-		if hero_qualifies:
+		if heroQualifies:
 			return i
 
 	# Prose-run gate: no single paragraph qualified above, but the page may
@@ -1575,8 +1575,8 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# the 50-char bar, so every gate above misses them and the directory
 	# redirect below would land on the generic "Post" heading instead.
 	# Sentence-end density separates these runs from nav menus and
-	# form-label runs; see _find_prose_run_landing.
-	idx = _find_prose_run_landing(nodes)
+	# form-label runs; see _findProseRunLanding.
+	idx = _findProseRunLanding(nodes)
 	if idx is not None:
 		return idx
 
@@ -1593,21 +1593,21 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# we can detect a "directory page" pattern below — small pages where
 	# the only substantial paragraph is a footer (address / copyright) and
 	# the right landing is the page title heading near the top.
-	best_idx = None
-	best_len = 0
-	substantial_count = 0
-	first_heading_idx = None
+	bestIdx = None
+	bestLen = 0
+	substantialCount = 0
+	firstHeadingIdx = None
 	for i, node in enumerate(nodes):
-		if node.kind == "heading" and first_heading_idx is None:
-			first_heading_idx = i
-		if node.kind == "paragraph" and node.text_length >= min_chars:
+		if node.kind == "heading" and firstHeadingIdx is None:
+			firstHeadingIdx = i
+		if node.kind == "paragraph" and node.textLength >= minChars:
 			# Skip the same chrome shapes the primary loop skips.
-			if _is_chrome_paragraph(node):
+			if _isChromeParagraph(node):
 				continue
-			substantial_count += 1
-			if node.text_length > best_len:
-				best_len = node.text_length
-				best_idx = i
+			substantialCount += 1
+			if node.textLength > bestLen:
+				bestLen = node.textLength
+				bestIdx = i
 
 	# Directory-page redirect: a small page (≤30 nodes) with exactly one
 	# substantial paragraph far past an earlier heading is almost always
@@ -1624,15 +1624,15 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 	# paragraph is a 52-char question label at idx 24 mid-form. Same
 	# pattern, slightly bigger page — the heading is the right landing.
 	if (
-		best_idx is not None
-		and substantial_count == 1
-		and first_heading_idx is not None
-		and first_heading_idx < best_idx
-		and (best_idx - first_heading_idx) >= 5
+		bestIdx is not None
+		and substantialCount == 1
+		and firstHeadingIdx is not None
+		and firstHeadingIdx < bestIdx
+		and (bestIdx - firstHeadingIdx) >= 5
 		and len(nodes) <= _DIRECTORY_REDIRECT_MAX_NODES
 	):
-		return first_heading_idx
-	return best_idx
+		return firstHeadingIdx
+	return bestIdx
 
 
 # Mirrored from classifier.py — controls when adjacent same-level headings
@@ -1641,7 +1641,7 @@ def _find_article_landing_impl(tree: TreeSummary) -> Optional[int]:
 _HEADING_CLUSTER_MAX_CHARS_BETWEEN = 300
 
 
-def form_wants_browse_landing(tree: TreeSummary) -> bool:
+def formWantsBrowseLanding(tree: TreeSummary) -> bool:
 	"""True when a FORM-classified page should get a normal browse-mode
 	landing (cursor on the title, spoken) instead of the announce-title-
 	then-focus-first-input treatment.
@@ -1670,17 +1670,17 @@ def form_wants_browse_landing(tree: TreeSummary) -> bool:
 	lands on its title in browse mode, which is still a correct entry
 	point.
 	"""
-	if tree.walk_truncated:
+	if tree.walkTruncated:
 		return True
 	return any(
 		n.kind == "paragraph"
-		and n.text_length >= VERY_SUBSTANTIAL_PARAGRAPH_CHARS
-		and not _is_chrome_paragraph(n)
-		for n in tree.main_nodes
+		and n.textLength >= VERY_SUBSTANTIAL_PARAGRAPH_CHARS
+		and not _isChromeParagraph(n)
+		for n in tree.mainNodes
 	)
 
 
-def find_form_landing(tree: TreeSummary) -> Optional[int]:
+def findFormLanding(tree: TreeSummary) -> Optional[int]:
 	"""For FORM intent: land on the form's title (first heading) so the
 	user hears "Form X" / "Survey Y" first, then can arrow forward to
 	read the description and reach the input fields.
@@ -1705,7 +1705,7 @@ def find_form_landing(tree: TreeSummary) -> Optional[int]:
 	     fragments-only form still gets its old landing.
 	  4. First node — last resort.
 	"""
-	nodes = tree.main_nodes
+	nodes = tree.mainNodes
 	if not nodes:
 		return None
 	for i, n in enumerate(nodes):
@@ -1713,10 +1713,10 @@ def find_form_landing(tree: TreeSummary) -> Optional[int]:
 			return i
 	fallback = None
 	for i, n in enumerate(nodes):
-		if n.kind == "paragraph" and n.text_length >= 30:
-			if _is_chrome_paragraph(n):
+		if n.kind == "paragraph" and n.textLength >= 30:
+			if _isChromeParagraph(n):
 				continue
-			if _node_ends_sentence(n):
+			if _nodeEndsSentence(n):
 				return i
 			if fallback is None:
 				fallback = i
@@ -1725,7 +1725,7 @@ def find_form_landing(tree: TreeSummary) -> Optional[int]:
 	return 0
 
 
-def find_key_result_landing(tree: TreeSummary) -> Optional[int]:
+def findKeyResultLanding(tree: TreeSummary) -> Optional[int]:
 	"""For KEY_RESULT intent: land on the LABEL paragraph so the user can
 	hear the label first, then arrow forward to hear the value and unit.
 
@@ -1734,16 +1734,16 @@ def find_key_result_landing(tree: TreeSummary) -> Optional[int]:
 	pattern finder to keep matching logic in one place.
 	"""
 	try:
-		from ..classifier import find_key_result_pattern_index
+		from ..classifier import findKeyResultPatternIndex
 	except ImportError:
-		from classifier import find_key_result_pattern_index
-	return find_key_result_pattern_index(tree.main_nodes)
+		from classifier import findKeyResultPatternIndex
+	return findKeyResultPatternIndex(tree.mainNodes)
 
 
 _NOTICE_LANDING_MIN_CHARS = 30
 
 
-def find_notice_landing(tree: TreeSummary) -> Optional[int]:
+def findNoticeLanding(tree: TreeSummary) -> Optional[int]:
 	"""For NOTICE intent: return the index of the status sentence — the
 	one the user came here to read (e.g. "The form is no longer accepting
 	responses", "Thank you for submitting", "Page not found").
@@ -1775,35 +1775,35 @@ def find_notice_landing(tree: TreeSummary) -> Optional[int]:
 	"first paragraph after the first heading") still fixes the original
 	bestmidi.com/bg/ case, where the intro sentence precedes any heading.
 
-	Returns None only if tree.main_nodes is empty.
+	Returns None only if tree.mainNodes is empty.
 	"""
-	nodes = tree.main_nodes
+	nodes = tree.mainNodes
 	if not nodes:
 		return None
 
-	def _is_status_paragraph(n) -> bool:
+	def _isStatusParagraph(n) -> bool:
 		return (
 			n.kind == "paragraph"
-			and n.text_length >= _NOTICE_LANDING_MIN_CHARS
-			and not _is_chrome_paragraph(n)
+			and n.textLength >= _NOTICE_LANDING_MIN_CHARS
+			and not _isChromeParagraph(n)
 		)
 
 	for i, n in enumerate(nodes):
-		if _is_status_paragraph(n):
+		if _isStatusParagraph(n):
 			return i
 		if n.kind == "heading":
 			# Is this heading merely a title sitting above a status
 			# sentence? If a status paragraph appears before the next
 			# heading, it is — skip this heading and let that paragraph
 			# win. Otherwise the heading itself carries the status.
-			heading_owns_status = True
+			headingOwnsStatus = True
 			for m in nodes[i + 1:]:
 				if m.kind == "heading":
 					break
-				if _is_status_paragraph(m):
-					heading_owns_status = False
+				if _isStatusParagraph(m):
+					headingOwnsStatus = False
 					break
-			if heading_owns_status:
+			if headingOwnsStatus:
 				return i
 
 	# Nothing substantial and no heading — anchor on the first node so the
@@ -1811,59 +1811,59 @@ def find_notice_landing(tree: TreeSummary) -> Optional[int]:
 	return 0
 
 
-def find_list_landing(tree: TreeSummary) -> Optional[int]:
+def findListLanding(tree: TreeSummary) -> Optional[int]:
 	"""For LIST intent: return the index of the first heading in the
 	largest same-level heading cluster. That's typically the first story
 	headline / search result / video title — the same target a sighted
 	person would scan to first on an index page. Moving the cursor there
 	makes the page feel "ready to scan" instead of silent.
 
-	Returns None if no heading cluster is identifiable in main_nodes.
+	Returns None if no heading cluster is identifiable in mainNodes.
 	"""
-	best_start = None
-	best_size = 0
-	cur_start = None
-	cur_size = 0
-	cur_level: Optional[int] = None
-	chars_since = 0
+	bestStart = None
+	bestSize = 0
+	curStart = None
+	curSize = 0
+	curLevel: Optional[int] = None
+	charsSince = 0
 
-	for i, node in enumerate(tree.main_nodes):
+	for i, node in enumerate(tree.mainNodes):
 		if node.kind == "heading":
-			if cur_level == node.level and chars_since <= _HEADING_CLUSTER_MAX_CHARS_BETWEEN:
-				cur_size += 1
+			if curLevel == node.level and charsSince <= _HEADING_CLUSTER_MAX_CHARS_BETWEEN:
+				curSize += 1
 			else:
-				cur_start = i
-				cur_size = 1
-				cur_level = node.level
-			chars_since = 0
-			if cur_size > best_size:
-				best_size = cur_size
-				best_start = cur_start
+				curStart = i
+				curSize = 1
+				curLevel = node.level
+			charsSince = 0
+			if curSize > bestSize:
+				bestSize = curSize
+				bestStart = curStart
 		elif node.kind == "paragraph":
-			chars_since += node.text_length
+			charsSince += node.textLength
 
-	return best_start
+	return bestStart
 
 
 _Z_SEQUENCE_MAX_GAP = 30
-"""Maximum number of main_nodes between the last Z-sequence landing and the
+"""Maximum number of mainNodes between the last Z-sequence landing and the
 next eligible heading. Beyond this we treat the next heading as out of the
 article body — typically a sidebar widget heading or a related-content rail.
 30 covers even long news article subsections; a longer gap is a strong signal
 that the cursor has walked off the article and into chrome."""
 
 
-def find_next_content_landing(
+def findNextContentLanding(
 	tree: TreeSummary,
-	after_idx: int,
+	afterIdx: int,
 ) -> Optional[int]:
 	"""Z-key forward scan: return the index of the next substantial
-	content paragraph in main_nodes strictly after `after_idx`. Skips
+	content paragraph in mainNodes strictly after `afterIdx`. Skips
 	headings (NVDA's H key handles those) and the same chrome paragraphs
 	the article-landing cascade skips (tag lists, share-link payloads,
 	accessibility instructions, PDF-viewer disclaimers).
 
-	Returns None if no eligible paragraph exists past `after_idx`. The
+	Returns None if no eligible paragraph exists past `afterIdx`. The
 	caller speaks a "nothing else to land on" message and leaves the
 	cursor where it is.
 
@@ -1873,13 +1873,13 @@ def find_next_content_landing(
 	to advance from the user's CURRENT position, not from the last place
 	the addon dropped them.
 	"""
-	for i in range(after_idx + 1, len(tree.main_nodes)):
-		node = tree.main_nodes[i]
+	for i in range(afterIdx + 1, len(tree.mainNodes)):
+		node = tree.mainNodes[i]
 		if node.kind != "paragraph":
 			continue
-		if node.text_length < LANDING_MIN_PARAGRAPH_CHARS:
+		if node.textLength < LANDING_MIN_PARAGRAPH_CHARS:
 			continue
-		if _is_chrome_paragraph(node):
+		if _isChromeParagraph(node):
 			continue
 		return i
 	# Short-content fallback: on pages where NOTHING clears the 50-char bar
@@ -1890,29 +1890,29 @@ def find_next_content_landing(
 	# Article-class pages (which have 50+ char paragraphs somewhere) keep
 	# the strict bar, so end-of-article Z behavior is unchanged.
 	if not any(
-		n.kind == "paragraph" and n.text_length >= LANDING_MIN_PARAGRAPH_CHARS
-		for n in tree.main_nodes
+		n.kind == "paragraph" and n.textLength >= LANDING_MIN_PARAGRAPH_CHARS
+		for n in tree.mainNodes
 	):
-		for i in range(after_idx + 1, len(tree.main_nodes)):
-			node = tree.main_nodes[i]
+		for i in range(afterIdx + 1, len(tree.mainNodes)):
+			node = tree.mainNodes[i]
 			if node.kind != "paragraph":
 				continue
-			if node.text_length < _NOTICE_LANDING_MIN_CHARS:
+			if node.textLength < _NOTICE_LANDING_MIN_CHARS:
 				continue
-			if _is_chrome_paragraph(node):
+			if _isChromeParagraph(node):
 				continue
 			return i
 	return None
 
 
-def find_next_heading_landing(
+def findNextHeadingLanding(
 	tree: TreeSummary,
-	after_idx: int,
-	max_gap: int = _Z_SEQUENCE_MAX_GAP,
+	afterIdx: int,
+	maxGap: int = _Z_SEQUENCE_MAX_GAP,
 ) -> Optional[int]:
 	"""Phase 1.5 Z-sequence: return the index of the next heading in
-	main_nodes strictly after `after_idx`, provided it sits within
-	`max_gap` nodes. Returns None if there is no further heading OR if
+	mainNodes strictly after `afterIdx`, provided it sits within
+	`maxGap` nodes. Returns None if there is no further heading OR if
 	the next heading is too far away to plausibly belong to the same
 	article body (sidebar / related-content territory).
 
@@ -1921,9 +1921,9 @@ def find_next_heading_landing(
 	(next heading) so the user can walk through major sections without
 	leaving the add-on's gesture.
 	"""
-	max_idx = min(after_idx + 1 + max_gap, len(tree.main_nodes))
-	for i in range(after_idx + 1, max_idx):
-		if tree.main_nodes[i].kind == "heading":
+	maxIdx = min(afterIdx + 1 + maxGap, len(tree.mainNodes))
+	for i in range(afterIdx + 1, maxIdx):
+		if tree.mainNodes[i].kind == "heading":
 			return i
 	return None
 
@@ -1951,24 +1951,24 @@ def find_next_heading_landing(
 LANDING_MATCH_CHARS = 24
 
 
-def normalize_for_match(text: str) -> str:
+def normalizeForMatch(text: str) -> str:
 	# Collapse whitespace runs, including the NBSPs news sites litter through
 	# their ledes, so cosmetic spacing differences can't read as drift.
 	return " ".join((text or "").replace("\xa0", " ").split()).strip()
 
 
-def landing_text_matches(actual_text: str, node) -> bool:
+def landingTextMatches(actualText: str, node) -> bool:
 	"""True if the buffer still holds the paragraph the classifier chose.
 
-	``node.text_preview`` is the paragraph's first ~60 chars AT WALK TIME.
-	``actual_text`` is what the captured position expands to NOW.
+	``node.textPreview`` is the paragraph's first ~60 chars AT WALK TIME.
+	``actualText`` is what the captured position expands to NOW.
 
 	Returns True when there is nothing to compare against: an empty preview is
 	not evidence of drift, and this guard must never itself be the reason a page
 	goes silent.
 	"""
-	expected = normalize_for_match(getattr(node, "text_preview", "") or "")
-	actual = normalize_for_match(actual_text)
+	expected = normalizeForMatch(getattr(node, "textPreview", "") or "")
+	actual = normalizeForMatch(actualText)
 	if not expected:
 		return True
 	n = min(len(expected), LANDING_MATCH_CHARS)

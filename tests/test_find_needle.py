@@ -1,11 +1,11 @@
 # Re-anchoring a drifted landing by TEXT, driven end to end.
 #
-# WHY THIS FILE EXISTS. `find_landing_by_text` is the last thing standing
+# WHY THIS FILE EXISTS. `findLandingByText` is the last thing standing
 # between a drifted capture and a silent page. It used to do ONE literal search
 # at the full width of the 60-char walk-time preview, and that search was
 # strictly harder to satisfy than the check that judges its own result:
 #
-#   * WIDTH. web.landing_text_matches compares LANDING_MATCH_CHARS (24). We
+#   * WIDTH. web.landingTextMatches compares LANDING_MATCH_CHARS (24). We
 #     demanded 60 to recover a landing we would then accept on 24.
 #   * NORMALIZATION. NVDA's OffsetsTextInfo.find is literal
 #     (re.search(re.escape(text), ...) over the raw buffer). The verifier
@@ -21,7 +21,7 @@
 
 import pytest
 
-import tree_summary as ts
+import treeSummary as ts
 from detection import web
 
 NBSP = "\xa0"
@@ -51,7 +51,7 @@ class FakeInfo:
 	def text(self):
 		if self.whole:
 			return self.doc.full
-		return self.doc.paragraph_at(self.offset)
+		return self.doc.paragraphAt(self.offset)
 
 	def copy(self):
 		return FakeInfo(self.doc, self.offset, self.whole)
@@ -64,7 +64,7 @@ class FakeInfo:
 		self.whole = False
 
 	def find(self, needle, caseSensitive=False):
-		self.doc.find_calls.append(needle)
+		self.doc.findCalls.append(needle)
 		idx = self.doc.full.find(needle, self.offset + 1)
 		if idx < 0:
 			return False
@@ -79,10 +79,10 @@ class FakeDoc:
 	def __init__(self, paragraphs):
 		self.paragraphs = list(paragraphs)
 		self.full = "\n".join(self.paragraphs)
-		self.find_calls = []
-		self.all_fetches = 0
+		self.findCalls = []
+		self.allFetches = 0
 
-	def paragraph_at(self, offset):
+	def paragraphAt(self, offset):
 		pos = 0
 		for p in self.paragraphs:
 			end = pos + len(p)
@@ -93,57 +93,57 @@ class FakeDoc:
 
 	def makeTextInfo(self, position):
 		if position == _FakeTextInfos.POSITION_ALL:
-			self.all_fetches += 1
+			self.allFetches += 1
 			return FakeInfo(self, 0, whole=True)
 		return FakeInfo(self, 0, whole=False)
 
 
 class Node:
-	def __init__(self, text_preview):
-		self.text_preview = text_preview
+	def __init__(self, textPreview):
+		self.textPreview = textPreview
 
 
 @pytest.fixture(autouse=True)
-def _fake_nvda(monkeypatch):
+def _fakeNvda(monkeypatch):
 	monkeypatch.setattr(ts, "textInfos", _FakeTextInfos, raising=False)
 	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
 
 
-def verifier_for(node):
-	return lambda found: web.landing_text_matches(found, node)
+def verifierFor(node):
+	return lambda found: web.landingTextMatches(found, node)
 
 
 # ---------------------------------------------------------------------------
 # Shape of the needle ladder.
 # ---------------------------------------------------------------------------
 
-def test_search_floor_is_below_the_verification_width():
+def test_searchFloorIsBelowTheVerificationWidth():
 	# Worth holding, but note what it is NOT: this ordering was once written
 	# down as the reason shortening is safe, and it is far too weak for that.
 	# Four characters of margin does not stop a repeated opening -- see
-	# test_the_verifier_alone_would_not_catch_a_repeated_opening, which
+	# test_theVerifierAloneWouldNotCatchARepeatedOpening, which
 	# measures it. Uniqueness is the safety property. This just keeps the
 	# verifier from being narrower than the shortest thing we search for,
 	# which would make it useless as the second check.
 	assert ts._MIN_FIND_NEEDLE_CHARS < web.LANDING_MATCH_CHARS
 
 
-def test_candidates_never_fall_below_the_floor():
+def test_candidatesNeverFallBelowTheFloor():
 	for needle in ("x" * 60, "word " * 12, "short one here ok now", "a b c d e f g h"):
-		for cand in ts._needle_candidates(needle):
+		for cand in ts._needleCandidates(needle):
 			assert len(cand) >= ts._MIN_FIND_NEEDLE_CHARS, (needle, cand)
 
 
-def test_candidates_are_longest_first_and_start_with_the_full_needle():
+def test_candidatesAreLongestFirstAndStartWithTheFullNeedle():
 	needle = "The council voted on Tuesday to approve the new transit levy plan"
-	cands = ts._needle_candidates(needle)
+	cands = ts._needleCandidates(needle)
 	assert cands[0] == needle
 	lengths = [len(c) for c in cands]
 	assert lengths == sorted(lengths, reverse=True), lengths
 
 
-def test_candidates_are_deduped():
-	cands = ts._needle_candidates("The council voted Tuesday on a levy")
+def test_candidatesAreDeduped():
+	cands = ts._needleCandidates("The council voted Tuesday on a levy")
 	assert len(cands) == len(set(cands))
 
 
@@ -154,7 +154,7 @@ def test_candidates_are_deduped():
 LEDE = "The council voted on Tuesday to approve the new transit levy"
 
 
-def test_recovers_when_the_tail_of_the_preview_changed():
+def test_recoversWhenTheTailOfThePreviewChanged():
 	# Hydration rewrote the paragraph past char ~40 (a link got injected, the
 	# byline resolved). The full-width needle cannot match; the head still can.
 	doc = FakeDoc([
@@ -162,13 +162,13 @@ def test_recovers_when_the_tail_of_the_preview_changed():
 		"The council voted on Tuesday to approve a revised transit levy today",
 	])
 	node = Node(LEDE)
-	info = ts.find_landing_by_text(doc, LEDE, verify=verifier_for(node))
+	info = ts.findLandingByText(doc, LEDE, verify=verifierFor(node))
 	assert info is not None, "a recoverable landing was thrown away"
 	info.expand(_FakeTextInfos.UNIT_PARAGRAPH)
 	assert info.text.startswith("The council voted on Tuesday")
 
 
-def test_full_width_search_alone_would_have_failed_that_page():
+def test_fullWidthSearchAloneWouldHaveFailedThatPage():
 	# Pins the premise of the test above: without a verifier we do exactly one
 	# full-width search, and on this page it finds nothing. If this ever starts
 	# passing, the previous test is no longer testing what it claims.
@@ -176,11 +176,11 @@ def test_full_width_search_alone_would_have_failed_that_page():
 		"Skip to main content",
 		"The council voted on Tuesday to approve a revised transit levy today",
 	])
-	assert ts.find_landing_by_text(doc, LEDE) is None
-	assert len(doc.find_calls) == 1
+	assert ts.findLandingByText(doc, LEDE) is None
+	assert len(doc.findCalls) == 1
 
 
-def test_recovers_when_nbsps_came_back_as_ordinary_spaces():
+def test_recoversWhenNbspsCameBackAsOrdinarySpaces():
 	# The walk captured the NBSPs news sites litter through their ledes; the
 	# rebuilt buffer has plain spaces. find() is literal, so the raw needle
 	# misses, while the verifier would have accepted the paragraph happily.
@@ -190,7 +190,7 @@ def test_recovers_when_nbsps_came_back_as_ordinary_spaces():
 		"The council voted on Tuesday to approve the new transit levy",
 	])
 	node = Node(captured)
-	info = ts.find_landing_by_text(doc, captured, verify=verifier_for(node))
+	info = ts.findLandingByText(doc, captured, verify=verifierFor(node))
 	assert info is not None, "an NBSP swap silenced a landing that was right there"
 	info.expand(_FakeTextInfos.UNIT_PARAGRAPH)
 	assert info.text.startswith("The council voted")
@@ -200,16 +200,16 @@ def test_recovers_when_nbsps_came_back_as_ordinary_spaces():
 # Safety: a shorter needle must not be allowed to speak the wrong paragraph.
 # ---------------------------------------------------------------------------
 
-def test_the_verifier_alone_would_not_catch_a_repeated_opening():
+def test_theVerifierAloneWouldNotCatchARepeatedOpening():
 	# Measured, not assumed, and the reason the uniqueness rule exists.
-	# landing_text_matches compares 24 normalised characters, so a teaser that
+	# landingTextMatches compares 24 normalised characters, so a teaser that
 	# repeats its own lede's opening IS accepted as the lede. Any design that
 	# leans on the verifier to police shortened needles is leaning on this.
 	teaser = "The council voted on Tuesday, and here is what else you missed"
-	assert web.landing_text_matches(teaser, Node(LEDE)) is True
+	assert web.landingTextMatches(teaser, Node(LEDE)) is True
 
 
-def test_an_ambiguous_rung_is_refused_even_though_the_verifier_would_pass_it():
+def test_anAmbiguousRungIsRefusedEvenThoughTheVerifierWouldPassIt():
 	# The lede's opening also opens a "related stories" teaser -- the Daily Mail
 	# box shape. Every shortened rung therefore matches in two places, find()
 	# would return the first, and the verifier (see the test above) would wave
@@ -234,7 +234,7 @@ def test_an_ambiguous_rung_is_refused_even_though_the_verifier_would_pass_it():
 	assert doc.full.count("The council voted on Tuesday to approve") == 2, (
 		"the page this test describes is not the page it built"
 	)
-	info = ts.find_landing_by_text(doc, LEDE, verify=verifier_for(node))
+	info = ts.findLandingByText(doc, LEDE, verify=verifierFor(node))
 	assert info is None, (
 		"a shortened needle that matched in two places was used anyway; "
 		"find() returns the FIRST hit, so this is the wrong paragraph being "
@@ -242,7 +242,7 @@ def test_an_ambiguous_rung_is_refused_even_though_the_verifier_would_pass_it():
 	)
 
 
-def test_an_unambiguous_rung_still_wins_on_a_page_that_has_a_teaser():
+def test_anUnambiguousRungStillWinsOnAPageThatHasATeaser():
 	# The counterweight to the test above, and the reason it is not enough to
 	# refuse every page with a teaser on it. Here the teaser diverges early, so
 	# the rung that cuts back past the divergence is still unique and the real
@@ -254,13 +254,13 @@ def test_an_unambiguous_rung_still_wins_on_a_page_that_has_a_teaser():
 		"The council voted on Tuesday to approve a revised transit levy today",
 	])
 	node = Node(LEDE)
-	info = ts.find_landing_by_text(doc, LEDE, verify=verifier_for(node))
+	info = ts.findLandingByText(doc, LEDE, verify=verifierFor(node))
 	assert info is not None, "an unambiguous shortened rung was refused"
 	info.expand(_FakeTextInfos.UNIT_PARAGRAPH)
 	assert info.text.startswith("The council voted on Tuesday to approve a revised")
 
 
-def test_a_unique_rung_inside_another_paragraph_is_rejected_by_the_verifier():
+def test_aUniqueRungInsideAnotherParagraphIsRejectedByTheVerifier():
 	# The rung is unique, so uniqueness is satisfied and cannot help. But the
 	# only copy sits MID-paragraph, because our chosen lede was requoted inside
 	# a longer block during the rebuild. Landing there would start the user in
@@ -272,7 +272,7 @@ def test_a_unique_rung_inside_another_paragraph_is_rejected_by_the_verifier():
 		"the new transit levy, which drew immediate criticism from commuters",
 	])
 	node = Node(LEDE)
-	info = ts.find_landing_by_text(doc, LEDE, verify=verifier_for(node))
+	info = ts.findLandingByText(doc, LEDE, verify=verifierFor(node))
 	assert info is None, (
 		"a unique hit buried mid-paragraph was accepted; uniqueness proves "
 		"there is one hit, only the verifier proves the hit is a paragraph "
@@ -280,16 +280,16 @@ def test_a_unique_rung_inside_another_paragraph_is_rejected_by_the_verifier():
 	)
 
 
-def test_shortening_is_gated_on_a_verifier_being_supplied():
+def test_shorteningIsGatedOnAVerifierBeingSupplied():
 	# With no verifier there is nothing to catch a false hit, so the finder
 	# must not shorten. One search, full width, exactly as before.
 	doc = FakeDoc([
 		"Skip to main content",
 		"The council voted on Tuesday to approve a revised transit levy today",
 	])
-	assert ts.find_landing_by_text(doc, LEDE) is None
-	assert doc.find_calls == [LEDE], doc.find_calls
-	assert doc.all_fetches == 0, "the unverified path must not pull the buffer copy"
+	assert ts.findLandingByText(doc, LEDE) is None
+	assert doc.findCalls == [LEDE], doc.findCalls
+	assert doc.allFetches == 0, "the unverified path must not pull the buffer copy"
 
 
 # ---------------------------------------------------------------------------
@@ -297,27 +297,27 @@ def test_shortening_is_gated_on_a_verifier_being_supplied():
 # the ladder must not be run blind.
 # ---------------------------------------------------------------------------
 
-def test_absent_candidates_never_cost_a_real_search():
+def test_absentCandidatesNeverCostARealSearch():
 	# Nothing on this page resembles the needle. The buffer copy is taken once
 	# and every rung is ruled out against it, so no find() is paid for at all.
 	doc = FakeDoc(["Cookies", "We value your privacy and use cookies to improve"])
 	node = Node(LEDE)
-	assert ts.find_landing_by_text(doc, LEDE, verify=verifier_for(node)) is None
-	assert doc.find_calls == [], doc.find_calls
-	assert doc.all_fetches == 1, doc.all_fetches
+	assert ts.findLandingByText(doc, LEDE, verify=verifierFor(node)) is None
+	assert doc.findCalls == [], doc.findCalls
+	assert doc.allFetches == 1, doc.allFetches
 
 
-def test_the_happy_path_costs_one_search():
+def test_theHappyPathCostsOneSearch():
 	doc = FakeDoc(["Skip to main content", LEDE])
 	node = Node(LEDE)
-	info = ts.find_landing_by_text(doc, LEDE, verify=verifier_for(node))
+	info = ts.findLandingByText(doc, LEDE, verify=verifierFor(node))
 	assert info is not None
-	assert doc.find_calls == [LEDE], doc.find_calls
-	assert doc.all_fetches == 1
+	assert doc.findCalls == [LEDE], doc.findCalls
+	assert doc.allFetches == 1
 
 
-def test_a_needle_below_the_floor_is_refused_outright():
+def test_aNeedleBelowTheFloorIsRefusedOutright():
 	doc = FakeDoc(["short", "another"])
 	node = Node("short")
-	assert ts.find_landing_by_text(doc, "short", verify=verifier_for(node)) is None
-	assert doc.find_calls == []
+	assert ts.findLandingByText(doc, "short", verify=verifierFor(node)) is None
+	assert doc.findCalls == []

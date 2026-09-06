@@ -1,7 +1,7 @@
 # Golden-corpus regression test.
 #
 # tests/fixtures/local/capture_corpus.jsonl holds FAITHFUL page snapshots captured
-# from real browsing (see _append_capture in tree_summary.py): every field the
+# from real browsing (see _appendCapture in treeSummary.py): every field the
 # classifier and landing finders actually read. Replaying a record reproduces the
 # add-on's real decision exactly, with no NVDA. This locks in the landings we've
 # verified on real pages, so a future classifier/landing change that regresses one
@@ -37,11 +37,11 @@ def _records():
         return [json.loads(line) for line in fh if line.strip()]
 
 
-def _find(url_frag):
+def _find(urlFrag):
     for r in _records():
-        if url_frag in r["url"]:
+        if urlFrag in r["url"]:
             return r
-    raise AssertionError(f"no captured record with URL containing {url_frag!r}")
+    raise AssertionError(f"no captured record with URL containing {urlFrag!r}")
 
 
 # (url fragment, expected substring of the landed node's preview, xfail reason or None)
@@ -56,7 +56,7 @@ CASES = [
     ("arstechnica.com/", "When your vehicle outlives its cloud", None),
     ("windowslatest.com", "Azure Linux 4.0", None),
     # Aggregator front page: landing on the first bullet headline is correct
-    # (nothing on the page ends like a sentence; see find_article_landing).
+    # (nothing on the page ends like a sentence; see findArticleLanding).
     ("stevequayle.com", "Apocalypse Early Warning System", None),
     # News index / homepage pages: the headline-list gate lands on the first
     # headline instead of deep chrome (newsletter box / footer). These were the
@@ -77,14 +77,14 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("url_frag,expect,xfail_reason", CASES)
-def test_corpus_landing(url_frag, expect, xfail_reason):
-    if xfail_reason:
-        pytest.xfail(xfail_reason)
-    rec = _find(url_frag)
+@pytest.mark.parametrize("urlFrag,expect,xfailReason", CASES)
+def test_corpusLanding(urlFrag, expect, xfailReason):
+    if xfailReason:
+        pytest.xfail(xfailReason)
+    rec = _find(urlFrag)
     out = replay(rec)
     preview = out["landing_preview"] or ""
     assert expect in preview, (
-        f"{url_frag}: expected {expect!r} in landed preview, "
+        f"{urlFrag}: expected {expect!r} in landed preview, "
         f"got {out['intent']} idx={out['landing_idx']} :: {preview!r}"
     )

@@ -28,7 +28,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _MAX_BYTES = 4_000_000
 
 
-def _tracked_files():
+def _trackedFiles():
 	try:
 		out = subprocess.run(
 			["git", "ls-files", "-z"],
@@ -41,7 +41,7 @@ def _tracked_files():
 	return [p for p in out.stdout.split("\0") if p]
 
 
-def _looks_like_a_capture_record(line):
+def _looksLikeACaptureRecord(line):
 	line = line.strip()
 	if not line.startswith("{"):
 		return False
@@ -57,16 +57,16 @@ def _looks_like_a_capture_record(line):
 	return "url" in rec and "nodes" in rec
 
 
-def test_no_capture_record_is_tracked():
+def test_noCaptureRecordIsTracked():
 	offenders = []
-	for rel in _tracked_files():
+	for rel in _trackedFiles():
 		path = os.path.join(ROOT, rel)
 		try:
 			if os.path.getsize(path) > _MAX_BYTES:
 				continue
 			with open(path, encoding="utf-8") as fh:
 				for lineno, line in enumerate(fh, 1):
-					if _looks_like_a_capture_record(line):
+					if _looksLikeACaptureRecord(line):
 						offenders.append(f"{rel}:{lineno}")
 						break
 		except (OSError, UnicodeDecodeError):

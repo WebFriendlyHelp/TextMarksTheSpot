@@ -12,7 +12,7 @@
 #   run(force=False) — manually trigger detection (called by Z hotkey)
 #
 # Internals:
-#   - _seen_documents: dict[doc_id -> detected_position] for cache
+#   - _seen_documents: dict[docId -> detected_position] for cache
 #   - _debounce_ms: minimum gap between detections on the same document
 #   - _last_run_at: timestamp of most recent detection
 

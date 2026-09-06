@@ -15,8 +15,8 @@ from classifier_fixtures import ALL_FIXTURES
 
 
 def main() -> int:
-	pass_count = 0
-	fail_count = 0
+	passCount = 0
+	failCount = 0
 	results = []
 
 	for label, expected, tree in ALL_FIXTURES:
@@ -24,9 +24,9 @@ def main() -> int:
 		ok = result.intent == expected
 		results.append((label, expected, result, ok))
 		if ok:
-			pass_count += 1
+			passCount += 1
 		else:
-			fail_count += 1
+			failCount += 1
 
 	# Plain ASCII output — no Unicode box-drawing (global CLAUDE.md rule).
 	print()
@@ -40,8 +40,8 @@ def main() -> int:
 		print()
 
 	print("-" * 60)
-	print(f"Total: {pass_count} pass, {fail_count} fail")
-	return 0 if fail_count == 0 else 1
+	print(f"Total: {passCount} pass, {failCount} fail")
+	return 0 if failCount == 0 else 1
 
 
 if __name__ == "__main__":

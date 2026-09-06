@@ -26,10 +26,10 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TREE = os.path.join(ROOT, "addon", "globalPlugins", "TextMarksTheSpot", "tree_summary.py")
+TREE = os.path.join(ROOT, "addon", "globalPlugins", "TextMarksTheSpot", "treeSummary.py")
 
 
-def run_pytest(*args):
+def runPytest(*args):
 	env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
 	return subprocess.run(
 		[sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", *args],
@@ -64,38 +64,38 @@ SABOTAGES = [
 	# --- Task 2: landmark ancestry from the control field stack -------------
 	(
 		"backend gate removed (the WebKit fail-open)",
-		"	fields_carry_landmarks = _fields_carry_landmarks(info)",
-		"	fields_carry_landmarks = True",
+		"	fieldsCarryLandmarks = _fieldsCarryLandmarks(info)",
+		"	fieldsCarryLandmarks = True",
 	),
 	(
 		"field verdict never consulted on the chrome path",
-		"	if main_obj is None and field_verdict is not None:",
+		"	if mainObj is None and fieldVerdict is not None:",
 		"	if False:",
 	),
 	(
 		"condition 4 violated: field stack allowed to answer main-id",
-		"	if main_obj is None and field_verdict is not None:",
-		"	if field_verdict is not None:",
+		"	if mainObj is None and fieldVerdict is not None:",
+		"	if fieldVerdict is not None:",
 	),
 	(
 		"malformed / absent control run reads as content instead of unknown",
-		"	if not saw_control:\n		# No leading controlStart at all.",
+		"	if not sawControl:\n		# No leading controlStart at all.",
 		"	if False:\n		# No leading controlStart at all.",
 	),
 	(
 		"field exclusions no longer counted as positional drops",
-		"			if scope_decision in (_SCOPE_CHROME_DROP, _SCOPE_FIELD_DROP):",
-		"			if scope_decision == _SCOPE_CHROME_DROP:",
+		"			if scopeDecision in (_SCOPE_CHROME_DROP, _SCOPE_FIELD_DROP):",
+		"			if scopeDecision == _SCOPE_CHROME_DROP:",
 	),
 	# --- Found by review 2026-07-19: BOTH of these left the suite green. ---
 	(
 		"chrome-pos never consults the field stack",
-		"		if field_verdict is not None:\n"
-		"			return field_verdict, (\n"
-		"				_SCOPE_FIELD_KEEP if field_verdict else _SCOPE_FIELD_DROP\n"
+		"		if fieldVerdict is not None:\n"
+		"			return fieldVerdict, (\n"
+		"				_SCOPE_FIELD_KEEP if fieldVerdict else _SCOPE_FIELD_DROP\n"
 		"			)\n"
-		"		obj = get_obj()",
-		"		obj = get_obj()",
+		"		obj = getObj()",
+		"		obj = getObj()",
 	),
 	(
 		"innermost-wins inverted to outermost-wins",
@@ -136,29 +136,29 @@ SABOTAGES = [
 	# --- quietly going back to collecting by default.
 	(
 		"capture gate removed entirely",
-		"	if not _diagnostics_enabled():\n		return\n	path = _capture_log_path()",
-		"	path = _capture_log_path()",
+		"	if not _diagnosticsEnabled():\n		return\n	path = _captureLogPath()",
+		"	path = _captureLogPath()",
 	),
 	(
 		"capture gate reverted to the DEBUG log level it used to use",
-		"	if not _diagnostics_enabled():\n		return\n	path = _capture_log_path()",
+		"	if not _diagnosticsEnabled():\n		return\n	path = _captureLogPath()",
 		"	import logging\n"
 		"	if not log.isEnabledFor(logging.DEBUG):\n"
 		"		return\n"
-		"	path = _capture_log_path()",
+		"	path = _captureLogPath()",
 	),
 	(
 		"perf-log gate removed entirely",
-		"	if not _diagnostics_enabled():\n		return\n	path = _perf_log_path()",
-		"	path = _perf_log_path()",
+		"	if not _diagnosticsEnabled():\n		return\n	path = _perfLogPath()",
+		"	path = _perfLogPath()",
 	),
 	(
 		"perf-log gate reverted to the DEBUG log level it used to use",
-		"	if not _diagnostics_enabled():\n		return\n	path = _perf_log_path()",
+		"	if not _diagnosticsEnabled():\n		return\n	path = _perfLogPath()",
 		"	import logging\n"
 		"	if not log.isEnabledFor(logging.DEBUG):\n"
 		"		return\n"
-		"	path = _perf_log_path()",
+		"	path = _perfLogPath()",
 	),
 	(
 		"marker check fails open when APPDATA is unreadable",
@@ -188,7 +188,7 @@ SABOTAGES = [
 	),
 	(
 		"hit accepted without asking the verifier",
-		"			if verify(found_text):",
+		"			if verify(foundText):",
 		"			if True:",
 	),
 	(
@@ -227,20 +227,20 @@ SABOTAGES = [
 	# --- browsing record on anyone's machine but the one that opted in.
 	(
 		"gated debug logger left permanently open",
-		"		if _diagnostics_enabled():\n			log.debug(*args, **kwargs)",
+		"		if _diagnosticsEnabled():\n			log.debug(*args, **kwargs)",
 		"		if True:\n			log.debug(*args, **kwargs)",
 	),
 	(
 		"gate inverted so opting OUT is what enables logging",
-		"		if _diagnostics_enabled():\n			log.debug(*args, **kwargs)",
-		"		if not _diagnostics_enabled():\n			log.debug(*args, **kwargs)",
+		"		if _diagnosticsEnabled():\n			log.debug(*args, **kwargs)",
+		"		if not _diagnosticsEnabled():\n			log.debug(*args, **kwargs)",
 	),
 	(
 		"depleted net stops respecting chrome-scope exclusions",
-		'	elif scope_kind in ("chrome", "chrome-pos") and positional_drops == 0:',
-		'	elif scope_kind == "chrome-pos" and positional_drops == 0:\n'
+		'	elif scopeKind in ("chrome", "chrome-pos") and positionalDrops == 0:',
+		'	elif scopeKind == "chrome-pos" and positionalDrops == 0:\n'
 		'		pass\n'
-		'	elif scope_kind == "chrome":',
+		'	elif scopeKind == "chrome":',
 	),
 ]
 
@@ -249,7 +249,7 @@ def main():
 	original = open(TREE, "rb").read()          # captured ONCE, before anything
 	failures = []
 	try:
-		base = run_pytest("tests/")
+		base = runPytest("tests/")
 		if base.returncode != 0:
 			print("BASELINE IS ALREADY RED -- fix that first.")
 			print(base.stdout[-3000:])
@@ -267,7 +267,7 @@ def main():
 				failures.append(f"{name}: anchor not unique ({text.count(find)} hits)")
 				continue
 			open(TREE, "w", encoding="utf-8", newline="").write(text.replace(find, replace, 1))
-			res = run_pytest("tests/")
+			res = runPytest("tests/")
 			if res.returncode == 0:
 				failures.append(f"{name}: SUITE STAYED GREEN -- the test does not catch this")
 				print(f"  NOT CAUGHT: {name}")
@@ -278,7 +278,7 @@ def main():
 
 	# Do not trust the restore -- prove it.
 	assert open(TREE, "rb").read() == original, "RESTORE FAILED; source is damaged"
-	final = run_pytest("tests/")
+	final = runPytest("tests/")
 	if final.returncode != 0:
 		print("POST-RESTORE SUITE IS RED:")
 		print(final.stdout[-3000:])

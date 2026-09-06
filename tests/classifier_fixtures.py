@@ -7,7 +7,7 @@
 # Numbers are best-effort observations from rendered pages — close enough in
 # shape to exercise the classifier.
 #
-# Each fixture also carries an `expected_intent` for the test harness to
+# Each fixture also carries an `expectedIntent` for the test harness to
 # check against. When the classifier disagrees, that's signal — either the
 # fixture is wrong or the classifier is.
 
@@ -20,10 +20,10 @@ from classifier import TreeSummary, MainNode, Intent
 
 # Tiny helpers so fixtures stay readable.
 def H(level: int, preview: str = "") -> MainNode:
-	return MainNode(kind="heading", level=level, text_length=len(preview), text_preview=preview)
+	return MainNode(kind="heading", level=level, textLength=len(preview), textPreview=preview)
 
 def P(chars: int, preview: str = "") -> MainNode:
-	return MainNode(kind="paragraph", text_length=chars, text_preview=preview)
+	return MainNode(kind="paragraph", textLength=chars, textPreview=preview)
 
 
 # ---------------------------------------------------------------------------
@@ -35,9 +35,9 @@ WIKIPEDIA_MEMORIAL_DAY = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://en.wikipedia.org/wiki/Memorial_Day",
-		has_main_landmark=True,
-		article_count=0,  # Wikipedia uses <main>/<div role="main">, not <article>
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,  # Wikipedia uses <main>/<div role="main">, not <article>
+		mainNodes=[
 			H(1, "Memorial Day"),
 			# Lead section — 4 substantial paragraphs before first H2.
 			P(280), P(420), P(510), P(380),
@@ -57,9 +57,9 @@ WIKIPEDIA_MEMORIAL_DAY = (
 			H(2, "See also"),
 			H(2, "References"),
 		],
-		form_input_count=1,
-		interactive_control_count=120,
-		focused_control_is_editable=False,
+		formInputCount=1,
+		interactiveControlCount=120,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -68,9 +68,9 @@ MAKEUSEOF_ARTICLE = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://www.makeuseof.com/writing-habits-that-make-you-sound-like-chatgpt/",
-		has_main_landmark=True,
-		article_count=1,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=1,
+		mainNodes=[
 			H(1, "5 writing habits that make you sound like ChatGPT"),
 			# Intro paragraphs
 			P(420), P(380), P(290),
@@ -89,9 +89,9 @@ MAKEUSEOF_ARTICLE = (
 			H(5, "Related: How to Detect AI-Written Text"),
 			H(5, "Related: One-Third of New Websites Are AI"),
 		],
-		form_input_count=0,
-		interactive_control_count=45,
-		focused_control_is_editable=False,
+		formInputCount=0,
+		interactiveControlCount=45,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -100,9 +100,9 @@ WDBO_ARTICLE = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://www.wdbo.com/news/local/coast-guard-saves-7-after-boat-breakdown-22-miles-off-new-smyrna-beach/CFAC53HIBJGGVAFQUGNXYBOGMQ/",
-		has_main_landmark=True,
-		article_count=1,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=1,
+		mainNodes=[
 			H(1, "Coast Guard saves 7 after boat breakdown..."),
 			H(2, "Coast Guard highlights safety measures..."),  # dek
 			# Short article body — 5 paragraphs.
@@ -113,9 +113,9 @@ WDBO_ARTICLE = (
 			H(2, "VIDEO: Two Lake Brantley Teens..."),
 			H(2, "More from WDBO"),
 		],
-		form_input_count=0,
-		interactive_control_count=35,
-		focused_control_is_editable=False,
+		formInputCount=0,
+		interactiveControlCount=35,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -124,9 +124,9 @@ WEBFRIENDLYHELP_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://webfriendlyhelp.com/",
-		has_main_landmark=True,
-		article_count=1,  # WordPress wraps the page in <article>
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=1,  # WordPress wraps the page in <article>
+		mainNodes=[
 			H(2, "WFH Updates"),
 			H(1, "Welcome to WebFriendlyHelp.com!"),
 			# Body paragraphs — substantial despite being a homepage.
@@ -135,9 +135,9 @@ WEBFRIENDLYHELP_HOME = (
 			P(190, "I have nearly thirty years experience..."),
 			P(150, "To learn more about me, check out the about page..."),
 		],
-		form_input_count=1,  # search box in sidebar
-		interactive_control_count=25,
-		focused_control_is_editable=False,
+		formInputCount=1,  # search box in sidebar
+		interactiveControlCount=25,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -146,9 +146,9 @@ PATTYSWORLDS_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://pattysworlds.com/",
-		has_main_landmark=True,
-		article_count=1,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=1,
+		mainNodes=[
 			H(3, "Welcome to Patty's Worlds!"),
 			# Welcome message — 5 substantial paragraphs
 			P(220), P(280), P(260), P(310), P(180), P(120),
@@ -159,9 +159,9 @@ PATTYSWORLDS_HOME = (
 			H(2, "LATEST COMMENTS"),
 			P(80), P(95), P(70),
 		],
-		form_input_count=1,
-		interactive_control_count=50,
-		focused_control_is_editable=False,
+		formInputCount=1,
+		interactiveControlCount=50,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -170,9 +170,9 @@ ACB_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://acb.org/",
-		has_main_landmark=True,
-		article_count=0,  # Drupal site, often no <article>
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,  # Drupal site, often no <article>
+		mainNodes=[
 			H(1, "Fostering Voice, Choice, and Community"),
 			P(400, "You're not alone in your journey through vision loss..."),
 			# Conference banner — small text blocks
@@ -185,9 +185,9 @@ ACB_HOME = (
 			# News teasers
 			P(150), P(140), P(85), P(165), P(140), P(155),
 		],
-		form_input_count=1,
-		interactive_control_count=60,
-		focused_control_is_editable=False,
+		formInputCount=1,
+		interactiveControlCount=60,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -196,9 +196,9 @@ NFB_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://nfb.org/",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			# Drupal exposes both the page-title H1 and the hero H1.
 			H(1, "Homepage"),
 			H(1, "Welcome to the Movement"),
@@ -215,9 +215,9 @@ NFB_HOME = (
 			H(3, "NFB-NEWSLINE"),
 			P(95),
 		],
-		form_input_count=1,
-		interactive_control_count=55,
-		focused_control_is_editable=False,
+		formInputCount=1,
+		interactiveControlCount=55,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -226,9 +226,9 @@ GLIDANCE_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://glidance.io/",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			H(1, "The World's First Intelligent Guide."),
 			P(180, "Glide is pioneering the future of independent mobility..."),
 			H(2, "A Smarter Way to Navigate Your World."),
@@ -246,9 +246,9 @@ GLIDANCE_HOME = (
 			H(4, "Locate Doors, Elevators, Stairs, & More."),
 			P(80, "Glide finds key targets..."),
 		],
-		form_input_count=0,
-		interactive_control_count=25,
-		focused_control_is_editable=False,
+		formInputCount=0,
+		interactiveControlCount=25,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -257,9 +257,9 @@ APPLEVIS_ARTICLE = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://www.applevis.com/apps/ios/entertainment/yes-iptv-player",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			H(1, "YES IPTV Player"),
 			# Category label and link — short text
 			P(25, "Category Entertainment"),
@@ -278,9 +278,9 @@ APPLEVIS_ARTICLE = (
 			H(3, "Comments"),
 			P(180), P(140), P(220),
 		],
-		form_input_count=0,
-		interactive_control_count=40,
-		focused_control_is_editable=False,
+		formInputCount=0,
+		interactiveControlCount=40,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -289,9 +289,9 @@ SAM_GOV_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://sam.gov/",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			H(1, "SAM.gov | Home"),
 			P(40, "Official U.S. Government Website 100% Free"),
 			H(2, "The Official U.S. Government System for:"),
@@ -309,9 +309,9 @@ SAM_GOV_HOME = (
 			P(10), P(45), P(210),
 			P(10), P(50), P(230),
 		],
-		form_input_count=2,  # search domain dropdown + text field
-		interactive_control_count=60,
-		focused_control_is_editable=False,
+		formInputCount=2,  # search domain dropdown + text field
+		interactiveControlCount=60,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -320,9 +320,9 @@ LWORKS_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://l-works.net/",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			H(1, "Welcome to LWorks"),
 			P(62, "Affordable Computer Games for Those with Visual Impairments."),
 			P(250, "Since 2002, LWorks has been creating innovative audio games..."),
@@ -347,9 +347,9 @@ LWORKS_HOME = (
 			P(70),
 			P(120),
 		],
-		form_input_count=0,
-		interactive_control_count=20,
-		focused_control_is_editable=False,
+		formInputCount=0,
+		interactiveControlCount=20,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -358,9 +358,9 @@ SSA_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://www.ssa.gov/",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			H(2, "Your most-needed services, online"),
 			P(130, "With a secure my Social Security account..."),
 			# First card row — 4 H4s
@@ -386,9 +386,9 @@ SSA_HOME = (
 			H(2, "Popular tasks"),
 			P(30), P(35), P(30),
 		],
-		form_input_count=1,
-		interactive_control_count=80,
-		focused_control_is_editable=False,
+		formInputCount=1,
+		interactiveControlCount=80,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -397,9 +397,9 @@ STARBUCKS_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://www.starbucks.com/",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			H(2, "It's a great day for coffee"),  # promo strip at top
 			H(1, "It's Starbucks summer"),
 			P(190, "Enticing new flavors and returning favorites are here..."),
@@ -410,9 +410,9 @@ STARBUCKS_HOME = (
 			H(2, "Cheers to the grads!"),
 			P(100, "Celebrate their achievements..."),
 		],
-		form_input_count=0,
-		interactive_control_count=30,
-		focused_control_is_editable=False,
+		formInputCount=0,
+		interactiveControlCount=30,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -421,18 +421,18 @@ CLEVERBRAILLE_HOME = (
 	Intent.ARTICLE,
 	TreeSummary(
 		url="https://cleverbraille.com/",
-		has_main_landmark=True,
-		article_count=1,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=1,
+		mainNodes=[
 			# No H1 visible — just body paragraphs in the main region.
 			P(180, "Braille Literacy has been a topic of much discussion..."),
 			P(170, "It is my hope that Clever Braille will provide..."),
 			P(190, "Additionally, there is a blog where I have posted..."),
 			P(130, "For more of a peek into me and what I hope..."),
 		],
-		form_input_count=0,
-		interactive_control_count=12,
-		focused_control_is_editable=False,
+		formInputCount=0,
+		interactiveControlCount=12,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -446,9 +446,9 @@ BBC_NEWS_HOMEPAGE = (
 	Intent.LIST,
 	TreeSummary(
 		url="https://www.bbc.com/news",
-		has_main_landmark=True,
-		article_count=0,  # BBC News doesn't wrap each story card in <article>
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,  # BBC News doesn't wrap each story card in <article>
+		mainNodes=[
 			H(1, "News"),
 			H(2, "Deal with US not imminent, Iran says"),
 			P(80),
@@ -475,9 +475,9 @@ BBC_NEWS_HOMEPAGE = (
 			H(2, "Asia story"),
 			P(80),
 		],
-		form_input_count=0,
-		interactive_control_count=180,
-		focused_control_is_editable=False,
+		formInputCount=0,
+		interactiveControlCount=180,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -486,9 +486,9 @@ DDG_SEARCH = (
 	Intent.LIST,
 	TreeSummary(
 		url="https://html.duckduckgo.com/html/?q=memorial+day+history",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			H(2, "Memorial Day - Wikipedia"),
 			P(180),
 			H(2, "Memorial Day | Weekend, Meaning, Facts | Britannica"),
@@ -504,9 +504,9 @@ DDG_SEARCH = (
 			H(2, "VA | Office of Public Affairs - Memorial Day"),
 			P(175),
 		],
-		form_input_count=1,  # the search box itself
-		interactive_control_count=50,
-		focused_control_is_editable=False,
+		formInputCount=1,  # the search box itself
+		interactiveControlCount=50,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -515,9 +515,9 @@ STEVE_QUAYLE = (
 	Intent.LIST,
 	TreeSummary(
 		url="https://www.stevequayle.com/",
-		has_main_landmark=False,  # legacy site, no semantic landmarks
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=False,  # legacy site, no semantic landmarks
+		articleCount=0,
+		mainNodes=[
 			H(3, "Soldiers Lost, Stories Untold..."),
 			P(20),
 			H(3, "Story 2"),
@@ -533,9 +533,9 @@ STEVE_QUAYLE = (
 			H(3, "Story 7"),
 			H(3, "Story 8"),
 		],
-		form_input_count=0,
-		interactive_control_count=90,
-		focused_control_is_editable=False,
+		formInputCount=0,
+		interactiveControlCount=90,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -549,9 +549,9 @@ XFINITY_PORTAL = (
 	Intent.APP,
 	TreeSummary(
 		url="https://www.xfinity.com/",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			H(1, "Xfinity"),
 			H(2, "My Account"),
 			P(60),
@@ -560,9 +560,9 @@ XFINITY_PORTAL = (
 			H(2, "TV"),
 			P(40),
 		],
-		form_input_count=2,
-		interactive_control_count=70,
-		focused_control_is_editable=False,
+		formInputCount=2,
+		interactiveControlCount=70,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -576,15 +576,15 @@ GENERIC_SIGNUP = (
 	Intent.FORM,
 	TreeSummary(
 		url="https://example.com/signup",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			H(1, "Create your account"),
 			P(60),
 		],
-		form_input_count=6,
-		interactive_control_count=8,
-		focused_control_is_editable=False,
+		formInputCount=6,
+		interactiveControlCount=8,
+		focusedControlIsEditable=False,
 	),
 )
 
@@ -598,9 +598,9 @@ ARTICLE_WITH_FOCUS_ON_SEARCH = (
 	Intent.SILENT_FOCUS_HONORED,
 	TreeSummary(
 		url="https://example.com/news/some-article",
-		has_main_landmark=True,
-		article_count=1,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=1,
+		mainNodes=[
 			H(1, "Some Article Title"),
 			P(280), P(320), P(410), P(290), P(350),
 			H(2, "Section 1"),
@@ -608,9 +608,9 @@ ARTICLE_WITH_FOCUS_ON_SEARCH = (
 			H(2, "Section 2"),
 			P(280),
 		],
-		form_input_count=1,
-		interactive_control_count=30,
-		focused_control_is_editable=True,  # the gating condition
+		formInputCount=1,
+		interactiveControlCount=30,
+		focusedControlIsEditable=True,  # the gating condition
 	),
 )
 
@@ -619,15 +619,15 @@ WIKIPEDIA_HOMEPAGE = (
 	Intent.SILENT_FOCUS_HONORED,
 	TreeSummary(
 		url="https://www.wikipedia.org/",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			# Logo + search-box area. Minimal text content.
 			P(60, "Wikipedia The Free Encyclopedia"),
 		],
-		form_input_count=1,
-		interactive_control_count=20,
-		focused_control_is_editable=True,  # Wikipedia places focus in search on load
+		formInputCount=1,
+		interactiveControlCount=20,
+		focusedControlIsEditable=True,  # Wikipedia places focus in search on load
 	),
 )
 
@@ -636,15 +636,15 @@ DDG_HOMEPAGE = (
 	Intent.SILENT_FOCUS_HONORED,
 	TreeSummary(
 		url="https://duckduckgo.com/",
-		has_main_landmark=True,
-		article_count=0,
-		main_nodes=[
+		hasMainLandmark=True,
+		articleCount=0,
+		mainNodes=[
 			# Minimal content on the homepage — logo, search input, a few links.
 			P(40),
 		],
-		form_input_count=1,
-		interactive_control_count=15,
-		focused_control_is_editable=True,  # DDG places focus in the search box on load
+		formInputCount=1,
+		interactiveControlCount=15,
+		focusedControlIsEditable=True,  # DDG places focus in the search box on load
 	),
 )
 

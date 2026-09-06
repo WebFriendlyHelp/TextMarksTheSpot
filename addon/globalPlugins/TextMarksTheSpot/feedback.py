@@ -6,18 +6,18 @@
 # sound:
 #
 #   working()        detection just started.
-#   progress_start() detection is taking long enough to need a "still
+#   progressStart() detection is taking long enough to need a "still
 #                    working" pulse. Re-arms a timer every 500 ms until
-#                    progress_stop() is called. Runs on a background
+#                    progressStop() is called. Runs on a background
 #                    thread so beeps still fire while the main NVDA
 #                    thread is busy walking the accessibility tree.
-#   progress_stop()  stop the pulse. MUST be called in a finally.
-#   not_found()      detection finished but produced no landing point.
+#   progressStop()  stop the pulse. MUST be called in a finally.
+#   notFound()      detection finished but produced no landing point.
 #
 # Success is NOT toned: the spoken paragraph is itself the success signal.
 #
 # Guardrail #6 caveat: when the page auto-placed focus on an editable
-# control (SILENT_FOCUS_HONORED), the caller must NOT call not_found() —
+# control (SILENT_FOCUS_HONORED), the caller must NOT call notFound() —
 # silence is required there. This module just plays sound; the policy
 # lives at the call site.
 
@@ -49,11 +49,11 @@ _NOT_FOUND_DURATION_MS = 60
 _NOT_FOUND_GAP_MS = 80
 
 
-def _beep(freq: int, duration_ms: int) -> None:
+def _beep(freq: int, durationMs: int) -> None:
 	if not _TONES_AVAILABLE:
 		return
 	try:
-		tones.beep(freq, duration_ms)
+		tones.beep(freq, durationMs)
 	except Exception:
 		pass
 
@@ -63,7 +63,7 @@ def working() -> None:
 	_beep(_WORKING_FREQ_HZ, _WORKING_DURATION_MS)
 
 
-def not_found() -> None:
+def notFound() -> None:
 	"""Two brief low beeps when detection finished with nothing to land on.
 	A two-tone rhythm at 220 Hz is more recognizable than a single low
 	tone and clearly distinct from working() (one short blip) and the
@@ -103,16 +103,16 @@ class _Pulse:
 		with self._lock:
 			# Reset any in-flight schedule so the first pulse is a fresh
 			# _PROGRESS_INTERVAL_SEC from now — not stale from a prior run.
-			self._cancel_timer_locked()
+			self._cancelTimerLocked()
 			self._active = True
-			self._schedule_locked()
+			self._scheduleLocked()
 
 	def stop(self) -> None:
 		with self._lock:
 			self._active = False
-			self._cancel_timer_locked()
+			self._cancelTimerLocked()
 
-	def _cancel_timer_locked(self) -> None:
+	def _cancelTimerLocked(self) -> None:
 		if self._timer is not None:
 			try:
 				self._timer.cancel()
@@ -120,7 +120,7 @@ class _Pulse:
 				pass
 			self._timer = None
 
-	def _schedule_locked(self) -> None:
+	def _scheduleLocked(self) -> None:
 		try:
 			t = threading.Timer(_PROGRESS_INTERVAL_SEC, self._fire)
 			t.daemon = True
@@ -140,15 +140,15 @@ class _Pulse:
 		# dangling timer that beeps once after detection finished.
 		with self._lock:
 			if self._active:
-				self._schedule_locked()
+				self._scheduleLocked()
 
 
 _pulse = _Pulse()
 
 
-def progress_start() -> None:
+def progressStart() -> None:
 	_pulse.start()
 
 
-def progress_stop() -> None:
+def progressStop() -> None:
 	_pulse.stop()
