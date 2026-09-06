@@ -436,7 +436,7 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 
 	t0 = time.monotonic()
 	landmarks = _findMainLandmark(treeInterceptor)
-	mainObj, mainRange = landmarks.mainObj, landmarks.mainRange
+	mainObj = landmarks.mainObj
 	t1 = time.monotonic()
 	# Cache _inScope decisions across all helpers within this single
 	# buildTreeSummary call. id(obj) → (obj, bool). Discarded on return.

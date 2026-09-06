@@ -186,8 +186,8 @@ def test_scannedOutReachesScanCap():
 	ti = FakeTI(5000)
 	scanned = [0]
 	flag = [False]
-	n = ts._countInRange(ti, "link", None, limit=0, deadline=FAR_FUTURE,
-	                       truncatedOut=flag, scannedOut=scanned)
+	ts._countInRange(ti, "link", None, limit=0, deadline=FAR_FUTURE,
+	                 truncatedOut=flag, scannedOut=scanned)
 	assert scanned[0] == ts._COUNT_SCAN_LIMIT
 	assert flag[0] is True
 
