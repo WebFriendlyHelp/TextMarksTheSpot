@@ -514,7 +514,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# would otherwise catch this too, but only AFTER we'd already played
 		# the working tone, which is exactly what was firing on DDG.
 		if tsMod.isFocusEditable():
-			dlog.debug(f"[TMTS] _maybe_fire_ti: focus editable — skip")
+			dlog.debug("[TMTS] _maybe_fire_ti: focus editable — skip")
 			return
 		# Restored-position gate: when the user comes BACK to a page they
 		# already visited this session and the browse cursor is not at the

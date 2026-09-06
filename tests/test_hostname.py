@@ -5,7 +5,6 @@
 # wx-dialog parts can only be tested in real NVDA — they live as manual
 # verification, like the rest of the NVDA binding layer.
 
-import sys
 from pathlib import Path
 
 # __init__.py at the addon root isn't named as a normal module; import
