@@ -1,7 +1,7 @@
 # Next session prompt (paste into a fresh session)
 
 We're picking up Text Marks the Spot on `main`. Everything below is current as
-of **2026-08-24**.
+of **2026-09-06**.
 
 Read `CLAUDE.md`, `DEBUGGING.md`, and the TOP entry of `implementation-notes.md`
 first. 381 tests plus 1 xfail: `python -B -m pytest tests/` from the repo root
@@ -12,7 +12,18 @@ at the repo root, `TextMarksTheSpot.nvda-addon`, always the newest build. Bare
 `scons` still emits the versioned name and CI depends on that, so do not rename
 the SCons target.
 
-## State as of 2026-08-24
+## State as of 2026-09-06
+
+**The codebase moved to NVDA naming conventions on 2026-09-06 and that is the
+most recent change.** camelCase on functions, variables and attributes; tabs were
+already right. `tree_summary.py` is now `treeSummary.py`. No behaviour changed
+and no version was bumped, so `main` is still v1.0.15 as far as users are
+concerned. Two classes of name deliberately stay snake_case because renaming
+them fails SILENTLY: the capture-log JSON keys plus the `Intent.KEY_RESULT` enum
+value, which are a wire format shared with capture files on disk, and pytest
+fixtures like `tmp_path`, which are injected by name. CLAUDE.md's "Naming
+convention" section is the rule; the top entry of `implementation-notes.md` has
+the reasoning and the verification. Do not "finish the job" on those exceptions.
 
 `scope-hardening` is MERGED into `main` and the branch is history. `main` is at
 **v1.0.15**, released 2026-08-24, and the NV Access store has it: PR 11069 in
@@ -33,7 +44,7 @@ every NVDA symbol the add-on touches survives both; and 2026.1's fixes to
 existing forward-progress guard. The detail is in SPEC.md's Compatibility
 section. `addon_lastTestedNVDAVersion` is `2026.2.0` and that is correct.
 
-Casey has been SOAKING this code as his daily driver since roughly 2026-08-18.
+Casey has been SOAKING this code as his daily driver since roughly 2026-08-18, and re-installed on 2026-09-06 to soak the renamed build. That soak is only hours old. The rename's risk sits entirely in the NVDA binding layer (`__init__.py` and `treeSummary.py`), which no unit test covers, so the symptoms worth listening for are a page going quiet where it used to land, or landing on the wrong paragraph.
 It was running under a 1.0.14 label until the 1.0.15 release, so "1.0.14" means
 two different things depending on whether you mean the July GitHub release or
 his local build. v1.0.15 ends that ambiguity.

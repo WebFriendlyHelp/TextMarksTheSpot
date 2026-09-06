@@ -2,6 +2,72 @@
 
 Newest entries at the top.
 
+## 2026-09-06 - NVDA naming conventions adopted across the add-on and tests
+
+Prompted by Joseph Lee's open letter to add-on authors, which names generic
+Python house style as a recurring store-review objection and singles out
+AI-assisted submissions. NVDA's own coding standards want camelCase on
+functions, variables and attributes; indentation was already tabs from the NV
+Access template, the names were not. 772 identifiers renamed, `tree_summary.py`
+moved to `treeSummary.py`, `tests/test_tree_summary.py` to
+`tests/test_treeSummary.py`.
+
+**The NVDA-facing surface was already correct and is untouched.**
+`script_retrigger`, `script_returnToLanding`, `script_toggleSiteExclusion`,
+`event_documentLoadComplete`, `terminate`, and the three gesture strings.
+NVDA dispatches on those prefixes. Test functions follow the same shape,
+`test_someBehaviour`, which is how NVDA writes its own tests and which keeps
+`pytest.ini`'s `python_functions = test_*` collecting them. An earlier pass
+camelCased them wholesale and pytest silently collected ZERO tests, reporting
+"no tests ran" rather than failing.
+
+**Two classes of name were deliberately left snake_case, and both fail SILENTLY
+if renamed.** This is the part to remember.
+
+1. Names that are really LOOKUP KEYS. The capture-log JSON keys
+   (`"positionally_scoped"`, `"has_main"`, `"counts_trunc"`) are a wire format
+   shared with capture files already on disk, and with `tests/replay_captures.py`.
+   Renaming a key does not raise: `rec.get(...)` just returns the default for
+   every existing record, so an old corpus replays as though every page were
+   unscoped and the regression evidence quietly becomes fiction. The
+   `Intent.KEY_RESULT` enum VALUE `"key_result"` is data for the same reason.
+   `tmp_path` is a pytest fixture, injected by parameter name; renaming the
+   parameter simply stops the fixture being found (this one at least errors).
+2. Names that live INSIDE STRING LITERALS, which move independently of the code.
+   `getattr(node, "is_caption", False)`, the `LandmarkScan.__slots__` tuple,
+   `monkeypatch.setattr` targets, `pytest.mark.parametrize` argnames, and
+   `test_hostname.py`'s regex over the source. `__slots__` and the regex failed
+   loudly; the `getattr` family would have returned defaults forever.
+
+**Method, and why it matters more than the result.** The rename ran token-aware
+(Python `tokenize`, splicing into the original text by byte offset rather than
+`untokenize`, which re-derives spacing from now-stale column offsets). NAME
+tokens were mapped exactly; comments and docstrings got a word-boundary regex so
+the prose documenting the code did not go stale; every other string literal was
+left alone and swept in a SECOND, deliberate pass where each site was decided on
+its merits. Doing the string pass automatically would have silently rewritten the
+wire-format keys. The map itself was built from names the source tree BINDS, so
+NVDA and stdlib names are absent by construction rather than by an exclusion list.
+
+**Verification, and its limits.** 381 passed / 1 xfailed, identical to baseline.
+All 31 sabotages still caught by `tests/sabotage_check.py`, which is the load-
+bearing check here because that file contains SOURCE FRAGMENTS as string
+literals that the rename had to rewrite; a green suite alone would not have
+proved they still find their targets. Ruff reports the same 4 pre-existing
+findings as before and no new ones. SCons builds a correct archive. Installed in
+NVDA and confirmed loaded from the log, with `treeSummary.pyc` and
+`detection/web.pyc` in the installed `__pycache__` as positive evidence the
+modules were imported rather than merely copied. NOT covered by any of this: the
+trigger in `__init__.py` and the walk in `treeSummary.py` have no unit tests, so
+the binding layer rests on reading plus a live load.
+
+**Left alone on purpose.** `probes/` still contains snake_case copies of older
+code. Probes are frozen standalone reproductions, not shipped, and renaming them
+would break them as historical artifacts.
+
+The convention and both exception classes are now recorded in CLAUDE.md under
+"Naming convention", so this does not have to be rediscovered.
+
 ## 2026-08-24 - v1.0.15 shipped, the store caught up, and one local build file
 
 Three things, none of them a code change to the detection path.
@@ -1641,7 +1707,7 @@ Two smaller ones surfaced in review, both real, neither started:
    ways as predicted: phrases past char 60 were invisible, AND a long genuine
    lede whose first 60 chars contained a disclosure phrase was chrome-flagged
    with no length protection. Note the trap this nearly repeated — every
-   cascade-level test can hand-set the flag, so `tests/test_tree_summary.py` now
+   cascade-level test can hand-set the flag, so `tests/test_treeSummary.py` now
    drives `_nodeFor` directly and was CONFIRMED to fail when the walk-time
    computation is deleted. Verified live on simplyrecipes.
 2. **Counts are still identity-scoped on `chrome-pos`** (~630 ms), so counts and
