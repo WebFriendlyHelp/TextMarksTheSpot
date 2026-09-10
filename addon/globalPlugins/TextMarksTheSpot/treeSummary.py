@@ -393,6 +393,15 @@ def _appendCapture(summary: "TreeSummary") -> None:
 			"forms": summary.formInputCount,
 			"interactive": summary.interactiveControlCount,
 			"counts_trunc": summary.countsTruncated,
+			# The two flags the classifier consults for its FAIL-SAFE branches.
+			# Omitting them meant replay silently defaulted both to False, so the
+			# corpus could not reproduce the article-truncation FORM block or a
+			# truncated walk at all: replay of a real page could answer FORM (which
+			# MOVES KEYBOARD FOCUS) where the add-on had correctly stayed silent.
+			# Found in outside review, 2026-09-10. Older records lack these keys and
+			# still read as False, which is what they effectively replayed as before.
+			"article_count_trunc": summary.articleCountTruncated,
+			"walk_trunc": summary.walkTruncated,
 			"positionally_scoped": summary.positionallyScoped,
 			"nodes": [
 				[n.kind, n.level, n.textLength, n.textPreview,
@@ -1351,9 +1360,19 @@ def _scopeLooksDepleted(scopeKind: str, mainNodes: list, allNodes: list, positio
 	delivered to your inbox"), and discarded the entire article INCLUDING a
 	1439-character paragraph. mainNodes was non-empty, so the net stayed
 	closed, the classifier correctly saw no article in what it was handed,
-	declined to land, and the user got silence. Pressing Z landed fine,
-	because Z scans the buffer directly and never consults this filter — that
-	is what proved the content was there all along.
+	declined to land, and the user got silence. Pressing Z landed fine.
+
+	DO NOT READ THAT AS "Z BYPASSES THIS FILTER", which is what this comment
+	used to say and what it was then cited for. Z calls buildTreeSummary and
+	searches summary.mainNodes, so it runs this filter, the same walk and the
+	same scoping (see _scanForwardFromCaret in __init__.py). Two things really
+	do differ: Z runs LATER, against whatever the buffer holds by then, and it
+	picks with findNextContentLanding from the caret rather than through the
+	classifier's cascade. So a successful Z is evidence the content reached the
+	buffer eventually; it is NOT evidence about what this filter did, and given
+	that the identity filter's documented failure is being INCONSISTENT between
+	accesses, a later run answering differently is exactly what it looks like.
+	Corrected 2026-09-10 after the stale claim misdirected a live investigation.
 
 	WHAT RE-LOADING THAT PAGE ON 2026-07-19 SHOWED. Stated carefully, because
 	the first write-up of this called the original observation a misdiagnosis
@@ -2870,6 +2889,14 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 	# the user expected goes missing, this line says whether the scope
 	# filter ate it or NVDA's walk never yielded it at all.
 	droppedAfterStart: list = []
+	# Chunks dropped by the scope filter BEFORE the scoped region began.
+	# droppedAfterStart deliberately ignores these because on a normal page
+	# they are just the nav and banner, and saying so every load is noise.
+	# That made them a BLIND SPOT: content the page places above whatever
+	# NVDA reports as <main> is dropped and leaves no trace anywhere in the
+	# logs, so the page reads as though the content was never in the buffer.
+	# Google's AI Overview sits exactly there (2026-09-10). Session log only.
+	droppedBeforeStart: list = []
 	# Per-call-site timing, emitted as [TMTS walk-phase] at the end of the
 	# walk. The aggregate walk= number in the perf line cannot say WHICH
 	# cross-process call owns the time, and on store.payproglobal.com's
@@ -3110,8 +3137,12 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 					positionsOut.append(pos)
 			else:
 				consecutiveOut += 1
-				if haveSeenInScope and len(droppedAfterStart) < 10 and text.strip():
-					droppedAfterStart.append(text.strip()[:40])
+				if text.strip():
+					if haveSeenInScope:
+						if len(droppedAfterStart) < 10:
+							droppedAfterStart.append(text.strip()[:40])
+					elif len(droppedBeforeStart) < 12:
+						droppedBeforeStart.append(text.strip()[:40])
 				# Only bail AFTER we've seen at least one in-scope node;
 				# otherwise we might quit before reaching main (the nav/
 				# banner at the top of the document can easily exceed
@@ -3172,6 +3203,12 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 		dlog.debug(
 			f"[TMTS walk-drops] {len(droppedAfterStart)} chunk(s) dropped by the "
 			f"scope filter after the scoped region started: {droppedAfterStart}"
+		)
+	if droppedBeforeStart:
+		dlog.debug(
+			f"[TMTS walk-preamble-drops] {len(droppedBeforeStart)} chunk(s) dropped "
+			f"by the scope filter BEFORE the scoped region started: "
+			f"{droppedBeforeStart}"
 		)
 
 	if positionalOut is not None:
