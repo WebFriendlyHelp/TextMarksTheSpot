@@ -254,6 +254,35 @@ separates the outlier from the chrome. Do not reopen this without new evidence,
 and if it is reopened, the bar is a rule that fires on Google and on none of the
 six pages named above.
 
+### H. The gensix nav landing: investigated, no shippable rule (2026-09-10)
+
+gensix.com/access-message lands on an H1 reading "MAIN NAVIGATION". The cause is
+plain: the page carries six H1 headings in its footer sitemap (MAIN NAVIGATION,
+SQ PRIVATE BRIEFINGS, PREVIOUS CONFERENCES, GENSIX FILMS, OTHER LINKS, MY
+ACCOUNT), that run is the largest same-level heading cluster on the page,
+`_largestHeadingCluster` classifies it LIST, and `findListLanding` lands on the
+cluster's first member. The right landing is the H2 "LOOKING FOR ACCESS?" at
+node 10, with its 111-character explanation at node 11.
+
+Three candidate rules were measured against 385 unique captured pages and all
+three failed:
+
+1. **Distrust a level-1 heading run.** Level-1 clusters of 5 or more occur on
+   exactly ONE site in the corpus, gensix itself. N=1 on the positive side is
+   tailoring, by the same standard applied in section G.
+2. **Require substantial text inside the cluster span.** The clusters with NO
+   substantial paragraph between members include the Guardian's 10-headline
+   rail and RTE's 5-headline rail, which are real content. The rule would
+   silence two front pages to fix one login page.
+3. **Prefer the earliest cluster over the largest.** Only 10 LIST landings
+   exist in the whole corpus, so there is not enough evidence to re-order the
+   rule without guessing.
+
+The upstream problem is arguably that this page is not a list at all; it is a
+login notice that happens to have a footer sitemap. Left alone deliberately.
+Anyone reopening this needs a rule that fixes gensix AND leaves the Guardian and
+RTE rails landing where they do now.
+
 **BOTH persistent logs are OFF unless you turn them on, and neither leaves the
 machine it was written on.** The capture log records the FULL url of every page
 detected, query string and all, plus previews of the page text. The perf log
