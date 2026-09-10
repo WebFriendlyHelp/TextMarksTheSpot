@@ -65,11 +65,22 @@ exclude = [
 	"__pycache__",
 	".venv",
 	"buildVars.py",
+	# Probes are frozen throwaway add-ons kept as evidence for the findings
+	# they produced. They deliberately still call the pre-2026-09-06
+	# snake_case API, so linting them would only ever say "this old probe
+	# does not match current house style", which is true and not useful.
+	"probes",
 ]
 
 [tool.ruff.format]
 indent-style = "tab"
-line-ending = "lf"
+# "auto" (keep each file's existing endings), NOT "lf". .gitattributes sets
+# `* text=auto`, so git already stores LF in the repository no matter what
+# the working tree holds, and a Windows checkout is CRLF. Pinning ruff to
+# "lf" therefore fights the checkout for no gain in what actually gets
+# committed, and it makes `ruff format --check` report EVERY file as needing
+# a rewrite, which is why that command was unusable on this repo.
+line-ending = "auto"
 
 [tool.ruff.lint.mccabe]
 max-complexity = 15

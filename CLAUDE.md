@@ -283,10 +283,12 @@ python -B -m pytest tests/test_landing.py -q         # one file
 python -B -m pytest tests/test_landing.py::test_definitionalLedeBeatsAPrerequisiteNoteAboveIt  # one test
 python -B -m pytest tests/ -k chrome_scope           # one topic across files
 python -B tests/sabotage_check.py                    # prove the tests FAIL when their rule is deleted
-python -m ruff check . && python -m ruff format --check .   # lint / format (tabs, line length 110)
+python -m ruff check .                               # lint (tabs, line length 110)
 ```
 
-**Nothing runs the tests on push or on a pull request.** `.github/workflows/release.yml` is the only workflow and it triggers on a `v*.*.*` tag, so a broken test surfaces at release time, not at commit time. Run the suite locally before pushing; do not assume a green branch means CI checked anything.
+**CI runs the suite, the sabotage check and the linter on every push and pull request** (`.github/workflows/tests.yml`, windows-latest, the same three commands documented here). It is deliberately separate from `.github/workflows/release.yml`, which fires only on a `v*.*.*` tag; before the tests workflow existed the first thing to notice a broken test was a release.
+
+**`ruff format` is NOT gated and the repository does not currently satisfy it** (32 files, about 3300 lines, almost all of it blank lines ruff wants inserted). Reformatting is mechanical and safe, but on this codebase the comments carry most of the reasoning history, so a whole-tree cosmetic rewrite buys tidiness at the cost of `git blame`. That trade is a deliberate open decision, not an oversight. `ruff check` (lint) does pass and is gated. Two other things about the ruff config are worth knowing before touching it: `probes` is excluded, because those are frozen throwaway add-ons still calling the pre-2026-09-06 snake_case API, and `format.line-ending` is `auto` rather than `lf`, because `.gitattributes` sets `* text=auto` so git already stores LF regardless of the working tree, and pinning ruff to `lf` on a CRLF Windows checkout made `ruff format --check` report every file in the repository.
 
 `sabotage_check.py` is not optional ceremony on this project. A green suite has three
 times been shown to pass with a safety input deleted, so any change to a scope,

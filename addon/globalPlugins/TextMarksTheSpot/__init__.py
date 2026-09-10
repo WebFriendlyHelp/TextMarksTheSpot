@@ -601,10 +601,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# appointments, Gmail thread list, search results). Generic — no
 		# site-specific code.
 		#
-		# An unbuilt tree gets the LONGER delay: the buffer was not merely
-		# incomplete, it was absent, so another 1500 ms is unlikely to be
-		# enough. Bounded by _MAX_DETECTION_ATTEMPTS so a page that never
-		# builds cannot retry forever.
+		# An unbuilt tree gets the SHORTER delay and an extra attempt: an
+		# empty walk costs a couple of milliseconds, so three looks at
+		# 0 / 1.25 / 2.5 s still fit inside how long a user will wait to be
+		# told nothing was found. A tree that produced nodes has genuinely
+		# answered and its walk costs seconds, so it keeps the single
+		# 1500 ms retry. Bounded by _MAX_DETECTION_ATTEMPTS so a page that
+		# never builds cannot retry forever.
 		if not acted and couldRetry:
 			delay = self._EMPTY_RETRY_DELAY_MS if unbuilt else self._RETRY_DELAY_MS
 			self._scheduleRetry(ti, attempt + 1, delay)

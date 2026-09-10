@@ -4,7 +4,7 @@ We're picking up Text Marks the Spot on `main`. Everything below is current as
 of **2026-09-06**.
 
 Read `CLAUDE.md`, `DEBUGGING.md`, and the TOP entry of `implementation-notes.md`
-first. 381 tests plus 1 xfail: `python -B -m pytest tests/` from the repo root
+first. Run the suite with `python -B -m pytest tests/` from the repo root
 (the `-B` matters, see the harness traps in `tests/sabotage_check.py`).
 
 Build locally with `.\build.ps1`, never bare `scons`. It leaves exactly ONE file
