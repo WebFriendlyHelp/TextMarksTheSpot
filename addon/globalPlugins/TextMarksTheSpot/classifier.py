@@ -139,6 +139,15 @@ class TreeSummary:
 	# of the order (2026-07-17). Landing must not depend on walk timing.
 	walkTruncated: bool = False
 
+	# Nodes the walk BUILT and then discarded because they sit before the
+	# scoped region began, i.e. above whatever NVDA reports as <main>. Never
+	# read by the classifier or the landing finders; carried so the capture
+	# log can record them. The pre-main region is where a page puts content it
+	# has marked as not-main, and we had no evidence at all about what real
+	# sites put there (2026-09-10, after Google's AI Overview turned out to
+	# live in exactly that region). Bounded by _PREAMBLE_NODE_LIMIT.
+	preMainNodes: tuple = ()
+
 	# Set when the ARTICLE count specifically was truncated (budget, scan
 	# cap, or iterator exception). Tracked separately from countsTruncated
 	# because articleCount==0 is the undercount that is NOT fail-safe: it

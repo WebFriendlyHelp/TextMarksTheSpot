@@ -378,6 +378,20 @@ class _GatedDebugLog:
 dlog = _GatedDebugLog()
 
 
+# How many pre-scope chunk previews the walk-preamble-drops line lists. The
+# first version capped at 12 and Google's header chrome alone is 12 chunks,
+# so the list ended exactly at 'AI Mode' and cut off the content the line had
+# been added to find (2026-09-10). The count is reported separately from the
+# listing, so a raised cap never hides how much was really dropped.
+_PREAMBLE_DROP_LOG_LIMIT = 40
+# How many pre-scope NODES the capture record keeps. The log line above lists
+# 40-char previews, which is enough to eyeball but not enough to replay a rule
+# against: judging whether a paragraph above <main> is content or a cookie
+# banner needs the same fields the landing finders read. Bounded so a
+# chrome-heavy page cannot bloat the capture file.
+_PREAMBLE_NODE_LIMIT = 60
+
+
 def _appendCapture(summary: "TreeSummary") -> None:
 	if not _diagnosticsEnabled():
 		return
@@ -402,6 +416,11 @@ def _appendCapture(summary: "TreeSummary") -> None:
 			# still read as False, which is what they effectively replayed as before.
 			"article_count_trunc": summary.articleCountTruncated,
 			"walk_trunc": summary.walkTruncated,
+			"pre_main_nodes": [
+				[n.kind, n.level, n.textLength, n.textPreview,
+				 n.isCaption, n.isBoilerplate, n.isDisclosure, n.endsSentence]
+				for n in getattr(summary, "preMainNodes", ()) or ()
+			],
 			"positionally_scoped": summary.positionallyScoped,
 			"nodes": [
 				[n.kind, n.level, n.textLength, n.textPreview,
@@ -599,6 +618,7 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 	# entirely. Removed 2026-07-19 as a merge blocker -- see the module comment
 	# above _selectScope. A zero-item landmark enumeration is NOT evidence that
 	# the document has no landmarks, because NVDA swallows the native failure.
+	preMainNodes: list = []
 	summary.mainNodes = _walkMainNodes(
 		treeInterceptor, mainObj, scopeCache, positions, noticeMatch, rawCount, scopeRange,
 		allNodesOut=allNodes,
@@ -609,7 +629,9 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 		trustBoundary=trustBoundary,
 		untrustedRanges=untrustedRanges,
 		positionalOut=walkPositional,
+		preambleNodesOut=preMainNodes,
 	)
+	summary.preMainNodes = preMainNodes
 	t3 = time.monotonic()
 	fallbackRan = False
 	# Fallback: if the scoped walk produced zero nodes, the scope filter is
@@ -2831,7 +2853,7 @@ def _chunkScope(
 	)
 
 
-def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, noticeMatchOut: Optional[list] = None, rawCountOut: Optional[list] = None, scopeRange=None, allNodesOut: Optional[list] = None, allPositionsOut: Optional[list] = None, noticeMatchAllOut: Optional[list] = None, truncatedOut: Optional[list] = None, excludeRanges=None, trustBoundary=None, untrustedRanges=None, positionalOut: Optional[list] = None) -> list[MainNode]:
+def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, noticeMatchOut: Optional[list] = None, rawCountOut: Optional[list] = None, scopeRange=None, allNodesOut: Optional[list] = None, allPositionsOut: Optional[list] = None, noticeMatchAllOut: Optional[list] = None, truncatedOut: Optional[list] = None, excludeRanges=None, trustBoundary=None, untrustedRanges=None, positionalOut: Optional[list] = None, preambleNodesOut: Optional[list] = None) -> list[MainNode]:
 	# Walk the whole document by UNIT_PARAGRAPH; emit only nodes that
 	# pass _inScope (inside <main> if present, or outside chrome
 	# landmarks if not). Bail out once we've had _OUT_OF_SCOPE_TOLERANCE
@@ -2897,6 +2919,7 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 	# logs, so the page reads as though the content was never in the buffer.
 	# Google's AI Overview sits exactly there (2026-09-10). Session log only.
 	droppedBeforeStart: list = []
+	preambleDropped: list = [0]
 	# Per-call-site timing, emitted as [TMTS walk-phase] at the end of the
 	# walk. The aggregate walk= number in the perf line cannot say WHICH
 	# cross-process call owns the time, and on store.payproglobal.com's
@@ -3141,8 +3164,16 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 					if haveSeenInScope:
 						if len(droppedAfterStart) < 10:
 							droppedAfterStart.append(text.strip()[:40])
-					elif len(droppedBeforeStart) < 12:
-						droppedBeforeStart.append(text.strip()[:40])
+					else:
+						preambleDropped[0] += 1
+						if len(droppedBeforeStart) < _PREAMBLE_DROP_LOG_LIMIT:
+							droppedBeforeStart.append(text.strip()[:40])
+						if (
+							preambleNodesOut is not None
+							and node is not None
+							and len(preambleNodesOut) < _PREAMBLE_NODE_LIMIT
+						):
+							preambleNodesOut.append(node)
 				# Only bail AFTER we've seen at least one in-scope node;
 				# otherwise we might quit before reaching main (the nav/
 				# banner at the top of the document can easily exceed
@@ -3206,9 +3237,9 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 		)
 	if droppedBeforeStart:
 		dlog.debug(
-			f"[TMTS walk-preamble-drops] {len(droppedBeforeStart)} chunk(s) dropped "
-			f"by the scope filter BEFORE the scoped region started: "
-			f"{droppedBeforeStart}"
+			f"[TMTS walk-preamble-drops] {preambleDropped[0]} chunk(s) dropped by the "
+			f"scope filter BEFORE the scoped region started "
+			f"(showing first {len(droppedBeforeStart)}): {droppedBeforeStart}"
 		)
 
 	if positionalOut is not None:
