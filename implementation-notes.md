@@ -2,6 +2,65 @@
 
 Newest entries at the top.
 
+## 2026-09-10 - Google's AI Overview, and two rules that did not survive measurement
+
+Started as "why does the add-on skip Google's AI Overview" and became a session
+about what counts as evidence for a landing rule.
+
+**The answer on Google.** The overview is not late and is not being skipped by
+the classifier. Google places it ABOVE the point where the main landmark
+begins, the walk builds those nodes, and the positional scoping discards them.
+Confirmed from a keyboard protocol (find the text, then shift+d) plus a new
+diagnostic. Two earlier theories were wrong and are recorded here so they are
+not re-derived: it is not the 120-second post-landing suppression (no
+suppression lines exist for google.com in either session log), and it is not
+timing (the buffer was settled at 171 chunks across six consecutive Z presses
+with no overview in mainNodes).
+
+**The rule that looked obvious and is not shippable.** Admitting substantial
+prose from above `<main>` was measured across 40 swept sites: 3 of 35 pages
+have substantial sentence-ending prose up there and all three are cookie
+consent; widening to any substantial paragraph gives 6 of 35, the rest being
+headline teasers, a skip-link block, and subscription marketing. Real content:
+zero. Google is 1 of 36. Both safeguards I would have reached for fail on the
+data - gov.uk's consent paragraph HAS a heading before it, and the Guardian has
+four substantial paragraphs and five headings above its main landmark. Written
+up as DEBUGGING.md section G with the bar a future attempt must clear.
+
+**Same outcome, different page, for the gensix nav landing** (section H). Three
+candidate rules, all rejected against 385 captured pages: distrusting level-1
+heading runs fires on one site in the corpus; requiring text inside the cluster
+span would silence the Guardian and RTE headline rails; re-ordering cluster
+preference has 10 LIST landings of evidence behind it.
+
+**What did ship**, each measured against the corpus first: the media-rail
+duplicate collapse in the headline wall (fixes the tachyon query; the mod query
+still fires because that rail also carries per-video descriptions, which no
+duplicate rule can reach - stated in the commit rather than papered over), and
+cookie-consent plus serialized-data chrome filters (2 landings changed out of
+385, both intended).
+
+**Process notes worth keeping.**
+
+1. The capture log only ever recorded nodes that SURVIVED scoping, so 586 pages
+   of corpus said nothing about the region under investigation. A diagnostic
+   that cannot answer the question is worse than none, because its silence
+   reads as evidence. It now records `pre_main_nodes`.
+2. Sabotage in BOTH directions. Three new tests passed their own deletion
+   sabotage; two of them turned out to be decorative, asserting a nearby
+   proposition (one compared a shorter preview against a longer one, which can
+   never prefix-match, so it proved nothing about the guard it was named for).
+   Removing a rule and LOOSENING a rule are different sabotages and a guard
+   test only proves itself against the second.
+3. A shell-open sweep drops every other launch, twice over 26 pages, with no
+   documentLoadComplete at all for the dropped ones. Relaunching the same url
+   at 12 s took the next 27 pages to 27 of 27. DEBUGGING.md section F.
+4. Outside review earned its keep. Both reviewers independently found that Z is
+   NOT an independent check of the buffer (it rebuilds the same scoped
+   summary), which a stale source comment had actively asserted the opposite of
+   and which misdirected the first hour. One measured my "one page load in six
+   is degraded" claim and showed it changes exactly one decision in 96.
+
 ## 2026-09-06 - NVDA naming conventions adopted across the add-on and tests
 
 Prompted by Joseph Lee's open letter to add-on authors, which names generic
