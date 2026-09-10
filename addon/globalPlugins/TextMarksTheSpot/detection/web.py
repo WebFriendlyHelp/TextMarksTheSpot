@@ -1304,6 +1304,48 @@ def _hasArticleBodyCluster(nodes) -> bool:
 	return False
 
 
+def _repeatsPreviousMember(nodes, members, node) -> bool:
+	"""True when this headline-ish node is the SAME item as the previous member,
+	emitted a second time in a longer form.
+
+	WHY THIS EXISTS. A media rail commonly emits each item twice: the bare title,
+	then the title with its source appended. Google's video rail does exactly
+	that ("How to Mod Minecraft for Beginners!" then "How to Mod Minecraft for
+	Beginners! by <channel> on YouTube"). Three videos then read as SIX headline
+	members, _HEADLINE_RUN_MIN is met, the wall fires on a page that has no wall,
+	and a Google results page lands on a video title instead of its first result.
+	Reproduced on four captured Google pages (2026-09-10): the wall fired on the
+	tachyon and mod queries, whose rails carry three videos, and declined on the
+	quark and moon queries, whose rails carry one fewer. Nothing about this is
+	Google-specific; any rail that repeats a title in a longer form trips it.
+
+	Compared against the PREVIOUS MEMBER, not the previous node, because the two
+	emissions are separated by the source and date lines the gap tolerance
+	already steps over.
+
+	THE 60-CHARACTER PREVIEW IS THE CONSTRAINT that shapes this rule. textPreview
+	is truncated, so two genuinely distinct long titles can share a preview and
+	read as duplicates. Two things keep that harmless: the comparison is confined
+	to CONSECUTIVE members, so a wall of distinct items loses at most a neighbour
+	here and there out of dozens; and the repeat must be at least as long as what
+	it repeats, so a shorter follow-on never collapses into a longer title.
+
+	This removes the node from the MEMBER COUNT only. members[0] is the bare
+	title and is already the landing candidate, so what the wall lands ON does
+	not change; what changes is whether the wall fires at all.
+	"""
+	if not members:
+		return False
+	prev = nodes[members[-1]]
+	prevText = normalizeForMatch(getattr(prev, "textPreview", "") or "")
+	thisText = normalizeForMatch(getattr(node, "textPreview", "") or "")
+	if len(prevText) < _HEADLINE_MIN_CHARS:
+		# Too short to be a distinctive prefix; collapsing on a few generic
+		# words would eat real, separate items.
+		return False
+	return thisText.startswith(prevText) and node.textLength >= prev.textLength
+
+
 def _findHeadlineListLanding(nodes) -> Optional[int]:
 	"""Index/homepage detection: the FIRST run of >= _HEADLINE_RUN_MIN
 	consecutive headline-ish paragraphs (medium length, non-chrome), mostly
@@ -1323,7 +1365,11 @@ def _findHeadlineListLanding(nodes) -> Optional[int]:
 				and _HEADLINE_MIN_CHARS <= node.textLength <= _HEADLINE_MAX_CHARS
 				and not _isChromeParagraph(node)
 			)
-			if headlineish:
+			if headlineish and _repeatsPreviousMember(nodes, members, node):
+				# A REPEAT OF THE MEMBER ALREADY COUNTED, not a second item.
+				# Transparent: neither a member nor a gap.
+				pass
+			elif headlineish:
 				members.append(j)
 				gap = 0
 			elif members:

@@ -176,6 +176,82 @@ def test_headlineListFiresOnWallOfTitles():
 	assert web._findHeadlineListLanding(nodes) == 2
 
 
+def test_headlineListIgnoresARailThatRepeatsEachTitle():
+	# A media rail emits every item TWICE: the bare title, then the title with
+	# its source appended. Three videos then read as six headline members and
+	# trip the wall on a page that has no wall. This is what made a Google
+	# results page land on a video title instead of its first result (the
+	# "what's a tachyon" capture, 2026-09-10). The repeats must not count.
+	nodes = [
+		_node("paragraph", 50, endsSentence=True, preview="This Particle Travels Faster Than Light | Tachyons"),
+		_node("paragraph", 20, preview="YouTube Arvin Ash"),
+		_node("paragraph", 12, preview="Mar 4, 2024"),
+		_node("paragraph", 102, preview="This Particle Travels Faster Than Light | Tachyons by Arvin"),
+		_node("paragraph", 44, preview="Tachyons Explained in Under Five Minutes"),
+		_node("paragraph", 19, preview="YouTube PBS Space"),
+		_node("paragraph", 95, preview="Tachyons Explained in Under Five Minutes by PBS Space Time"),
+		_node("paragraph", 38, preview="Do Tachyons Really Go Back In Time?"),
+		_node("paragraph", 21, preview="YouTube Sabine H"),
+		_node("paragraph", 88, preview="Do Tachyons Really Go Back In Time? by Sabine Hossenfelder"),
+	]
+	assert web._findHeadlineListLanding(nodes) is None
+
+
+def test_headlineListStillFiresWhenTitlesMerelyShareAWord():
+	# The collapse must key on one title being a PREFIX of the next member,
+	# not on any shared vocabulary. A real index whose stories all mention the
+	# same subject is still a wall and must still fire.
+	nodes = [
+		_node("paragraph", 44, preview="Tachyon research funding cut again"),
+		_node("paragraph", 47, preview="Tachyon detector goes offline for repairs"),
+		_node("paragraph", 41, preview="Tachyon claim retracted by its authors"),
+		_node("paragraph", 52, preview="Tachyon startup raises a seed round"),
+		_node("paragraph", 39, preview="Tachyon lecture series announced"),
+		_node("paragraph", 45, preview="Tachyon paper wins a minor prize"),
+	]
+	assert web._findHeadlineListLanding(nodes) == 0
+
+
+def test_headlineListDoesNotCollapseAShorterFollowOn():
+	# THE 60-CHARACTER PREVIEW HAZARD, which is the only way this guard can be
+	# reached. Two DISTINCT long titles can share their first 60 characters, so
+	# the prefix test alone says "duplicate" about two real members. The repeat
+	# must also be at least as long as what it repeats; a video rail's second
+	# emission always is, because it appends the source.
+	#
+	# Both previews below are identical (the shared 60-char opening) while the
+	# full lengths differ, and the SHORTER one comes second. Without the length
+	# requirement this collapses two real members and the wall stops firing.
+	shared = "The committee said the revised proposal would take effect a"
+	nodes = [
+		_node("paragraph", 200, preview=shared),
+		_node("paragraph", 100, preview=shared),
+		_node("paragraph", 55, preview="China is considering export controls on AI technologies"),
+		_node("paragraph", 48, preview="Amazon data center in Bahrain struck and destroyed"),
+		_node("paragraph", 70, preview="Anthropic slapped with a settlement in a copyright case"),
+		_node("paragraph", 66, preview="Intel to co-develop next-gen firewall silicon"),
+	]
+	assert web._findHeadlineListLanding(nodes) == 0
+
+
+def test_headlineListDoesNotCollapseOnAShortNormalizedPrefix():
+	# The length floor is defensive and its ONLY reachable case is whitespace:
+	# a member long enough to qualify (>= _HEADLINE_MIN_CHARS raw) whose text
+	# normalizes down to a few words. Collapsing on a prefix that short would
+	# let a generic opening swallow the member after it. Kept explicit because
+	# without a test naming it, the floor reads as unreachable and gets deleted.
+	stub = "A  B  C  D  E  F  G  H  I  J  K  L  M"      # 13 chars normalized
+	nodes = [
+		_node("paragraph", 37, preview=stub),
+		_node("paragraph", 61, preview=stub + " N O P Q R S T U V"),
+		_node("paragraph", 55, preview="China is considering export controls on AI technologies"),
+		_node("paragraph", 48, preview="Amazon data center in Bahrain struck and destroyed"),
+		_node("paragraph", 70, preview="Anthropic slapped with a settlement in a copyright case"),
+		_node("paragraph", 66, preview="Intel to co-develop next-gen firewall silicon"),
+	]
+	assert web._findHeadlineListLanding(nodes) == 0
+
+
 def test_headlineListDeclinesWhenArticleBodyPresent():
 	# A real article with a related-stories rail: the sentence-ending body
 	# cluster must keep the headline gate OFF so the cascade lands on the body.
