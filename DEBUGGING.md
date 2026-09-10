@@ -212,6 +212,48 @@ faithful `captures.jsonl` records, and the replay reproduces every landing
 offline. That is how the 2026-07-21 corpus was built, and how the XDA author-bio
 mislanding was found without touching NVDA.
 
+### F. A shell-open sweep drops every OTHER launch. Relaunch at 12 s (2026-09-10)
+
+Running the section E sweep across 40 URLs produced a perfect OK/VOID
+alternation, twice, 26 pages in a row. The void pages were not a focus problem
+and not a counting problem: the session log carried NO `documentLoadComplete`
+for them at all, so Firefox never navigated. A launch appears to take only when
+Firefox has been idle for a while, and the successful launches were exactly the
+ones following a 30 s void slot. A post-fire settle of 8 s did NOT help, which
+rules out "the previous page was still being spoken".
+
+The fix costs nothing, because the wasted slot was already being spent waiting:
+launch, poll, and if nothing has fired by 12 s, `Start-Process` the SAME url a
+second time. That took the next 27 pages to 27 OK and 0 void, including all 13
+that had been voided earlier.
+
+So: **judge a sweep by its OK count, never by the URL count, and never conclude
+"the add-on ignored that page" from a void without checking the session log for
+a `documentLoadComplete` first.** Half a sweep silently failing at the browser
+looks identical to half a sweep being suppressed by the add-on's own gates.
+
+### G. What is actually above `<main>` on real sites (2026-09-10)
+
+Measured, because a rule was proposed on the strength of ONE page. 40 URLs
+swept, 35 usable captures, recording the nodes the walk built and then dropped
+for sitting above the main landmark.
+
+Substantial sentence-ending prose above `<main>`: 3 of 35 pages, and all three
+are cookie consent (arstechnica, gov.uk, elpais). Widening to any substantial
+paragraph: 6 of 35, adding Guardian and Spiegel headline teasers, a W3C skip-link
+and tagline block, and Tom's Hardware subscription marketing. Real content above
+`<main>`: zero of 35.
+
+So the pre-main region is chrome, essentially always, and the scoping that drops
+it is right. Google's AI Overview is a genuine outlier at 1 of 36. **Any rule
+permissive enough to admit it also lands on a cookie banner or a headline rail**,
+and the obvious safeguards do not save it: gov.uk's consent text is preceded by
+a heading, and the Guardian has FOUR substantial paragraphs and five headings up
+there, so neither "has a heading before it" nor "is a multi-paragraph block"
+separates the outlier from the chrome. Do not reopen this without new evidence,
+and if it is reopened, the bar is a rule that fires on Google and on none of the
+six pages named above.
+
 **BOTH persistent logs are OFF unless you turn them on, and neither leaves the
 machine it was written on.** The capture log records the FULL url of every page
 detected, query string and all, plus previews of the page text. The perf log
