@@ -252,6 +252,65 @@ def test_headlineListDoesNotCollapseOnAShortNormalizedPrefix():
 	assert web._findHeadlineListLanding(nodes) == 0
 
 
+def test_cookieConsentIsNotALanding():
+	# bensound.com landed on its consent banner at node 70 instead of the
+	# track description at node 2 (capture corpus, 2026-09-10).
+	nodes = [
+		_node("heading", 20, level=1, preview="Royalty Free Music"),
+		_node("paragraph", 102, endsSentence=True,
+			preview="We use cookies to improve your experience, measure our audie"),
+		_node("paragraph", 140, endsSentence=True,
+			preview="Happy and light royalty free ukulele music featuring whistli"),
+	]
+	assert web._isChromeParagraph(nodes[1])
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
+
+
+def test_proseAboutCookiesIsNotFiltered():
+	# The filter matches a CONJUNCTION (first-person subject, placing verb,
+	# cookie object) precisely so that writing ABOUT cookie law survives. A
+	# loose keyword rule would eat the article someone came to read.
+	nodes = [
+		_node("heading", 30, level=1, preview="The cookie banner is dying"),
+		_node("paragraph", 210, endsSentence=True,
+			preview="Regulators across Europe now argue that cookies of every kin"),
+		_node("paragraph", 180, endsSentence=True,
+			preview="The industry response has been to store consent signals in a"),
+	]
+	assert not web._isChromeParagraph(nodes[1])
+	assert web.findArticleLanding(_summaryWith(nodes)) == 1
+
+
+def test_serializedDataIsNotALanding():
+	# A Google Apps Script page served a 115,605-character JSON document as one
+	# paragraph. Length is not evidence of prose, and VERY_SUBSTANTIAL awards
+	# the landing on length alone, so the add-on read a blind user raw JSON.
+	blob = _node("paragraph", 115605,
+		preview='{"schema":1,"docId":"1x-HUhTkOWWRcEqz5iMeRScR5OofzsOW0H_unFv')
+	assert web._isChromeParagraph(blob)
+	nodes = [
+		blob,
+		_node("heading", 18, level=1, preview="Export complete"),
+		_node("paragraph", 220, endsSentence=True,
+			preview="The document was exported successfully and is ready to downl"),
+	]
+	assert web.findArticleLanding(_summaryWith(nodes)) == 2
+
+
+def test_bracketedProseIsNotSerializedData():
+	# Anchored at the start AND requiring a quoted key, so an editor's
+	# bracketed note or a quoted aside is still prose.
+	nodes = [
+		_node("heading", 30, level=1, preview="The Big Story"),
+		_node("paragraph", 240, endsSentence=True,
+			preview="[Editor's note: this account was updated after the agency co"),
+		_node("paragraph", 190, endsSentence=True,
+			preview="Officials confirmed the revised timeline on Monday morning a"),
+	]
+	assert not web._isChromeParagraph(nodes[1])
+	assert web.findArticleLanding(_summaryWith(nodes)) == 1
+
+
 def test_headlineListDeclinesWhenArticleBodyPresent():
 	# A real article with a related-stories rail: the sentence-ending body
 	# cluster must keep the headline gate OFF so the cascade lands on the body.
