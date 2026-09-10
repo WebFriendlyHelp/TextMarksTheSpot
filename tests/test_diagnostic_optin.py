@@ -89,6 +89,12 @@ class _FakeSummary:
 	formInputCount = 0
 	interactiveControlCount = 3
 	countsTruncated = False
+	# Every field _appendCapture reads must exist here. It swallows all
+	# exceptions, so a missing attribute drops the WHOLE record silently
+	# rather than raising; this stand-in going stale looks exactly like
+	# capture logging being broken (2026-09-10).
+	articleCountTruncated = False
+	walkTruncated = False
 	positionallyScoped = False
 	mainNodes = ()
 

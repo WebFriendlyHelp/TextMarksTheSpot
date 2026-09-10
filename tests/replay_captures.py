@@ -73,6 +73,8 @@ def summaryFromRecord(rec: dict) -> cls.TreeSummary:
         formInputCount=rec.get("forms", 0),
         interactiveControlCount=rec.get("interactive", 0),
         countsTruncated=rec.get("counts_trunc", False),
+        articleCountTruncated=rec.get("article_count_trunc", False),
+        walkTruncated=rec.get("walk_trunc", False),
         mainNodes=[_nodeFromRow(r) for r in rec.get("nodes", [])],
     )
 
