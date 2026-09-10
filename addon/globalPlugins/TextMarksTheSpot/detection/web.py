@@ -1033,6 +1033,46 @@ def _nodeIsDisclosure(node) -> bool:
 	)
 
 
+# Cookie / tracking consent text. Matched on a CONJUNCTION, the same way
+# _looksLikeEditorialDisclosure is: a first-person subject ("we", "this site",
+# "we and our partners"), a placing verb, and the cookie or device-storage
+# object, all within one sentence. Loose keyword matching on "cookies" alone
+# would eat an article about cookie legislation, which is real prose someone
+# came to read.
+#
+# Deliberately NOT widened to consent text that never says what it stores
+# ("We value your privacy. Your GPC signal has been detected"). That wording
+# is too close to ordinary prose to match safely, and the cost of missing one
+# is a single Down arrow. Verified against 385 captured pages: three matches,
+# all genuine consent banners, no article prose.
+_COOKIE_CONSENT_RE = _re.compile(
+	r"\b(we|this (?:site|website)|our (?:site|website)|we and our (?:partners|vendors))\b"
+	r"[^.]{0,80}\b(use|uses|using|store|stores|storing|access(?:es)?|place|places)\b"
+	r"[^.]{0,60}\b(cookies?|similar technolog(?:y|ies)|device (?:data|information))\b",
+	_re.I,
+)
+
+
+def _looksLikeCookieConsent(text: str) -> bool:
+	return bool(_COOKIE_CONSENT_RE.search(text or ""))
+
+
+# Machine-serialized data rendered as a paragraph. A Google Apps Script user
+# content page served a 115,605-character JSON document as ONE paragraph, which
+# sails past VERY_SUBSTANTIAL_PARAGRAPH_CHARS and wins the landing outright: the
+# add-on read a blind user the opening of a JSON blob. Length is not evidence of
+# prose, and nothing else in the cascade was ever going to notice.
+#
+# Anchored at the start and requiring a quoted key, so a paragraph that merely
+# contains a brace or an editor's bracketed note does not match. Verified
+# against 385 captured pages: one match, the blob itself.
+_SERIALIZED_DATA_RE = _re.compile(r'^\s*[\{\[].{0,400}?"\s*:\s*', _re.S)
+
+
+def _looksLikeSerializedData(text: str) -> bool:
+	return bool(_SERIALIZED_DATA_RE.search(text or ""))
+
+
 def _isChromeParagraph(node) -> bool:
 	"""Shared "never land here" filter for paragraph candidates.
 
@@ -1054,6 +1094,8 @@ def _isChromeParagraph(node) -> bool:
 		or _looksLikeByline(text, fullLength=node.textLength)
 		or _nodeIsCaption(node)
 		or _nodeIsBoilerplate(node)
+		or _looksLikeCookieConsent(text)
+		or _looksLikeSerializedData(text)
 	)
 
 
