@@ -70,3 +70,9 @@ jobs:
 
       - name: Lint
         run: python -m ruff check .
+
+      # Gated as of 2026-09-10, when the tree was reformatted in one commit
+      # listed in .git-blame-ignore-revs. Before that the repository did not
+      # satisfy the formatter and this step would have failed on every push.
+      - name: Format
+        run: python -m ruff format --check .
