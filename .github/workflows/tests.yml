@@ -42,8 +42,15 @@ jobs:
         with:
           python-version: '3.13'
 
+      # ruff is PINNED and pytest is not, deliberately. A newer ruff ships new
+      # default rules, so an unpinned install makes an unrelated push fail lint
+      # on code nobody touched: the first run of this workflow drew 218 errors
+      # from 0.16.7 against a tree that 0.14.5 called clean. Bumping the pin is
+      # a deliberate act that comes with a diff to clean up. pytest stays open
+      # because a new pytest breaking this suite is something worth hearing
+      # about immediately.
       - name: Install test deps
-        run: python -m pip install --upgrade pip pytest ruff
+        run: python -m pip install --upgrade pip pytest "ruff==0.14.5"
 
       # -B matters. CPython validates a .pyc against source mtime and SIZE, so
       # a checkout that writes several files within the same second can leave a
