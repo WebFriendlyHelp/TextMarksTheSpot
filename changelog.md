@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.16
+
+Search results pages stop landing on a video title, and cookie banners stop winning the landing.
+
+- **Search results pages land on the answer again.** When a page is nothing but a wall of headlines, like a news home page, the add-on lands you on the first one. A row of videos inside a search results page was faking that wall. The page lists each video twice, once as a bare title and once with the channel name added, so three videos looked like six headlines and an ordinary results page got treated as a headline wall. Searching for "what's a tachyon" put the cursor on the title of a video partway down the page instead of the encyclopedia definition near the top. A repeated title no longer counts toward the wall.
+- **The cursor no longer stops on the cookie banner.** On bensound.com the add-on read "We use cookies to improve your experience" instead of the description of the track you came for. Cookie notices are now recognized and skipped. An article that is genuinely about cookie law still reads normally, because the add-on only treats it as a banner when the page is telling you what it stores, not merely because the word appears.
+- **A page that serves raw data as text stays quiet instead of reading it to you.** One page delivered a 115,000 character block of machine data as a single paragraph. Length is one of the signals the add-on uses to recognize a real article paragraph, so that block won outright and you were read the opening of a data file. It is skipped now, and that page produces no landing at all, which is the right answer when there is nothing worth landing on.
+
+Known gaps: a video row that also carries a written description under each video can still trip the headline wall, so some search results pages land on a video. Consent banners that never say what they store, the "We value your privacy" wording, are still not caught, and that costs you one press of Down Arrow. Everything listed under 1.0.15 is unchanged: on some articles the cursor lands on the author's biography instead of the story; recipe sites can still land on a marketing line or a reader's review; the Verge and TechCrunch home pages lead with a large featured story and land on a headline further down the list; single-field sign-in pages that ask for your email first still get no landing (the two low beeps); and script-drawn result widgets like the fast.com speed test are still not detected.
+
 ## 1.0.15
 
 Fewer pages go quiet, and magazine-style posts land on the story instead of the summary line.
