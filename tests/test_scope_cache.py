@@ -48,6 +48,7 @@ def _chain(*landmarks):
 # the key still matches that object's identity.
 # ---------------------------------------------------------------------------
 
+
 def test_cacheEntriesPinTheirObjects():
 	cache = {}
 	leaf = _chain("", "", "navigation")
@@ -67,6 +68,7 @@ def test_cacheEntriesPinTheirObjects():
 # object's verdict. Held addresses cannot be recycled, so this cannot recur
 # while the invariant above holds.
 # ---------------------------------------------------------------------------
+
 
 def test_transientChainsDoNotInheritEachOthersVerdicts():
 	cache = {}
@@ -90,6 +92,7 @@ def test_transientChainsDoNotInheritEachOthersVerdicts():
 # Diagnostics: the stats dict backs the [TMTS walk-phase] log line, which is
 # how we find out whether the memo earns its keep on a real page.
 # ---------------------------------------------------------------------------
+
 
 def test_staleEntryUnderAMatchingKeyCannotHit():
 	# Belt and braces for the invariant above: even if a future edit lets an
@@ -145,6 +148,7 @@ def test_statsCountsAHitOnTheSameObject():
 # for callers whose policy really is "keep what you cannot classify"; the focus
 # path takes the tri-state and refuses anything that is not True.
 # ---------------------------------------------------------------------------
+
 
 class ExplodingParent(FakeObj):
 	"""An object whose parent dereference raises, like a COM call failing

@@ -68,6 +68,7 @@ _state = {}  # docId -> step_index
 # ---------------------------------------------------------------------------
 # Public API
 
+
 def advance(docId, pageType, treeInterceptor):
 	"""
 	Advance the Z sequence one step for this document.
@@ -98,6 +99,7 @@ def clearAll():
 # ---------------------------------------------------------------------------
 # Announcement strings — translatable.
 # Keys match the second element of the sequence step descriptors above.
+
 
 def _announcementFor(key):
 	# TODO: return the right translatable string per key.

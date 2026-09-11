@@ -33,7 +33,10 @@ def runPytest(*args):
 	env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
 	return subprocess.run(
 		[sys.executable, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", *args],
-		cwd=ROOT, env=env, capture_output=True, text=True,
+		cwd=ROOT,
+		env=env,
+		capture_output=True,
+		text=True,
 	)
 
 
@@ -43,21 +46,21 @@ SABOTAGES = [
 	(
 		"chrome-none returns verbatim",
 		'	return "chrome", None, None, None, None',
-		'	if landmarks.seen == 0 and landmarks.exhausted:\n'
+		"	if landmarks.seen == 0 and landmarks.exhausted:\n"
 		'		return "chrome-none", None, None, None, None\n'
 		'	return "chrome", None, None, None, None',
 	),
 	(
 		"same shortcut under a new name",
 		'	return "chrome", None, None, None, None',
-		'	if landmarks.seen == 0 and landmarks.exhausted:\n'
+		"	if landmarks.seen == 0 and landmarks.exhausted:\n"
 		'		return "unscoped-fast", None, None, None, None\n'
 		'	return "chrome", None, None, None, None',
 	),
 	(
 		"shortcut smuggled in as an empty exclusion list",
 		'	return "chrome", None, None, None, None',
-		'	if landmarks.seen == 0 and landmarks.exhausted:\n'
+		"	if landmarks.seen == 0 and landmarks.exhausted:\n"
 		'		return "chrome", None, [], None, []\n'
 		'	return "chrome", None, None, None, None',
 	),
@@ -90,10 +93,11 @@ SABOTAGES = [
 	# --- Found by review 2026-07-19: BOTH of these left the suite green. ---
 	(
 		"chrome-pos never consults the field stack",
+		# ruff format collapsed the wrapped return onto one line on 2026-09-10.
+		# The anchor keeps the two surrounding lines because that collapsed
+		# return now appears twice in the file and is not unique on its own.
 		"		if fieldVerdict is not None:\n"
-		"			return fieldVerdict, (\n"
-		"				_SCOPE_FIELD_KEEP if fieldVerdict else _SCOPE_FIELD_DROP\n"
-		"			)\n"
+		"			return fieldVerdict, (_SCOPE_FIELD_KEEP if fieldVerdict else _SCOPE_FIELD_DROP)\n"
 		"		obj = getObj()",
 		"		obj = getObj()",
 	),
@@ -178,7 +182,7 @@ SABOTAGES = [
 	),
 	(
 		"ladder present but every rung collapses to the full needle",
-		"			cand = needle[:width].rsplit(\" \", 1)[0]",
+		'			cand = needle[:width].rsplit(" ", 1)[0]',
 		"			cand = needle",
 	),
 	(
@@ -239,14 +243,14 @@ SABOTAGES = [
 		"depleted net stops respecting chrome-scope exclusions",
 		'	elif scopeKind in ("chrome", "chrome-pos") and positionalDrops == 0:',
 		'	elif scopeKind == "chrome-pos" and positionalDrops == 0:\n'
-		'		pass\n'
+		"		pass\n"
 		'	elif scopeKind == "chrome":',
 	),
 ]
 
 
 def main():
-	original = open(TREE, "rb").read()          # captured ONCE, before anything
+	original = open(TREE, "rb").read()  # captured ONCE, before anything
 	failures = []
 	try:
 		base = runPytest("tests/")

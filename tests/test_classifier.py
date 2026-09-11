@@ -32,6 +32,7 @@ def _summary(**overrides):
 # Guardrail #6: focused editable control short-circuits everything.
 # ---------------------------------------------------------------------------
 
+
 def test_silentFocusHonoredOverridesAllOtherSignals():
 	# Even with a clear article body cluster, focused-editable wins.
 	tree = _summary(
@@ -47,6 +48,7 @@ def test_silentFocusHonoredOverridesAllOtherSignals():
 # ---------------------------------------------------------------------------
 # FORM
 # ---------------------------------------------------------------------------
+
 
 def test_formFiresWithEnoughInputsAndNoContentCompetition():
 	tree = _summary(formInputCount=5)
@@ -127,9 +129,11 @@ def test_checkoutFormNotBlockedByLegalBoilerplateCluster():
 	# and landed the user in the legalese. Flagged paragraphs must not count
 	# as article body.
 	consent = cls.MainNode(
-		kind="paragraph", textLength=263,
+		kind="paragraph",
+		textLength=263,
 		textPreview="By placing your order, you agree to our Terms and Condition",
-		isBoilerplate=True, endsSentence=True,
+		isBoilerplate=True,
+		endsSentence=True,
 	)
 	tree = _summary(
 		url="https://store.payproglobal.com/checkout?products[1][id]=69131",
@@ -161,7 +165,8 @@ def test_clusterTreatsFlaggedNodesAsTransparentNotBreaking():
 	# pages whose scattered widgets add up to a strong input count. Flagged
 	# nodes are transparent: they contribute nothing, but the run survives.
 	caption = cls.MainNode(
-		kind="paragraph", textLength=120,
+		kind="paragraph",
+		textLength=120,
 		textPreview="The mayor at the ribbon cutting. (Photo: Getty Images)",
 		isCaption=True,
 	)
@@ -309,6 +314,7 @@ def test_formStillBlockedByRealBodyClusterEvenWithManyInputs():
 # ARTICLE
 # ---------------------------------------------------------------------------
 
+
 def test_articleWithArticleElementAndBodyClusterIsHighConfidence():
 	tree = _summary(
 		articleCount=1,
@@ -343,6 +349,7 @@ def test_articleViaShortHeroFiresAfterThresholdLowered():
 # LIST
 # ---------------------------------------------------------------------------
 
+
 def test_listViaHeadingCluster():
 	# 5 same-level headings interleaved with short list-item text.
 	nodes = []
@@ -358,6 +365,7 @@ def test_listViaHeadingCluster():
 # APP
 # ---------------------------------------------------------------------------
 
+
 def test_appFiresWithManyControlsAndNoBodyOrHeadingCluster():
 	tree = _summary(interactiveControlCount=15)
 	result = cls.classify(tree)
@@ -367,6 +375,7 @@ def test_appFiresWithManyControlsAndNoBodyOrHeadingCluster():
 # ---------------------------------------------------------------------------
 # NOTICE
 # ---------------------------------------------------------------------------
+
 
 def test_noticeWithKeywordMatchIsHighConfidence():
 	# Google Forms closed page shape — small, one heading, status sentence.
@@ -464,6 +473,7 @@ def test_noticeBlockedByTooManyHeadings():
 # KEY_RESULT — label + value [+ unit] widget pattern.
 # ---------------------------------------------------------------------------
 
+
 def test_keyResultFiresForFastComStyleSpeedWidget():
 	# Pattern: short language-link chrome, then label / value / unit.
 	# No body cluster, no headings — pure widget page.
@@ -472,8 +482,8 @@ def test_keyResultFiresForFastComStyleSpeedWidget():
 			_node("paragraph", 8, preview="English"),
 			_node("paragraph", 9, preview="Español"),
 			_node("paragraph", 22, preview="Your Internet speed is"),  # label
-			_node("paragraph", 3, preview="170"),                       # value
-			_node("paragraph", 4, preview="Mbps"),                      # unit
+			_node("paragraph", 3, preview="170"),  # value
+			_node("paragraph", 4, preview="Mbps"),  # unit
 		],
 	)
 	result = cls.classify(tree)
@@ -590,6 +600,7 @@ def test_keyResultDoesNotFireOnFormPages():
 # UNKNOWN
 # ---------------------------------------------------------------------------
 
+
 def test_unknownWhenNoSignal():
 	tree = _summary()
 	result = cls.classify(tree)
@@ -601,9 +612,13 @@ def test_unknownWhenNoSignal():
 # Legal footer boilerplate vs hero (Zoom webinar registration regression)
 # ---------------------------------------------------------------------------
 
+
 def _boilerplateNode(length, preview=""):
 	return cls.MainNode(
-		kind="paragraph", textLength=length, textPreview=preview, isBoilerplate=True,
+		kind="paragraph",
+		textLength=length,
+		textPreview=preview,
+		isBoilerplate=True,
 	)
 
 
@@ -652,7 +667,9 @@ def test_hydratedZoomRegistrationClassifiesAsForm():
 		formInputCount=7,
 		interactiveControlCount=12,
 		mainNodes=[
-			_node("heading", 81, level=1, preview="AI as Assistive Technology: A Practical Stack for Entrepren"),
+			_node(
+				"heading", 81, level=1, preview="AI as Assistive Technology: A Practical Stack for Entrepren"
+			),
 			_node("heading", 20, level=2, preview="Webinar Registration"),
 			_node("paragraph", 1958, preview="Whether you're starting your business or scaling one, AI is"),
 			_boilerplateNode(69, preview="Copyright ©2026 Zoom Video Communications, Inc. All rights"),
@@ -707,6 +724,7 @@ def test_shapeOnlyNoticeStillRequiresZeroFormFields():
 # ---------------------------------------------------------------------------
 # Massive-duo FORM block (armstrongeconomics newsletter-widget regression)
 # ---------------------------------------------------------------------------
+
 
 def test_blogWithMassiveParagraphPairIsNotForm():
 	# Regression: armstrongeconomics.com war blog post (2026-07-06 soak).
@@ -841,20 +859,22 @@ def test_editorialUrlDoesNotBlockFormWhenUrlAlsoMatchesForm():
 # match. These tests pin BOTH sides of that boundary.
 # ---------------------------------------------------------------------------
 
+
 def test_contentPageWithOneSearchBoxIsNotAForm():
 	# IMDb / a TV station front page: lots of buttons, ONE real search box, and
 	# a single substantial content paragraph. Must not be FORM -- FORM is the
 	# branch that hijacks the user's focus.
 	nodes = [
 		_node("heading", 14, level=1, preview="The Dark Knight"),
-		_node("paragraph", 166,
-		      preview="When a menace known as the Joker wreaks havoc and chaos on the"),
+		_node("paragraph", 166, preview="When a menace known as the Joker wreaks havoc and chaos on the"),
 	]
-	result = cls.classify(_summary(
-		mainNodes=nodes,
-		formInputCount=1,          # the search box, and nothing else
-		interactiveControlCount=11,  # buttons galore -- must not matter
-	))
+	result = cls.classify(
+		_summary(
+			mainNodes=nodes,
+			formInputCount=1,  # the search box, and nothing else
+			interactiveControlCount=11,  # buttons galore -- must not matter
+		)
+	)
 	assert result.intent != cls.Intent.FORM
 
 
@@ -866,14 +886,15 @@ def test_registrationFormWithFourRealInputsIsAForm():
 	# the form instead of in it. Casey hit exactly that.
 	nodes = [
 		_node("heading", 16, level=1, preview="Create account"),
-		_node("paragraph", 120,
-		      preview="Email is required to recover your account if you lose your pass"),
+		_node("paragraph", 120, preview="Email is required to recover your account if you lose your pass"),
 	]
-	result = cls.classify(_summary(
-		mainNodes=nodes,
-		formInputCount=4,
-		interactiveControlCount=11,
-	))
+	result = cls.classify(
+		_summary(
+			mainNodes=nodes,
+			formInputCount=4,
+			interactiveControlCount=11,
+		)
+	)
 	assert result.intent == cls.Intent.FORM
 
 
@@ -885,15 +906,16 @@ def test_accountCreationUrlIsAFormUrlNotAnArticleUrl():
 	# landing the user on the help text BESIDE the form instead of in it.
 	nodes = [
 		_node("heading", 16, level=1, preview="Create account"),
-		_node("paragraph", 120,
-		      preview="Email is required to recover your account if you lose your pass"),
+		_node("paragraph", 120, preview="Email is required to recover your account if you lose your pass"),
 	]
-	result = cls.classify(_summary(
-		url="https://auth.wikimedia.org/enwiki/wiki/Special:CreateAccount",
-		mainNodes=nodes,
-		formInputCount=4,
-		interactiveControlCount=11,
-	))
+	result = cls.classify(
+		_summary(
+			url="https://auth.wikimedia.org/enwiki/wiki/Special:CreateAccount",
+			mainNodes=nodes,
+			formInputCount=4,
+			interactiveControlCount=11,
+		)
+	)
 	assert result.intent == cls.Intent.FORM
 
 
@@ -906,12 +928,14 @@ def test_wikiArticleUrlStillReadsAsEditorial():
 		_node("paragraph", 210, preview="It took place from June 4 to 7, 1942."),
 		_node("paragraph", 190, preview="The United States Navy defeated an attacking fleet."),
 	]
-	result = cls.classify(_summary(
-		url="https://en.wikipedia.org/wiki/Battle_of_Midway",
-		mainNodes=nodes,
-		formInputCount=1,
-		interactiveControlCount=11,
-	))
+	result = cls.classify(
+		_summary(
+			url="https://en.wikipedia.org/wiki/Battle_of_Midway",
+			mainNodes=nodes,
+			formInputCount=1,
+			interactiveControlCount=11,
+		)
+	)
 	assert result.intent != cls.Intent.FORM
 
 
@@ -946,13 +970,15 @@ def test_surveyUrlIsAFormNotAnArticle():
 		_node("paragraph", 124, preview="22. When navigating a web page by heading"),
 		_node("paragraph", 8, preview="Somewhat"),
 	]
-	result = cls.classify(_summary(
-		url="https://webaim.org/projects/screenreadersurvey11/survey",
-		mainNodes=nodes,
-		articleCount=1,
-		formInputCount=10,
-		interactiveControlCount=11,
-	))
+	result = cls.classify(
+		_summary(
+			url="https://webaim.org/projects/screenreadersurvey11/survey",
+			mainNodes=nodes,
+			articleCount=1,
+			formInputCount=10,
+			interactiveControlCount=11,
+		)
+	)
 	assert result.intent == cls.Intent.FORM
 
 
@@ -968,11 +994,13 @@ def test_surveyingArticleWithBodyClusterStaysEditorial():
 		_node("paragraph", 210, preview="Our licensed surveyors use GPS and total stations t"),
 		_node("paragraph", 190, preview="We deliver a stamped plat suitable for recording wi"),
 	]
-	result = cls.classify(_summary(
-		url="https://example.com/surveying-services",
-		mainNodes=nodes,
-		articleCount=1,
-		formInputCount=4,
-		interactiveControlCount=6,
-	))
+	result = cls.classify(
+		_summary(
+			url="https://example.com/surveying-services",
+			mainNodes=nodes,
+			articleCount=1,
+			formInputCount=4,
+			interactiveControlCount=6,
+		)
+	)
 	assert result.intent != cls.Intent.FORM

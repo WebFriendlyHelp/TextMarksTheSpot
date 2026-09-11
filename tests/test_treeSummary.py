@@ -28,10 +28,13 @@ def test_nodeForSkipsButtonRole():
 	# were emitted as paragraphs and won the landing via cluster check
 	# (adjacent question buttons each ≥50 chars). The walker now filters
 	# BUTTON role at chunk emission time so the classifier never sees them.
-	assert treeSummary._nodeFor(
-		_Obj("BUTTON"),
-		"What is the duration of the pothole repair surge in Colorado Springs?",
-	) is None
+	assert (
+		treeSummary._nodeFor(
+			_Obj("BUTTON"),
+			"What is the duration of the pothole repair surge in Colorado Springs?",
+		)
+		is None
+	)
 
 
 def test_nodeForSkipsToggleButtonRole():
@@ -94,10 +97,7 @@ def test_nodeForComputesTheDisclosureFlagOverFullText():
 	#
 	# Full text, deliberately: the giveaway phrase sits past the 60-char
 	# preview cutoff, which is the entire reason this moved to walk time.
-	text = (
-		"Before we get to the recipe, a quick word from our team: this post "
-		"contains affiliate links."
-	)
+	text = "Before we get to the recipe, a quick word from our team: this post contains affiliate links."
 	assert len(text) > 60
 	node = treeSummary._nodeFor(None, text)
 	assert node.isDisclosure is True

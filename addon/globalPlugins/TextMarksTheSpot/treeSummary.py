@@ -68,19 +68,31 @@ try:
 	import controlTypes
 	import textInfos
 	from logHandler import log
+
 	_NVDA_AVAILABLE = True
 except ImportError:
 	_NVDA_AVAILABLE = False
+
 	# Stub for unit tests outside NVDA.
 	class _StubLog:
-		def debug(self, *a, **k): pass
-		def info(self, *a, **k): pass
-		def warning(self, *a, **k): pass
-		def exception(self, *a, **k): pass
+		def debug(self, *a, **k):
+			pass
+
+		def info(self, *a, **k):
+			pass
+
+		def warning(self, *a, **k):
+			pass
+
+		def exception(self, *a, **k):
+			pass
+
 		# Mirrors logging.Logger so code guarded by a level check (the perf
 		# log writer) runs unchanged under the unit tests. Answering False
 		# also keeps tests from touching the real perf log on disk.
-		def isEnabledFor(self, level): return False
+		def isEnabledFor(self, level):
+			return False
+
 	log = _StubLog()
 
 try:
@@ -216,14 +228,20 @@ _COUNTS_PHASE_LOG_THRESHOLD_SEC = 0.3
 # UNIT_PARAGRAPH walk usually groups inline links with surrounding text,
 # so a paragraph-level chunk reporting role=LINK is rare in practice.
 _PARAGRAPH_SKIP_ROLES_NAMES = (
-	"GRAPHIC", "SEPARATOR", "UNKNOWN",
-	"BUTTON", "TOGGLEBUTTON",
+	"GRAPHIC",
+	"SEPARATOR",
+	"UNKNOWN",
+	"BUTTON",
+	"TOGGLEBUTTON",
 )
 
 # Roles that count as a focused editable control for guardrail #6.
 _EDITABLE_FOCUS_ROLES_NAMES = (
-	"EDITABLETEXT", "COMBOBOX", "LISTBOX",
-	"RADIOBUTTON", "CHECKBOX",
+	"EDITABLETEXT",
+	"COMBOBOX",
+	"LISTBOX",
+	"RADIOBUTTON",
+	"CHECKBOX",
 )
 
 
@@ -400,6 +418,7 @@ def _appendCapture(summary: "TreeSummary") -> None:
 		return
 	try:
 		import json
+
 		rec = {
 			"url": summary.url,
 			"has_main": summary.hasMainLandmark,
@@ -417,14 +436,30 @@ def _appendCapture(summary: "TreeSummary") -> None:
 			"article_count_trunc": summary.articleCountTruncated,
 			"walk_trunc": summary.walkTruncated,
 			"pre_main_nodes": [
-				[n.kind, n.level, n.textLength, n.textPreview,
-				 n.isCaption, n.isBoilerplate, n.isDisclosure, n.endsSentence]
+				[
+					n.kind,
+					n.level,
+					n.textLength,
+					n.textPreview,
+					n.isCaption,
+					n.isBoilerplate,
+					n.isDisclosure,
+					n.endsSentence,
+				]
 				for n in getattr(summary, "preMainNodes", ()) or ()
 			],
 			"positionally_scoped": summary.positionallyScoped,
 			"nodes": [
-				[n.kind, n.level, n.textLength, n.textPreview,
-				 n.isCaption, n.isBoilerplate, n.isDisclosure, n.endsSentence]
+				[
+					n.kind,
+					n.level,
+					n.textLength,
+					n.textPreview,
+					n.isCaption,
+					n.isBoilerplate,
+					n.isDisclosure,
+					n.endsSentence,
+				]
 				for n in summary.mainNodes
 			],
 		}
@@ -558,9 +593,32 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 	# exception truncation leave time on the clock — articleTruncated
 	# covers those.)
 	if scopeRange is not None:
-		summary.articleCount = _timedCount("article", lambda sc: _countInRange(treeInterceptor, "article", scopeRange, limit=_ARTICLE_LIMIT, deadline=countsDeadline, truncatedOut=articleTruncated, scannedOut=sc))
+		summary.articleCount = _timedCount(
+			"article",
+			lambda sc: _countInRange(
+				treeInterceptor,
+				"article",
+				scopeRange,
+				limit=_ARTICLE_LIMIT,
+				deadline=countsDeadline,
+				truncatedOut=articleTruncated,
+				scannedOut=sc,
+			),
+		)
 	else:
-		summary.articleCount = _timedCount("article", lambda sc: _countInScope(treeInterceptor, "article", mainObj, scopeCache, limit=_ARTICLE_LIMIT, deadline=countsDeadline, truncatedOut=articleTruncated, scannedOut=sc))
+		summary.articleCount = _timedCount(
+			"article",
+			lambda sc: _countInScope(
+				treeInterceptor,
+				"article",
+				mainObj,
+				scopeCache,
+				limit=_ARTICLE_LIMIT,
+				deadline=countsDeadline,
+				truncatedOut=articleTruncated,
+				scannedOut=sc,
+			),
+		)
 	if articleTruncated[0]:
 		countsTruncated[0] = True
 	if mainObj is None and summary.articleCount == 1:
@@ -571,10 +629,19 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 			scopeRange = articleRange
 			scopeKind = "article"
 
-	summary.formInputCount = _timedCount("forms", lambda sc: _countFormInputs(
-		treeInterceptor, scopeRange, mainObj, scopeCache, _FORM_LIMIT,
-		deadline=countsDeadline, truncatedOut=countsTruncated, scannedOut=sc,
-	))
+	summary.formInputCount = _timedCount(
+		"forms",
+		lambda sc: _countFormInputs(
+			treeInterceptor,
+			scopeRange,
+			mainObj,
+			scopeCache,
+			_FORM_LIMIT,
+			deadline=countsDeadline,
+			truncatedOut=countsTruncated,
+			scannedOut=sc,
+		),
+	)
 	# Interactive subtypes ordered most-common first so the running-sum
 	# short-circuit usually triggers on the first one or two enumerations
 	# (link-heavy pages dominate). Each per-type call also caps at the
@@ -585,16 +652,36 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 		if remaining <= 0:
 			break
 		if time.monotonic() > countsDeadline:
-			dlog.debug(
-				f"[TMTS count-budget] interactive count stopped at type "
-				f"'{t}' (running={running})"
-			)
+			dlog.debug(f"[TMTS count-budget] interactive count stopped at type '{t}' (running={running})")
 			countsTruncated[0] = True
 			break
 		if scopeRange is not None:
-			running += _timedCount("iv:" + t, lambda sc, _t=t, _r=remaining: _countInRange(treeInterceptor, _t, scopeRange, limit=_r, deadline=countsDeadline, truncatedOut=countsTruncated, scannedOut=sc))
+			running += _timedCount(
+				"iv:" + t,
+				lambda sc, _t=t, _r=remaining: _countInRange(
+					treeInterceptor,
+					_t,
+					scopeRange,
+					limit=_r,
+					deadline=countsDeadline,
+					truncatedOut=countsTruncated,
+					scannedOut=sc,
+				),
+			)
 		else:
-			running += _timedCount("iv:" + t, lambda sc, _t=t, _r=remaining: _countInScope(treeInterceptor, _t, mainObj, scopeCache, limit=_r, deadline=countsDeadline, truncatedOut=countsTruncated, scannedOut=sc))
+			running += _timedCount(
+				"iv:" + t,
+				lambda sc, _t=t, _r=remaining: _countInScope(
+					treeInterceptor,
+					_t,
+					mainObj,
+					scopeCache,
+					limit=_r,
+					deadline=countsDeadline,
+					truncatedOut=countsTruncated,
+					scannedOut=sc,
+				),
+			)
 	summary.interactiveControlCount = running
 	t2 = time.monotonic()
 	positions: list = []
@@ -620,7 +707,13 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 	# the document has no landmarks, because NVDA swallows the native failure.
 	preMainNodes: list = []
 	summary.mainNodes = _walkMainNodes(
-		treeInterceptor, mainObj, scopeCache, positions, noticeMatch, rawCount, scopeRange,
+		treeInterceptor,
+		mainObj,
+		scopeCache,
+		positions,
+		noticeMatch,
+		rawCount,
+		scopeRange,
 		allNodesOut=allNodes,
 		allPositionsOut=allPositions,
 		noticeMatchAllOut=noticeMatchAll,
@@ -668,11 +761,7 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 		# scopeRange=None means a capped enumeration with no per-item
 		# work. Non-zero scoped counts are kept — they carry real signal
 		# and unscoped recounting would inflate them with chrome controls.
-		if (
-			summary.articleCount == 0
-			and summary.formInputCount == 0
-			and summary.interactiveControlCount == 0
-		):
+		if summary.articleCount == 0 and summary.formInputCount == 0 and summary.interactiveControlCount == 0:
 			countsRescoped = True
 			# Fresh budget: the phase deadline above expired during the walk.
 			# These are unscoped capped enumerations (no per-item work), so
@@ -683,12 +772,24 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 			recountDeadline = time.monotonic() + _COUNT_TIME_BUDGET_SEC
 			countsTruncated = [False]
 			articleTruncated = [False]
-			summary.articleCount = _countInRange(treeInterceptor, "article", None, limit=_ARTICLE_LIMIT, deadline=recountDeadline, truncatedOut=articleTruncated)
+			summary.articleCount = _countInRange(
+				treeInterceptor,
+				"article",
+				None,
+				limit=_ARTICLE_LIMIT,
+				deadline=recountDeadline,
+				truncatedOut=articleTruncated,
+			)
 			if articleTruncated[0]:
 				countsTruncated[0] = True
 			summary.formInputCount = _countFormInputs(
-				treeInterceptor, None, None, {}, _FORM_LIMIT,
-				deadline=recountDeadline, truncatedOut=countsTruncated,
+				treeInterceptor,
+				None,
+				None,
+				{},
+				_FORM_LIMIT,
+				deadline=recountDeadline,
+				truncatedOut=countsTruncated,
 			)
 			running = 0
 			for t in ("link", "button", "edit", "comboBox", "checkBox", "radioButton"):
@@ -698,7 +799,14 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 				if time.monotonic() > recountDeadline:
 					countsTruncated[0] = True
 					break
-				running += _countInRange(treeInterceptor, t, None, limit=remaining, deadline=recountDeadline, truncatedOut=countsTruncated)
+				running += _countInRange(
+					treeInterceptor,
+					t,
+					None,
+					limit=remaining,
+					deadline=recountDeadline,
+					truncatedOut=countsTruncated,
+				)
 			summary.interactiveControlCount = running
 		# Name the DEPLETED case distinctly in the perf line. It is a different
 		# event from an empty scope (the filter produced something, it was just
@@ -732,19 +840,27 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 	# the session log. Sits immediately before the [TMTS perf] line for the same
 	# detection, the same adjacency the walk-phase line relies on to tie to a URL.
 	countsTotal = t2 - t1
-	_cphOrder = ["article", "single_article", "forms",
-	              "iv:link", "iv:button", "iv:edit", "iv:comboBox",
-	              "iv:checkBox", "iv:radioButton"]
+	_cphOrder = [
+		"article",
+		"single_article",
+		"forms",
+		"iv:link",
+		"iv:button",
+		"iv:edit",
+		"iv:comboBox",
+		"iv:checkBox",
+		"iv:radioButton",
+	]
 	_cphParts = []
 	for _k in _cphOrder:
 		if _k not in cphTime:
 			continue
 		if _k in cphScanned:
-			_cphParts.append(f"{_k}={cphTime[_k]*1000:.0f}ms({cphScanned[_k]}sc)")
+			_cphParts.append(f"{_k}={cphTime[_k] * 1000:.0f}ms({cphScanned[_k]}sc)")
 		else:
-			_cphParts.append(f"{_k}={cphTime[_k]*1000:.0f}ms")
+			_cphParts.append(f"{_k}={cphTime[_k] * 1000:.0f}ms")
 	countsPhaseLine = (
-		f"[TMTS counts-phase] counts_total={countsTotal*1000:.0f}ms "
+		f"[TMTS counts-phase] counts_total={countsTotal * 1000:.0f}ms "
 		f"{' '.join(_cphParts)} "
 		f"scope={scopeKind} counts_trunc={countsTruncated[0]} url={summary.url!r}"
 	)
@@ -753,11 +869,11 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 		_appendPerfLine(countsPhaseLine)
 
 	perfLine = (
-		f"[TMTS perf] total={(t4-t0)*1000:.0f}ms "
-		f"find_main={(t1-t0)*1000:.0f}ms "
-		f"counts={(t2-t1)*1000:.0f}ms "
-		f"walk={(t3-t2)*1000:.0f}ms "
-		f"fallback={(t4-t3)*1000:.0f}ms (ran={fallbackRan}) "
+		f"[TMTS perf] total={(t4 - t0) * 1000:.0f}ms "
+		f"find_main={(t1 - t0) * 1000:.0f}ms "
+		f"counts={(t2 - t1) * 1000:.0f}ms "
+		f"walk={(t3 - t2) * 1000:.0f}ms "
+		f"fallback={(t4 - t3) * 1000:.0f}ms (ran={fallbackRan}) "
 		f"truncated={walkTruncated[0]} counts_trunc={countsTruncated[0]} "
 		f"raw_seen={rawCount[0]} all_nodes={len(allNodes)} "
 		f"main_nodes={len(summary.mainNodes)} has_main={summary.hasMainLandmark} scope={scopeKind} "
@@ -980,6 +1096,7 @@ def releaseSummary(summary) -> None:
 # URL
 # ---------------------------------------------------------------------------
 
+
 def _getDocumentUrl(treeInterceptor) -> str:
 	# documentConstantIdentifier is the most stable URL accessor on
 	# browse-mode tree interceptors. On non-web interceptors (e.g., desktop
@@ -996,6 +1113,7 @@ def _getDocumentUrl(treeInterceptor) -> str:
 # Guardrail #6 — is focus already on an editable form control?
 # ---------------------------------------------------------------------------
 
+
 def isFocusEditable() -> bool:
 	"""Public wrapper around _isFocusEditable so the trigger can check
 	this BEFORE building a full tree summary or playing any feedback tone.
@@ -1004,7 +1122,9 @@ def isFocusEditable() -> bool:
 	return _isFocusEditable()
 
 
-def _formFieldInScope(item, scopeKind, scopeRange, chromeExclude, trustBoundary, untrustedRanges, mainObj, cache) -> bool:
+def _formFieldInScope(
+	item, scopeKind, scopeRange, chromeExclude, trustBoundary, untrustedRanges, mainObj, cache
+) -> bool:
 	"""Is this form field somewhere we are willing to MOVE KEYBOARD FOCUS?
 
 	Mirrors the walk's scope decision exactly, because the two disagreeing is
@@ -1104,8 +1224,14 @@ def setFocusOnFirstFormInput(treeInterceptor) -> bool:
 
 	def _inMain(item) -> bool:
 		return _formFieldInScope(
-			item, scopeKind, scopeRange, chromeExclude, trustBoundary,
-			untrustedRanges, landmarks.mainObj, cache,
+			item,
+			scopeKind,
+			scopeRange,
+			chromeExclude,
+			trustBoundary,
+			untrustedRanges,
+			landmarks.mainObj,
+			cache,
 		)
 
 	for itemType in ("edit", "formField"):
@@ -1153,9 +1279,15 @@ def _isFocusEditable() -> bool:
 # Landmark and structural counts
 # ---------------------------------------------------------------------------
 
-_CHROME_LANDMARK_TYPES = frozenset({
-	"navigation", "banner", "contentinfo", "complementary", "search",
-})
+_CHROME_LANDMARK_TYPES = frozenset(
+	{
+		"navigation",
+		"banner",
+		"contentinfo",
+		"complementary",
+		"search",
+	}
+)
 
 _PARENT_WALK_MAX_DEPTH = 30  # safety cap for parent-chain walks
 
@@ -1203,9 +1335,28 @@ class LandmarkScan:
 	the bounded-trust premise for this page (see trustBoundary).
 	"""
 
-	__slots__ = ("mainObj", "mainRange", "chromeRanges", "otherRanges", "trustBoundary", "ordered", "seen", "exhausted")
+	__slots__ = (
+		"mainObj",
+		"mainRange",
+		"chromeRanges",
+		"otherRanges",
+		"trustBoundary",
+		"ordered",
+		"seen",
+		"exhausted",
+	)
 
-	def __init__(self, mainObj=None, mainRange=None, chromeRanges=None, trustBoundary=None, ordered=True, otherRanges=None, seen=0, exhausted=False):
+	def __init__(
+		self,
+		mainObj=None,
+		mainRange=None,
+		chromeRanges=None,
+		trustBoundary=None,
+		ordered=True,
+		otherRanges=None,
+		seen=0,
+		exhausted=False,
+	):
 		self.mainObj = mainObj
 		self.mainRange = mainRange
 		self.chromeRanges = chromeRanges if chromeRanges is not None else []
@@ -1879,10 +2030,18 @@ def _findMainLandmark(treeInterceptor) -> "LandmarkScan":
 		# landmarks here" from "we never found out". Never pass True here.
 		probeStopped = "exception"
 		_logLandmarkProbe(probeTypes, probeOrdered, probeNoRange, probeStopped)
-		return LandmarkScan(None, None, chromeRanges, trustBoundary, probeOrdered, otherRanges, scanned, False)
+		return LandmarkScan(
+			None, None, chromeRanges, trustBoundary, probeOrdered, otherRanges, scanned, False
+		)
 	_logLandmarkProbe(probeTypes, probeOrdered, probeNoRange, probeStopped)
 	return LandmarkScan(
-		None, None, chromeRanges, trustBoundary, probeOrdered, otherRanges, scanned,
+		None,
+		None,
+		chromeRanges,
+		trustBoundary,
+		probeOrdered,
+		otherRanges,
+		scanned,
 		probeStopped == "exhausted",
 	)
 
@@ -1942,9 +2101,7 @@ def _singleArticleScopeRange(treeInterceptor, deadline: Optional[float] = None):
 					# scoping.
 					return None
 				found = ti
-			if scanned >= _COUNT_SCAN_LIMIT or (
-				deadline is not None and time.monotonic() > deadline
-			):
+			if scanned >= _COUNT_SCAN_LIMIT or (deadline is not None and time.monotonic() > deadline):
 				# Out of budget before the enumeration finished: single-ness
 				# is UNCONFIRMED, and unconfirmed single-ness must not
 				# positionally scope the walk.
@@ -2142,7 +2299,16 @@ def _inScope(obj, mainObj, cache: dict, stats: Optional[dict] = None) -> bool:
 	return verdict
 
 
-def _countInScope(treeInterceptor, itemType: str, mainObj, cache: dict, limit: int = 0, deadline: Optional[float] = None, truncatedOut: Optional[list] = None, scannedOut: Optional[list] = None) -> int:
+def _countInScope(
+	treeInterceptor,
+	itemType: str,
+	mainObj,
+	cache: dict,
+	limit: int = 0,
+	deadline: Optional[float] = None,
+	truncatedOut: Optional[list] = None,
+	scannedOut: Optional[list] = None,
+) -> int:
 	# Count quick-nav items of itemType that pass _inScope. If `limit` is
 	# positive, return as soon as count reaches it — the classifier only
 	# compares counts against fixed thresholds (e.g. APP_CONTROL_FLOOR=10),
@@ -2186,9 +2352,7 @@ def _countInScope(treeInterceptor, itemType: str, mainObj, cache: dict, limit: i
 				count += 1
 				if limit and count >= limit:
 					return count
-			if scanned >= _COUNT_SCAN_LIMIT or (
-				deadline is not None and time.monotonic() > deadline
-			):
+			if scanned >= _COUNT_SCAN_LIMIT or (deadline is not None and time.monotonic() > deadline):
 				if truncatedOut is not None:
 					truncatedOut[0] = True
 				break
@@ -2204,7 +2368,15 @@ def _countInScope(treeInterceptor, itemType: str, mainObj, cache: dict, limit: i
 _COUNT_SCAN_LIMIT = 300
 
 
-def _countInRange(treeInterceptor, itemType: str, scopeRange, limit: int = 0, deadline: Optional[float] = None, truncatedOut: Optional[list] = None, scannedOut: Optional[list] = None) -> int:
+def _countInRange(
+	treeInterceptor,
+	itemType: str,
+	scopeRange,
+	limit: int = 0,
+	deadline: Optional[float] = None,
+	truncatedOut: Optional[list] = None,
+	scannedOut: Optional[list] = None,
+) -> int:
 	"""Count quick-nav items of itemType POSITIONALLY: an item counts when
 	its range STARTS inside scopeRange. With scopeRange=None, counts the
 	whole document. No parent-chain walks — a buffer-offset comparison per
@@ -2254,9 +2426,7 @@ def _countInRange(treeInterceptor, itemType: str, scopeRange, limit: int = 0, de
 				count += 1
 				if limit and count >= limit:
 					return count
-			if scanned >= _COUNT_SCAN_LIMIT or (
-				deadline is not None and time.monotonic() > deadline
-			):
+			if scanned >= _COUNT_SCAN_LIMIT or (deadline is not None and time.monotonic() > deadline):
 				if truncatedOut is not None:
 					truncatedOut[0] = True
 				break
@@ -2328,7 +2498,16 @@ _FORM_INPUT_TYPES = ("edit", "comboBox", "checkBox", "radioButton")
 _COUNT_TIME_BUDGET_SEC = 0.6
 
 
-def _countFormInputs(treeInterceptor, scopeRange, mainObj, scopeCache: dict, limit: int, deadline: Optional[float] = None, truncatedOut: Optional[list] = None, scannedOut: Optional[list] = None) -> int:
+def _countFormInputs(
+	treeInterceptor,
+	scopeRange,
+	mainObj,
+	scopeCache: dict,
+	limit: int,
+	deadline: Optional[float] = None,
+	truncatedOut: Optional[list] = None,
+	scannedOut: Optional[list] = None,
+) -> int:
 	# Sum the real input types, stopping as soon as we reach the cap (so an
 	# obvious form doesn't pay for four full enumerations) or the clock.
 	# `deadline` is the shared counts-phase deadline from buildTreeSummary
@@ -2360,9 +2539,26 @@ def _countFormInputs(treeInterceptor, scopeRange, mainObj, scopeCache: dict, lim
 				truncatedOut[0] = True
 			break
 		if scopeRange is not None:
-			total += _countInRange(treeInterceptor, t, scopeRange, limit=remaining, deadline=deadline, truncatedOut=truncatedOut, scannedOut=scannedOut)
+			total += _countInRange(
+				treeInterceptor,
+				t,
+				scopeRange,
+				limit=remaining,
+				deadline=deadline,
+				truncatedOut=truncatedOut,
+				scannedOut=scannedOut,
+			)
 		else:
-			total += _countInScope(treeInterceptor, t, mainObj, scopeCache, limit=remaining, deadline=deadline, truncatedOut=truncatedOut, scannedOut=scannedOut)
+			total += _countInScope(
+				treeInterceptor,
+				t,
+				mainObj,
+				scopeCache,
+				limit=remaining,
+				deadline=deadline,
+				truncatedOut=truncatedOut,
+				scannedOut=scannedOut,
+			)
 	return total
 
 
@@ -2797,7 +2993,10 @@ def _chunkScope(
 		# comparison failure, fall back to the identity walk: guessing
 		# "not excluded" there is how a nav block becomes article text.
 		verdict = _chromePosVerdict(
-			info, trustBoundary, excludeRanges, untrustedRanges,
+			info,
+			trustBoundary,
+			excludeRanges,
+			untrustedRanges,
 		)
 		if verdict is not None:
 			return verdict, (_SCOPE_CHROME_KEEP if verdict else _SCOPE_CHROME_DROP)
@@ -2806,9 +3005,7 @@ def _chunkScope(
 		# landmark ENUMERATION, which is exactly the evidence bounded trust is
 		# missing here. See _landmarkScopeFromFields.
 		if fieldVerdict is not None:
-			return fieldVerdict, (
-				_SCOPE_FIELD_KEEP if fieldVerdict else _SCOPE_FIELD_DROP
-			)
+			return fieldVerdict, (_SCOPE_FIELD_KEEP if fieldVerdict else _SCOPE_FIELD_DROP)
 		obj = getObj()
 		if obj is None:
 			# NO EVIDENCE AT ALL. Positional could not decide and there is no
@@ -2842,9 +3039,7 @@ def _chunkScope(
 	# main-id keeps the parent chain. `mainObj is None` is exactly the
 	# chrome-scope test.
 	if mainObj is None and fieldVerdict is not None:
-		return fieldVerdict, (
-			_SCOPE_FIELD_KEEP if fieldVerdict else _SCOPE_FIELD_DROP
-		)
+		return fieldVerdict, (_SCOPE_FIELD_KEEP if fieldVerdict else _SCOPE_FIELD_DROP)
 
 	obj = getObj()
 	return (
@@ -2853,7 +3048,24 @@ def _chunkScope(
 	)
 
 
-def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, noticeMatchOut: Optional[list] = None, rawCountOut: Optional[list] = None, scopeRange=None, allNodesOut: Optional[list] = None, allPositionsOut: Optional[list] = None, noticeMatchAllOut: Optional[list] = None, truncatedOut: Optional[list] = None, excludeRanges=None, trustBoundary=None, untrustedRanges=None, positionalOut: Optional[list] = None, preambleNodesOut: Optional[list] = None) -> list[MainNode]:
+def _walkMainNodes(
+	treeInterceptor,
+	mainObj,
+	cache: dict,
+	positionsOut: list,
+	noticeMatchOut: Optional[list] = None,
+	rawCountOut: Optional[list] = None,
+	scopeRange=None,
+	allNodesOut: Optional[list] = None,
+	allPositionsOut: Optional[list] = None,
+	noticeMatchAllOut: Optional[list] = None,
+	truncatedOut: Optional[list] = None,
+	excludeRanges=None,
+	trustBoundary=None,
+	untrustedRanges=None,
+	positionalOut: Optional[list] = None,
+	preambleNodesOut: Optional[list] = None,
+) -> list[MainNode]:
 	# Walk the whole document by UNIT_PARAGRAPH; emit only nodes that
 	# pass _inScope (inside <main> if present, or outside chrome
 	# landmarks if not). Bail out once we've had _OUT_OF_SCOPE_TOLERANCE
@@ -3006,10 +3218,7 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 			# Same already-parsed leading run, second question. Costs dictionary
 			# lookups over a list we have in hand; the getTextWithFields call
 			# above was already being paid for the role.
-			fieldVerdict = (
-				_landmarkScopeFromFields(fields)
-				if fieldsCarryLandmarks else None
-			)
+			fieldVerdict = _landmarkScopeFromFields(fields) if fieldsCarryLandmarks else None
 			tFields += time.monotonic() - _t
 
 			# The object is now fetched LAZILY, and only where something actually
@@ -3065,8 +3274,15 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 			_t = time.monotonic()
 			_objBefore = tObj
 			inScope, scopeDecision = _chunkScope(
-				info, _getObj, scopeRange, excludeRanges,
-				trustBoundary, untrustedRanges, mainObj, cache, scopeStats,
+				info,
+				_getObj,
+				scopeRange,
+				excludeRanges,
+				trustBoundary,
+				untrustedRanges,
+				mainObj,
+				cache,
+				scopeStats,
 				fieldVerdict,
 			)
 			# Subtract any object resolution that happened INSIDE the scope
@@ -3076,8 +3292,10 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 			# which call site owns the clock.
 			tScope += (time.monotonic() - _t) - (tObj - _objBefore)
 			if scopeDecision in (
-				_SCOPE_CHROME_KEEP, _SCOPE_CHROME_DROP,
-				_SCOPE_FIELD_KEEP, _SCOPE_FIELD_DROP,
+				_SCOPE_CHROME_KEEP,
+				_SCOPE_CHROME_DROP,
+				_SCOPE_FIELD_KEEP,
+				_SCOPE_FIELD_DROP,
 			):
 				positionalHits += 1
 				if scopeDecision in (_SCOPE_FIELD_KEEP, _SCOPE_FIELD_DROP):
@@ -3204,10 +3422,10 @@ def _walkMainNodes(treeInterceptor, mainObj, cache: dict, positionsOut: list, no
 	# the user hits days apart, where the session log is long gone.
 	walkTotal = time.monotonic() - walkStart
 	phaseLine = (
-		f"[TMTS walk-phase] walk_total={walkTotal*1000:.0f}ms "
-		f"expand={tExpand*1000:.0f}ms text={tText*1000:.0f}ms "
-		f"obj={tObj*1000:.0f}ms fields={tFields*1000:.0f}ms "
-		f"scope={tScope*1000:.0f}ms "
+		f"[TMTS walk-phase] walk_total={walkTotal * 1000:.0f}ms "
+		f"expand={tExpand * 1000:.0f}ms text={tText * 1000:.0f}ms "
+		f"obj={tObj * 1000:.0f}ms fields={tFields * 1000:.0f}ms "
+		f"scope={tScope * 1000:.0f}ms "
 		f"chunks={rawSeen} parent_derefs={scopeStats.get('parent_derefs', 0)} "
 		f"cache_hits={scopeStats.get('cache_hits', 0)} "
 		f"cache_misses={scopeStats.get('cache_misses', 0)} "
@@ -3328,5 +3546,3 @@ def _headingLevel(obj) -> int:
 	except (TypeError, ValueError):
 		pass
 	return 0
-
-

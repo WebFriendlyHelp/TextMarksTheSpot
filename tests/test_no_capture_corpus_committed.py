@@ -32,7 +32,10 @@ def _trackedFiles():
 	try:
 		out = subprocess.run(
 			["git", "ls-files", "-z"],
-			cwd=ROOT, capture_output=True, text=True, timeout=30,
+			cwd=ROOT,
+			capture_output=True,
+			text=True,
+			timeout=30,
 		)
 	except (OSError, subprocess.SubprocessError):
 		pytest.skip("git not available")

@@ -150,6 +150,7 @@ def test_perfLogEnabledWritesTheLine(monkeypatch, tmp_path):
 # repoints APPDATA at an empty temp directory at import time; these pin it.
 # ---------------------------------------------------------------------------
 
+
 def test_appdataIsRedirectedAwayFromTheRealOne():
 	real = os.path.expanduser("~")
 	appdata = os.environ.get("APPDATA", "")
@@ -228,6 +229,7 @@ def test_theLandmarkProbeWritesNothingByDefault():
 # they say nothing about where anyone has been, and they are what makes a crash
 # report from a stranger worth having.
 # ---------------------------------------------------------------------------
+
 
 def test_gatedDebugIsSilentWithoutTheMarker(monkeypatch, tmp_path):
 	_reset(monkeypatch, tmp_path)

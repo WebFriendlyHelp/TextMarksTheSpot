@@ -7,23 +7,46 @@ import re
 # Class / id substrings that mark a node as "unlikely" main content.
 # Used by scoring.py to penalize candidates.
 UNLIKELY_CLASS_ID_SUBSTRINGS = (
-	"sidebar", "side-bar",
-	"comment", "comments",
-	"nav", "navigation", "menu",
-	"header", "footer",
-	"ad", "ads", "advert",
-	"social", "share", "sharing",
-	"cookie", "consent", "banner",
-	"popup", "modal", "overlay",
-	"related", "recommendation",
+	"sidebar",
+	"side-bar",
+	"comment",
+	"comments",
+	"nav",
+	"navigation",
+	"menu",
+	"header",
+	"footer",
+	"ad",
+	"ads",
+	"advert",
+	"social",
+	"share",
+	"sharing",
+	"cookie",
+	"consent",
+	"banner",
+	"popup",
+	"modal",
+	"overlay",
+	"related",
+	"recommendation",
 	"breadcrumb",
-	"newsletter", "subscribe",
-	"promo", "sponsor",
+	"newsletter",
+	"subscribe",
+	"promo",
+	"sponsor",
 )
 
 # Class / id substrings that POSITIVELY indicate main content.
 POSITIVE_CLASS_ID_SUBSTRINGS = (
-	"article", "post", "content", "entry", "main", "body", "story", "text",
+	"article",
+	"post",
+	"content",
+	"entry",
+	"main",
+	"body",
+	"story",
+	"text",
 )
 
 # Quoted reply detection — Phase 2 (email detection).

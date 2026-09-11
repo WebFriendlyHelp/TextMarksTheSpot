@@ -28,6 +28,7 @@ import time
 
 try:
 	import tones
+
 	_TONES_AVAILABLE = True
 except ImportError:
 	_TONES_AVAILABLE = False

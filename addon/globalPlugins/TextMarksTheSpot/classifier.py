@@ -43,16 +43,17 @@ class Intent(enum.Enum):
 # <meta>/<head> signals, no raw HTML. URL is OK; treeInterceptor exposes it.
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class MainNode:
 	# One item inside <main> (or the document root if no <main>), in document
 	# order. NVDA exposes both headings and paragraph text when walking by
 	# UNIT_PARAGRAPH and checking role on each NVDAObjectAtStart — that walk
 	# produces the interleaved sequence this list represents.
-	kind: str                    # "heading" or "paragraph"
+	kind: str  # "heading" or "paragraph"
 	level: Optional[int] = None  # heading level 1-6; None for paragraphs
-	textLength: int = 0         # chars
-	textPreview: str = ""       # first ~60 chars, for fixture readability only
+	textLength: int = 0  # chars
+	textPreview: str = ""  # first ~60 chars, for fixture readability only
 	# True when this paragraph is a figure caption / photo credit. Computed
 	# at walk time over the FULL chunk text (not the truncated preview),
 	# because the giveaway — a trailing "(Getty Images)"-style credit — is
@@ -94,7 +95,7 @@ class TreeSummary:
 
 	# Landmark / structural signals
 	hasMainLandmark: bool = False
-	articleCount: int = 0          # number of <article> elements in the document
+	articleCount: int = 0  # number of <article> elements in the document
 
 	# True when mainNodes came from a POSITIONAL walk scoped to a single
 	# <article> (no <main> landmark, exactly one article). The tree is then
@@ -107,7 +108,7 @@ class TreeSummary:
 	mainNodes: list[MainNode] = field(default_factory=list)
 
 	# Interactive controls inside <main>.
-	formInputCount: int = 0           # editable inputs, comboboxes, etc.
+	formInputCount: int = 0  # editable inputs, comboboxes, etc.
 	interactiveControlCount: int = 0  # all interactive: buttons + inputs + links + widgets
 
 	# Guardrail #6: did the page auto-focus an editable control before we fired?
@@ -171,9 +172,9 @@ class ClassifierResult:
 # Tunables — gathered in one place so we can sweep them later.
 # ---------------------------------------------------------------------------
 
-PARAGRAPH_MIN_CHARS = 100         # what counts as a "substantial" body paragraph
-PARAGRAPH_CLUSTER_MIN_SIZE = 3    # how many in a row to call it a cluster
-PARAGRAPH_CLUSTER_MIN_CHARS = 500 # combined chars across the cluster
+PARAGRAPH_MIN_CHARS = 100  # what counts as a "substantial" body paragraph
+PARAGRAPH_CLUSTER_MIN_SIZE = 3  # how many in a row to call it a cluster
+PARAGRAPH_CLUSTER_MIN_CHARS = 500  # combined chars across the cluster
 
 # Two ADJACENT paragraphs this long each are unambiguous editorial content
 # even though they miss the 3-paragraph cluster bar. armstrongeconomics.com
@@ -189,7 +190,7 @@ MASSIVE_DUO_MIN_CHARS_EACH = 200
 # dividers (300+ chars of body between section H2s) break.
 HEADING_CLUSTER_MAX_CHARS_BETWEEN = 300
 
-FORM_INPUT_THRESHOLD = 3          # min inputs to suspect a form intent
+FORM_INPUT_THRESHOLD = 3  # min inputs to suspect a form intent
 
 # A login form is only 2 real inputs (username/email + password), so it can
 # never reach FORM_INPUT_THRESHOLD by count alone — starttesting.net/login
@@ -238,9 +239,9 @@ _AUTH_URL_SEGMENT_RE = re.compile(
 # carry an <article> or a strong body cluster, and BOTH of those block FORM
 # unconditionally -- this override only ever competes with the hero gate.
 STRONG_FORM_INPUT_COUNT = 4
-HEADING_CLUSTER_MIN_SIZE = 5      # min same-level adjacent headings to call it a list
-ARTICLE_DEMOTE_TO_LIST_AT = 3     # this many <article> siblings = list, not article
-APP_CONTROL_FLOOR = 10            # min interactive controls to suspect app intent
+HEADING_CLUSTER_MIN_SIZE = 5  # min same-level adjacent headings to call it a list
+ARTICLE_DEMOTE_TO_LIST_AT = 3  # this many <article> siblings = list, not article
+APP_CONTROL_FLOOR = 10  # min interactive controls to suspect app intent
 
 # Hero-paragraph fallback (landing-page / mission-statement pattern):
 # a substantial intro paragraph sitting in the lead position, even without
@@ -260,7 +261,7 @@ HERO_PARAGRAPH_MIN_CHARS = 50
 # (the cards are nav). General rule, no per-site customization.
 HERO_OVERRIDES_LIST_CHARS = 300
 
-CONFIDENCE_THRESHOLD = 0.6        # below this, return UNKNOWN
+CONFIDENCE_THRESHOLD = 0.6  # below this, return UNKNOWN
 
 # KEY_RESULT intent — fast.com / weather / battery / stock-quote pattern.
 # A short label paragraph followed by a value paragraph (mostly digits)
@@ -269,30 +270,71 @@ KEY_RESULT_LABEL_MIN_CHARS = 10
 KEY_RESULT_LABEL_MAX_CHARS = 40
 KEY_RESULT_VALUE_MAX_CHARS = 8
 KEY_RESULT_UNIT_MAX_CHARS = 8
-KEY_RESULT_UNIT_LOOKAHEAD = 3      # nodes after the value to scan for unit
+KEY_RESULT_UNIT_LOOKAHEAD = 3  # nodes after the value to scan for unit
 # Common units that, when standing alone as a short paragraph, confirm a
 # label+value+unit triplet. Lower-cased for matching.
-_KEY_RESULT_UNIT_WORDS = frozenset({
-	"mbps", "kbps", "gbps", "bps", "tbps",
-	"gb", "mb", "kb", "tb", "pb",
-	"ms", "sec", "min", "mins", "hr", "hrs",
-	"usd", "eur", "gbp", "jpy", "cad", "aud", "chf",
-	"%", "kg", "g", "lb", "lbs", "oz", "mg",
-	"°c", "°f",
-	"mph", "kph", "kmh", "mps",
-	"fps", "hz", "khz", "mhz", "ghz",
-	"mi", "km", "cm", "mm", "ft", "in", "yd",
-})
+_KEY_RESULT_UNIT_WORDS = frozenset(
+	{
+		"mbps",
+		"kbps",
+		"gbps",
+		"bps",
+		"tbps",
+		"gb",
+		"mb",
+		"kb",
+		"tb",
+		"pb",
+		"ms",
+		"sec",
+		"min",
+		"mins",
+		"hr",
+		"hrs",
+		"usd",
+		"eur",
+		"gbp",
+		"jpy",
+		"cad",
+		"aud",
+		"chf",
+		"%",
+		"kg",
+		"g",
+		"lb",
+		"lbs",
+		"oz",
+		"mg",
+		"°c",
+		"°f",
+		"mph",
+		"kph",
+		"kmh",
+		"mps",
+		"fps",
+		"hz",
+		"khz",
+		"mhz",
+		"ghz",
+		"mi",
+		"km",
+		"cm",
+		"mm",
+		"ft",
+		"in",
+		"yd",
+	}
+)
 _KEY_RESULT_IMPLICIT_UNIT_CHARS = "%$°€£¥"
 
 # NOTICE intent (closed forms, success/error pages, "Thank you", 404s).
 # Fires only when the page is small and quiet — bigger pages with similar
 # keywords (an article that mentions "thank you" in the middle) must not
 # match. All checks are AND-ed.
-NOTICE_MIN_TEXT_CHARS = 20        # need at least a sentence
-NOTICE_MAX_TOTAL_CHARS = 1500     # bigger than this and it's a real content page
-NOTICE_MAX_HEADINGS = 3           # 1 H1 + maybe 1-2 supporting headings
-NOTICE_MAX_INTERACTIVES = 6       # a few CTAs / footer links, no real UI
+NOTICE_MIN_TEXT_CHARS = 20  # need at least a sentence
+NOTICE_MAX_TOTAL_CHARS = 1500  # bigger than this and it's a real content page
+NOTICE_MAX_HEADINGS = 3  # 1 H1 + maybe 1-2 supporting headings
+NOTICE_MAX_INTERACTIVES = 6  # a few CTAs / footer links, no real UI
 # With a status-keyword match, tolerate a couple of form controls: real
 # confirmation pages carry widgets like "Add to calendar" that NVDA's
 # formField quick-nav class counts (Zoom's "You have successfully
@@ -309,10 +351,20 @@ URL_HINTS = {
 	# an "editorial URL". A registration form was being treated as an
 	# encyclopedia article, landing the user on the help text BESIDE the form
 	# instead of in it. (2026-07-14 soak.)
-	Intent.FORM:    (
-		"/signup", "/sign-up", "/register", "/contact", "/apply", "/intake",
-		"/login", "/signin", "/sign-in", "/log-in",
-		"createaccount", "userlogin", "/auth/",
+	Intent.FORM: (
+		"/signup",
+		"/sign-up",
+		"/register",
+		"/contact",
+		"/apply",
+		"/intake",
+		"/login",
+		"/signin",
+		"/sign-in",
+		"/log-in",
+		"createaccount",
+		"userlogin",
+		"/auth/",
 		# A survey / questionnaire page is a form: its whole purpose is to
 		# collect answers. WebAIM's Screen Reader User Survey wraps the
 		# questions in a single <article>, which blocked FORM and landed the
@@ -320,11 +372,12 @@ URL_HINTS = {
 		# "/poll" is deliberately omitted -- plain substring matching would
 		# catch "/pollution". "/survey" collides only with the niche
 		# "/surveying", which a real body cluster still blocks unconditionally.
-		"/survey", "/questionnaire",
+		"/survey",
+		"/questionnaire",
 	),
 	Intent.ARTICLE: ("/article/", "/news/", "/blog/", "/post/", "/story/", "/posts/", "/wiki/", "/podcast"),
-	Intent.LIST:    ("/search", "/results", "/category/", "/tag/", "/feed", "/topic/"),
-	Intent.APP:     ("/app/", "/compose", "/dashboard", "/admin/"),
+	Intent.LIST: ("/search", "/results", "/category/", "/tag/", "/feed", "/topic/"),
+	Intent.APP: ("/app/", "/compose", "/dashboard", "/admin/"),
 }
 
 
@@ -332,11 +385,13 @@ URL_HINTS = {
 # Public entry point
 # ---------------------------------------------------------------------------
 
+
 def classify(tree: TreeSummary) -> ClassifierResult:
 	# 1. Guardrail #6 — honor website-placed focus on form controls.
 	if tree.focusedControlIsEditable:
 		return ClassifierResult(
-			Intent.SILENT_FOCUS_HONORED, 1.0,
+			Intent.SILENT_FOCUS_HONORED,
+			1.0,
 			"Focused editable control — honoring page-placed focus",
 		)
 
@@ -370,10 +425,7 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	#    - substantial body cluster (article page with embedded search etc.)
 	strongArticleCluster = tree.articleCount >= ARTICLE_DEMOTE_TO_LIST_AT
 	hasHero = heroChars >= HERO_PARAGRAPH_MIN_CHARS
-	hasBodyClusterStrong = (
-		bodySize >= PARAGRAPH_CLUSTER_MIN_SIZE
-		and bodyChars >= PARAGRAPH_CLUSTER_MIN_CHARS
-	)
+	hasBodyClusterStrong = bodySize >= PARAGRAPH_CLUSTER_MIN_SIZE and bodyChars >= PARAGRAPH_CLUSTER_MIN_CHARS
 	# Strong form signal (>= STRONG_FORM_INPUT_COUNT inputs) overrides the
 	# hero block — a page with 5+ form inputs is a form even if its label
 	# text accumulates into a "hero" run. Real-article body cluster still
@@ -439,7 +491,8 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 			confidence = min(confidence + 0.15, 0.99)
 		if confidence >= CONFIDENCE_THRESHOLD:
 			return ClassifierResult(
-				Intent.FORM, confidence,
+				Intent.FORM,
+				confidence,
 				f"{tree.formInputCount} form inputs in main content",
 			)
 
@@ -452,15 +505,8 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	#    each related-stories card in <article>, inflating articleCount to
 	#    5+ even on a single-article page — but the article also has a
 	#    substantial hero or body cluster that should win.
-	isListByArticles = (
-		strongArticleCluster
-		and not hasHero
-		and not hasBodyClusterStrong
-	)
-	isListByHeadings = (
-		headingSize >= HEADING_CLUSTER_MIN_SIZE
-		and heroChars < HERO_OVERRIDES_LIST_CHARS
-	)
+	isListByArticles = strongArticleCluster and not hasHero and not hasBodyClusterStrong
+	isListByHeadings = headingSize >= HEADING_CLUSTER_MIN_SIZE and heroChars < HERO_OVERRIDES_LIST_CHARS
 	if isListByArticles or isListByHeadings:
 		confidence = 0.7
 		if tree.articleCount >= 5:
@@ -471,7 +517,8 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 			confidence = min(confidence + 0.1, 0.99)
 		if confidence >= CONFIDENCE_THRESHOLD:
 			return ClassifierResult(
-				Intent.LIST, confidence,
+				Intent.LIST,
+				confidence,
 				f"article_count={tree.articleCount}, "
 				f"heading_cluster={headingSize}@L{headingLevel}, "
 				f"body_cluster={bodySize}",
@@ -479,13 +526,11 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 
 	# 5. Article intent.
 	hasArticleElement = tree.articleCount == 1
-	hasBodyCluster = (
-		bodySize >= PARAGRAPH_CLUSTER_MIN_SIZE
-		and bodyChars >= PARAGRAPH_CLUSTER_MIN_CHARS
-	)
+	hasBodyCluster = bodySize >= PARAGRAPH_CLUSTER_MIN_SIZE and bodyChars >= PARAGRAPH_CLUSTER_MIN_CHARS
 	if hasArticleElement and hasBodyCluster:
 		return ClassifierResult(
-			Intent.ARTICLE, 0.9,
+			Intent.ARTICLE,
+			0.9,
 			f"<article> element + body cluster ({bodySize} paragraphs, {bodyChars} chars)",
 		)
 	if hasBodyCluster:
@@ -493,9 +538,9 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 		if _urlMatches(url, Intent.ARTICLE):
 			confidence = 0.85
 		return ClassifierResult(
-			Intent.ARTICLE, confidence,
-			f"body cluster ({bodySize} paragraphs, {bodyChars} chars), "
-			f"no <article> wrapper",
+			Intent.ARTICLE,
+			confidence,
+			f"body cluster ({bodySize} paragraphs, {bodyChars} chars), no <article> wrapper",
 		)
 
 	# 5.5: KEY_RESULT — short "label + value [+ unit]" widget pattern at the
@@ -522,7 +567,8 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 				confidence = min(confidence + 0.1, 0.9)
 			if confidence >= CONFIDENCE_THRESHOLD:
 				return ClassifierResult(
-					Intent.ARTICLE, confidence,
+					Intent.ARTICLE,
+					confidence,
 					f"hero paragraph ({heroChars} chars in lead position), no body cluster",
 				)
 
@@ -536,7 +582,8 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 			confidence = 0.8
 		if confidence >= CONFIDENCE_THRESHOLD:
 			return ClassifierResult(
-				Intent.APP, confidence,
+				Intent.APP,
+				confidence,
 				f"{tree.interactiveControlCount} interactive controls, no body or heading cluster",
 			)
 
@@ -551,7 +598,8 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 
 	# 8. Unknown.
 	return ClassifierResult(
-		Intent.UNKNOWN, 0.0,
+		Intent.UNKNOWN,
+		0.0,
 		"No signal above threshold — guardrail #3 silent",
 	)
 
@@ -587,13 +635,14 @@ def _classifyNotice(tree: TreeSummary) -> Optional[ClassifierResult]:
 	#   forms (login pages) can't classify as notices.
 	if tree.noticeKeywordMatch and tree.formInputCount <= NOTICE_KEYWORD_MAX_FORM_INPUTS:
 		return ClassifierResult(
-			Intent.NOTICE, 0.85,
-			f"notice shape ({totalChars} chars, {headingCount} headings) "
-			f"+ status keyword match",
+			Intent.NOTICE,
+			0.85,
+			f"notice shape ({totalChars} chars, {headingCount} headings) + status keyword match",
 		)
 	if tree.formInputCount == 0 and 1 <= headingCount <= 2:
 		return ClassifierResult(
-			Intent.NOTICE, 0.65,
+			Intent.NOTICE,
+			0.65,
 			f"notice shape ({totalChars} chars, {headingCount} heading(s))",
 		)
 	return None
@@ -602,6 +651,7 @@ def _classifyNotice(tree: TreeSummary) -> Optional[ClassifierResult]:
 # ---------------------------------------------------------------------------
 # Cluster helpers — walk the interleaved node list once each.
 # ---------------------------------------------------------------------------
+
 
 def _largestParagraphCluster(nodes: list[MainNode]) -> tuple[int, int]:
 	# Largest run of consecutive paragraph nodes, each >= PARAGRAPH_MIN_CHARS,
@@ -736,6 +786,7 @@ def _urlIsAuthForm(url: str) -> bool:
 # KEY_RESULT pattern detection.
 # ---------------------------------------------------------------------------
 
+
 def _classifyKeyResult(tree: TreeSummary) -> Optional[ClassifierResult]:
 	# Apps and forms don't qualify — too much interactivity to be a single
 	# key-result widget page.
@@ -752,7 +803,8 @@ def _classifyKeyResult(tree: TreeSummary) -> Optional[ClassifierResult]:
 	if labelIdx is None:
 		return None
 	return ClassifierResult(
-		Intent.KEY_RESULT, 0.8,
+		Intent.KEY_RESULT,
+		0.8,
 		f"label+value[+unit] pattern at idx {labelIdx}",
 	)
 
@@ -827,10 +879,7 @@ def _looksLikeKeyResultValue(node: MainNode) -> bool:
 	# characters (digits + formatting + unit hints).
 	if not any(c.isdigit() for c in s):
 		return False
-	allowed = sum(
-		1 for c in s
-		if c.isdigit() or c in ".,%$-+°€£¥"
-	)
+	allowed = sum(1 for c in s if c.isdigit() or c in ".,%$-+°€£¥")
 	return allowed >= len(s) * 0.7
 
 

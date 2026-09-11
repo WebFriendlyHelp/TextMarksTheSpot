@@ -53,6 +53,7 @@ FAR_FUTURE = time.monotonic() + 3600.0
 # Expired deadline: no new enumeration starts, truncated is set.
 # ---------------------------------------------------------------------------
 
+
 def test_countInRangeExpiredDeadlineFetchesNothing():
 	ti = FakeTI(50)
 	flag = [False]
@@ -92,6 +93,7 @@ def test_singleArticleScopeRangeExpiredDeadlineReturnsNone():
 # ---------------------------------------------------------------------------
 # Scan cap: stop FETCHING at the cap, set truncated, keep the partial count.
 # ---------------------------------------------------------------------------
+
 
 def test_countInRangeScanCapNeverFetchesPastCap():
 	ti = FakeTI(ts._COUNT_SCAN_LIMIT + 100)
@@ -133,6 +135,7 @@ def test_limitReachedIsNotTruncation():
 # Iterator exception: partial count preserved, truncated set.
 # ---------------------------------------------------------------------------
 
+
 def test_countInRangeExceptionPreservesPartialCountAndFlags():
 	ti = FakeTI(50, raiseAfter=7)
 	flag = [False]
@@ -163,6 +166,7 @@ def test_exceptionAtFirstItemIsNotATrustworthyZero():
 # truncated flag (it is a probe, not a control signal).
 # ---------------------------------------------------------------------------
 
+
 def test_scannedOutMatchesFetchedOnFullScan():
 	ti = FakeTI(40)
 	scanned = [0]
@@ -186,8 +190,7 @@ def test_scannedOutReachesScanCap():
 	ti = FakeTI(5000)
 	scanned = [0]
 	flag = [False]
-	ts._countInRange(ti, "link", None, limit=0, deadline=FAR_FUTURE,
-	                 truncatedOut=flag, scannedOut=scanned)
+	ts._countInRange(ti, "link", None, limit=0, deadline=FAR_FUTURE, truncatedOut=flag, scannedOut=scanned)
 	assert scanned[0] == ts._COUNT_SCAN_LIMIT
 	assert flag[0] is True
 
@@ -204,10 +207,17 @@ def test_scannedOutAccumulatesAcrossFormTypes():
 
 def test_scannedOutDoesNotChangeCountOrTruncation():
 	# Same inputs, with and without the probe: identical count and flag.
-	a = ts._countInRange(FakeTI(50, raiseAfter=7), "link", None, limit=0,
-	                       deadline=FAR_FUTURE, truncatedOut=(fa := [False]))
-	b = ts._countInRange(FakeTI(50, raiseAfter=7), "link", None, limit=0,
-	                       deadline=FAR_FUTURE, truncatedOut=(fb := [False]),
-	                       scannedOut=[0])
+	a = ts._countInRange(
+		FakeTI(50, raiseAfter=7), "link", None, limit=0, deadline=FAR_FUTURE, truncatedOut=(fa := [False])
+	)
+	b = ts._countInRange(
+		FakeTI(50, raiseAfter=7),
+		"link",
+		None,
+		limit=0,
+		deadline=FAR_FUTURE,
+		truncatedOut=(fb := [False]),
+		scannedOut=[0],
+	)
 	assert a == b == 7
 	assert fa[0] == fb[0] is True
