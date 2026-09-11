@@ -163,7 +163,7 @@ def _looksLikeDefinitionalLede(text: str, subject: str) -> bool:
 	pos = lower.find(subj)
 	if pos < 0 or pos > _DEFINITIONAL_SUBJECT_WINDOW:
 		return False
-	tail = lower[pos + len(subj):pos + len(subj) + _DEFINITIONAL_COPULA_WINDOW]
+	tail = lower[pos + len(subj) : pos + len(subj) + _DEFINITIONAL_COPULA_WINDOW]
 	return any(copula in tail for copula in _DEFINITIONAL_COPULAS)
 
 
@@ -286,9 +286,7 @@ def _findLeadSectionLanding(nodes) -> Optional[int]:
 	Not a threshold change -- a new structural signal. Returns None to mean "not
 	my case; run the normal cascade."
 	"""
-	firstHeading = next(
-		(i for i, n in enumerate(nodes) if n.kind == "heading"), None
-	)
+	firstHeading = next((i for i, n in enumerate(nodes) if n.kind == "heading"), None)
 	if firstHeading is None:
 		return None
 	nextHeading = next(
@@ -414,11 +412,7 @@ def _findTitleLedeLanding(nodes) -> Optional[int]:
 			# They are not disqualifying -- keep scanning past them.
 			continue
 		nxt = nodes[i + 1] if i + 1 < len(nodes) else None
-		if (
-			nxt is not None
-			and nxt.kind == "paragraph"
-			and nxt.textLength >= LANDING_MIN_PARAGRAPH_CHARS
-		):
+		if nxt is not None and nxt.kind == "paragraph" and nxt.textLength >= LANDING_MIN_PARAGRAPH_CHARS:
 			# Guard 2: the ordinary cluster gate owns this shape.
 			return None
 		# Guard 4: a standfirst / dek sits ABOVE the author-meta block (byline,
@@ -785,10 +779,24 @@ _PARTICIPLE_BYLINE_MAX_CHARS = 120
 _BYLINE_FULLDATE_RE = _re.compile(
 	r"\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b"
 )
-_BYLINE_TEMPORAL_OPENERS = frozenset({
-	"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-	"then", "now", "morning", "afternoon", "evening", "midnight", "noon",
-})
+_BYLINE_TEMPORAL_OPENERS = frozenset(
+	{
+		"monday",
+		"tuesday",
+		"wednesday",
+		"thursday",
+		"friday",
+		"saturday",
+		"sunday",
+		"then",
+		"now",
+		"morning",
+		"afternoon",
+		"evening",
+		"midnight",
+		"noon",
+	}
+)
 _DATED_BYLINE_MAX_CHARS = 120
 
 
@@ -813,10 +821,7 @@ def _looksLikeByline(text: str, fullLength: Optional[int] = None) -> bool:
 	if not text:
 		return False
 	effectiveLength = fullLength if fullLength is not None else len(text)
-	if (
-		effectiveLength <= _PARTICIPLE_BYLINE_MAX_CHARS
-		and _PARTICIPLE_BYLINE_RE.match(text)
-	):
+	if effectiveLength <= _PARTICIPLE_BYLINE_MAX_CHARS and _PARTICIPLE_BYLINE_RE.match(text):
 		return True
 	if not text.startswith("By "):
 		return False
@@ -1000,9 +1005,8 @@ def _looksLikeEditorialDisclosure(text: str, fullLength: int = None) -> bool:
 	if any(phrase in lower for phrase in _DISCLOSURE_UNAMBIGUOUS):
 		return True
 	# Publishing language only counts when the paragraph refers to ITSELF.
-	if (
-		any(p in lower for p in _DISCLOSURE_SELF_REFERENCE)
-		and any(p in lower for p in _DISCLOSURE_PUBLISHING)
+	if any(p in lower for p in _DISCLOSURE_SELF_REFERENCE) and any(
+		p in lower for p in _DISCLOSURE_PUBLISHING
 	):
 		return True
 	# Explicit newsletter-signup CTA.
@@ -1010,9 +1014,8 @@ def _looksLikeEditorialDisclosure(text: str, fullLength: int = None) -> bool:
 		return True
 	# Publisher opinion-disclaimer: an "expressed opinion/view" phrase paired
 	# with a "not necessarily reflect/represent" phrase.
-	return (
-		any(p in lower for p in _DISCLOSURE_OPINION)
-		and any(p in lower for p in _DISCLOSURE_NOT_NECESSARILY)
+	return any(p in lower for p in _DISCLOSURE_OPINION) and any(
+		p in lower for p in _DISCLOSURE_NOT_NECESSARILY
 	)
 
 
@@ -1029,7 +1032,8 @@ def _nodeIsDisclosure(node) -> bool:
 	if getattr(node, "isDisclosure", False):
 		return True
 	return _looksLikeEditorialDisclosure(
-		node.textPreview or "", fullLength=getattr(node, "textLength", None),
+		node.textPreview or "",
+		fullLength=getattr(node, "textLength", None),
 	)
 
 
@@ -1226,9 +1230,7 @@ def _looksLikeNewsDateline(text: str) -> bool:
 # all responses" link) and the hero gate (under HERO_PATTERN_MIN_CHARS). Match
 # is on the widget's label text, so this fires across every blog that uses the
 # feature — it is a cross-site shape rule, not a per-site special case.
-_BLOGGING_PROMPT_LABELS = (
-	"daily writing prompt",
-)
+_BLOGGING_PROMPT_LABELS = ("daily writing prompt",)
 
 
 def _findBloggingPromptLanding(nodes):
@@ -1298,10 +1300,7 @@ def _sentenceStrictView(tree: TreeSummary) -> Optional[TreeSummary]:
 	flag through the eight functions that call it, and it mutates nothing.
 	"""
 	nodes = tree.mainNodes
-	if not any(
-		n.kind == "paragraph" and _nodeEndsSentence(n)
-		for n in nodes
-	):
+	if not any(n.kind == "paragraph" and _nodeEndsSentence(n) for n in nodes):
 		return None
 	strictNodes = [
 		_dataclasses.replace(n, isBoilerplate=True)
@@ -1319,11 +1318,11 @@ def _sentenceStrictView(tree: TreeSummary) -> Optional[TreeSummary]:
 # Tom's Hardware, lite.cnn, and text.npr were landing deep in chrome because
 # their newsletter/footer/bio prose (grammatical, sentence-ending) hijacked the
 # sentence-strict pass; this gate runs first and lands on the first headline.
-_HEADLINE_MIN_CHARS = 30       # shorter than this is nav/label, not a headline
-_HEADLINE_MAX_CHARS = 250      # longer is prose, not a title
-_HEADLINE_RUN_MIN = 6          # need a real WALL, not a couple of nav rows
+_HEADLINE_MIN_CHARS = 30  # shorter than this is nav/label, not a headline
+_HEADLINE_MAX_CHARS = 250  # longer is prose, not a title
+_HEADLINE_RUN_MIN = 6  # need a real WALL, not a couple of nav rows
 _HEADLINE_SENTENCE_FRAC_MAX = 0.5  # titles mostly don't end like sentences
-_HEADLINE_GAP_MAX = 2          # short/chrome nodes inside the wall are transparent
+_HEADLINE_GAP_MAX = 2  # short/chrome nodes inside the wall are transparent
 
 
 def _hasArticleBodyCluster(nodes) -> bool:
@@ -1871,9 +1870,7 @@ def findNoticeLanding(tree: TreeSummary) -> Optional[int]:
 
 	def _isStatusParagraph(n) -> bool:
 		return (
-			n.kind == "paragraph"
-			and n.textLength >= _NOTICE_LANDING_MIN_CHARS
-			and not _isChromeParagraph(n)
+			n.kind == "paragraph" and n.textLength >= _NOTICE_LANDING_MIN_CHARS and not _isChromeParagraph(n)
 		)
 
 	for i, n in enumerate(nodes):
@@ -1885,7 +1882,7 @@ def findNoticeLanding(tree: TreeSummary) -> Optional[int]:
 			# heading, it is — skip this heading and let that paragraph
 			# win. Otherwise the heading itself carries the status.
 			headingOwnsStatus = True
-			for m in nodes[i + 1:]:
+			for m in nodes[i + 1 :]:
 				if m.kind == "heading":
 					break
 				if _isStatusParagraph(m):
@@ -1977,10 +1974,7 @@ def findNextContentLanding(
 	# Only then, rescan below the cursor with the notice bar (30 chars).
 	# Article-class pages (which have 50+ char paragraphs somewhere) keep
 	# the strict bar, so end-of-article Z behavior is unchanged.
-	if not any(
-		n.kind == "paragraph" and n.textLength >= LANDING_MIN_PARAGRAPH_CHARS
-		for n in tree.mainNodes
-	):
+	if not any(n.kind == "paragraph" and n.textLength >= LANDING_MIN_PARAGRAPH_CHARS for n in tree.mainNodes):
 		for i in range(afterIdx + 1, len(tree.mainNodes)):
 			node = tree.mainNodes[i]
 			if node.kind != "paragraph":

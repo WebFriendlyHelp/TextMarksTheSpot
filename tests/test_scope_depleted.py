@@ -52,6 +52,7 @@ def articleDoc():
 # The incident itself.
 # ---------------------------------------------------------------------------
 
+
 def test_deadsimpletechShapeIsRecognisedAsDepleted():
 	assert ts._scopeLooksDepleted("chrome", chromeIsh(), articleDoc()) is True
 
@@ -64,6 +65,7 @@ def test_mainIdScopeIsAlsoCovered():
 # ---------------------------------------------------------------------------
 # Guards. Each of these is a page that works today and must keep working.
 # ---------------------------------------------------------------------------
+
 
 def test_positionalScopesAreNeverSecondGuessed():
 	# A single-<article> page legitimately drops comments and sidebars; that
@@ -146,6 +148,7 @@ def test_documentContentJustUnderTheBarDoesNotTrigger():
 # this predicate must not claim it or double-handle it.
 # ---------------------------------------------------------------------------
 
+
 def test_emptyScopedTreeIsNotThisPredicatesBusiness():
 	assert ts._scopeLooksDepleted("chrome", [], articleDoc()) is False
 
@@ -163,24 +166,21 @@ def test_nothingWasDroppedMeansNothingToWidenTo():
 # chrome-pos eligibility keys on EVIDENCE, not on the scope name.
 # ---------------------------------------------------------------------------
 
+
 def test_chromePosThatActuallyScopedPositionallyIsNotWidened():
 	# The false positive the second reviewer constructed: a page whose
 	# positional exclusions WORKED, correctly removing nav and a cookie
 	# banner, then widened back open on the strength of two long chrome
 	# paragraphs - re-admitting exactly the text that was correctly removed.
 	# One positional EXCLUSION is evidence that removal work happened.
-	assert ts._scopeLooksDepleted(
-		"chrome-pos", chromeIsh(), articleDoc(), positionalDrops=1
-	) is False
+	assert ts._scopeLooksDepleted("chrome-pos", chromeIsh(), articleDoc(), positionalDrops=1) is False
 
 
 def test_chromePosWithZeroPositionalDecisionsIsStillEligible():
 	# The mirror case, and why blanket exclusion was wrong: a trust boundary
 	# at offset 0 means nothing is decided positionally, so the page is
 	# chrome-scoped in all but name and needs the net.
-	assert ts._scopeLooksDepleted(
-		"chrome-pos", chromeIsh(), articleDoc(), positionalDrops=0
-	) is True
+	assert ts._scopeLooksDepleted("chrome-pos", chromeIsh(), articleDoc(), positionalDrops=0) is True
 
 
 def test_mainIdIgnoresThePositionalCount():
@@ -188,9 +188,7 @@ def test_mainIdIgnoresThePositionalCount():
 	# stack answers "inside ANY marked chrome landmark", while main-id asks the
 	# IDENTITY question "inside THE <main> we found", so it is deliberately kept
 	# on the parent chain. A stray non-zero count must not change eligibility.
-	assert ts._scopeLooksDepleted(
-		"main-id", chromeIsh(), articleDoc(), positionalDrops=7
-	) is True
+	assert ts._scopeLooksDepleted("main-id", chromeIsh(), articleDoc(), positionalDrops=7) is True
 
 
 def test_chromeScopeNowRespectsItsOwnExclusions():
@@ -204,10 +202,6 @@ def test_chromeScopeNowRespectsItsOwnExclusions():
 	no exclusions" from "made exclusions that worked"; the drop count can.
 	"""
 	# Exclusions worked -> do NOT widen.
-	assert ts._scopeLooksDepleted(
-		"chrome", chromeIsh(), articleDoc(), positionalDrops=7
-	) is False
+	assert ts._scopeLooksDepleted("chrome", chromeIsh(), articleDoc(), positionalDrops=7) is False
 	# Nothing was excluded -> the net is still available, as before.
-	assert ts._scopeLooksDepleted(
-		"chrome", chromeIsh(), articleDoc(), positionalDrops=0
-	) is True
+	assert ts._scopeLooksDepleted("chrome", chromeIsh(), articleDoc(), positionalDrops=0) is True

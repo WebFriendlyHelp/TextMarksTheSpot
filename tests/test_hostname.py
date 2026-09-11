@@ -16,6 +16,7 @@ def _loadHostnameHelper():
 	"""Read _hostnameFromUrl out of __init__.py without importing the
 	whole module (which would pull in NVDA-only imports)."""
 	import re
+
 	src = (PLUGIN_ROOT / "__init__.py").read_text(encoding="utf-8")
 	match = re.search(
 		r"def _hostnameFromUrl\(.*?\n((?:\t.*\n)+)",

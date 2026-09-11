@@ -26,6 +26,7 @@ import treeSummary as ts
 # Fake NVDA surface
 # --------------------------------------------------------------------------
 
+
 class FakeFieldCommand:
 	def __init__(self, command, field=None):
 		self.command = command
@@ -237,14 +238,17 @@ def rng(start, end):
 # class where that filter cannot run at all. Fail-open means a navigation menu
 # past the trust boundary reads as article text.
 
+
 def test_objectlessChunkPastTrustBoundaryIsRejected():
 	# Two chunks. The first is inside an emitted chrome range and has an
 	# object; the second sits PAST the trust boundary with NO object, so
 	# positional cannot decide and identity cannot run.
-	doc = buildDoc([
-		para("navigation home about contact", landmark="navigation"),
-		("orphan text with no accessible object at all", None),
-	])
+	doc = buildDoc(
+		[
+			para("navigation home about contact", landmark="navigation"),
+			("orphan text with no accessible object at all", None),
+		]
+	)
 	nodes, allNodes, drops = walk(
 		doc,
 		excludeRanges=[rng(0, 29)],
@@ -273,17 +277,20 @@ def test_objectlessChunkPastTrustBoundaryIsRejected():
 # exclusions actually worked may be widened back open. Zeroing it silently
 # switches the depleted-scope net off on exactly the pages it protects.
 
+
 def test_positionalDropsCountsChromeExclusions():
 	# Note the trust boundary is the start of the LAST landmark placed, and
 	# _startsBefore compares STRICTLY — so a chunk sitting exactly at the
 	# boundary defers to identity by design. Both chrome chunks here are
 	# strictly before it, which is what makes them positional decisions.
-	doc = buildDoc([
-		para("site navigation links across the top", landmark="navigation"),
-		para("The real article begins here and runs on for a while."),
-		para("footer legal text down at the bottom", landmark="contentinfo"),
-		para("a trailing complementary region", landmark="complementary"),
-	])
+	doc = buildDoc(
+		[
+			para("site navigation links across the top", landmark="navigation"),
+			para("The real article begins here and runs on for a while."),
+			para("footer legal text down at the bottom", landmark="contentinfo"),
+			para("a trailing complementary region", landmark="complementary"),
+		]
+	)
 	nav, foot, last = doc[0], doc[2], doc[3]
 	nodes, allNodes, drops = walk(
 		doc,
@@ -299,18 +306,18 @@ def test_positionalDropsCountsChromeExclusions():
 		f"expected both chrome chunks counted as positional drops, got {drops}; "
 		"the depleted-scope net reads this number"
 	)
-	assert [n.textPreview for n in nodes] == [
-		"The real article begins here and runs on for a while."
-	]
+	assert [n.textPreview for n in nodes] == ["The real article begins here and runs on for a while."]
 
 
 def test_positionalDropsIsZeroWhenNothingWasExcluded():
 	# The other half of the predicate: a page where positional decided
 	# everything IN must report zero, so the net can widen it.
-	doc = buildDoc([
-		para("The real article begins here and runs on for a while."),
-		para("A second substantial paragraph of genuine body copy."),
-	])
+	doc = buildDoc(
+		[
+			para("The real article begins here and runs on for a while."),
+			para("A second substantial paragraph of genuine body copy."),
+		]
+	)
 	nodes, allNodes, drops = walk(
 		doc,
 		excludeRanges=[rng(9000, 9001)],
@@ -329,16 +336,17 @@ def test_positionalDropsIsZeroWhenNothingWasExcluded():
 # every node to `result`. Every landing test hands the cascade a node list
 # directly, so none of them notice that the filter stopped being applied.
 
+
 def test_outOfScopeChunksAreKeptOutOfMainNodes():
-	doc = buildDoc([
-		para("inside the article body, a substantial sentence here."),
-		para("outside it entirely, chrome text that must not land."),
-	])
+	doc = buildDoc(
+		[
+			para("inside the article body, a substantial sentence here."),
+			para("outside it entirely, chrome text that must not land."),
+		]
+	)
 	inside = doc[0]
 	nodes, allNodes, _ = walk(doc, scopeRange=rng(inside.start, inside.end))
-	assert [n.textPreview for n in nodes] == [
-		"inside the article body, a substantial sentence here."
-	]
+	assert [n.textPreview for n in nodes] == ["inside the article body, a substantial sentence here."]
 	assert len(allNodes) == 2, "both chunks must still reach allNodes"
 
 
@@ -350,6 +358,7 @@ def test_outOfScopeChunksAreKeptOutOfMainNodes():
 # isCaption / endsSentence in _nodeFor and leaving the cascade's preview
 # fallback to cope. Every cascade test can hand-set these flags, which is
 # precisely the trap the disclosure flag nearly repeated.
+
 
 def test_boilerplateFlagIsComputedPastThePreviewCutoff():
 	tail = (
@@ -367,8 +376,7 @@ def test_boilerplateFlagIsComputedPastThePreviewCutoff():
 
 def test_endsSentenceFlagIsComputedPastThePreviewCutoff():
 	longSentence = (
-		"The council met on Tuesday to consider the proposal, which had been "
-		"delayed twice already."
+		"The council met on Tuesday to consider the proposal, which had been delayed twice already."
 	)
 	assert len(longSentence) > 60
 	doc = buildDoc([para(longSentence), para("Fragment with no stop")])
@@ -408,22 +416,30 @@ def test_endsSentenceFlagIsComputedPastThePreviewCutoff():
 # int() conversion on the string level; skipping empty-text chunks before the
 # heading check (which deletes image-only headings).
 
+
 def test_roleComesFromTheInnermostControlField():
 	# A heading wrapping a link. Outermost-wins would call this a DOCUMENT and
 	# heading-first would call it a heading. NEITHER probe run observed this
 	# shape, so innermost is not chosen on counts — it is chosen because it
 	# matches NVDA's own container resolution in getEnclosingContainerRange.
 	# See _roleLevelFromFields.
-	role, level, had = ts._roleLevelFromFields([
-		control("DOCUMENT"), control("HEADING", 2), control("LINK"),
-	])
+	role, level, had = ts._roleLevelFromFields(
+		[
+			control("DOCUMENT"),
+			control("HEADING", 2),
+			control("LINK"),
+		]
+	)
 	assert (role, level, had) == ("LINK", 0, True)
 
 
 def test_headingLevelIsConvertedFromTheStringGeckoEmits():
-	role, level, had = ts._roleLevelFromFields([
-		control("DOCUMENT"), control("HEADING", 3),
-	])
+	role, level, had = ts._roleLevelFromFields(
+		[
+			control("DOCUMENT"),
+			control("HEADING", 3),
+		]
+	)
 	assert role == "HEADING"
 	assert level == 3 and isinstance(level, int), (
 		"field['level'] is a STRING in Gecko's normalized fields; without the "
@@ -458,16 +474,23 @@ def test_onlyTheLeadingControlRunCounts():
 
 def test_inlineControlParagraphSurvivesTheWalk():
 	# The same defect, driven through the real walk rather than the helper.
-	doc = buildDoc([(
-		"A real body paragraph with an inline image in the middle of it.",
-		FakeObj("PARAGRAPH"),
+	doc = buildDoc(
 		[
-			control("DOCUMENT"), control("PARAGRAPH"),
-			"A real body paragraph ",
-			control("GRAPHIC"), FakeFieldCommand("controlEnd"),
-			" in the middle of it.", FakeFieldCommand("controlEnd"),
-		],
-	)])
+			(
+				"A real body paragraph with an inline image in the middle of it.",
+				FakeObj("PARAGRAPH"),
+				[
+					control("DOCUMENT"),
+					control("PARAGRAPH"),
+					"A real body paragraph ",
+					control("GRAPHIC"),
+					FakeFieldCommand("controlEnd"),
+					" in the middle of it.",
+					FakeFieldCommand("controlEnd"),
+				],
+			)
+		]
+	)
 	nodes, _, _ = walk(doc, scopeRange=rng(0, 10_000))
 	assert [n.kind for n in nodes] == ["paragraph"], (
 		"the paragraph was dropped because an inline graphic won the role"
@@ -480,6 +503,7 @@ def test_unnamedInnermostRoleDoesNotInheritAnAncestor():
 	# no evidence, so the caller pays for an object and gets the truth.
 	class Roleless:
 		pass
+
 	stream = [control("DOCUMENT"), FakeFieldCommand("controlStart", {"role": Roleless()})]
 	assert ts._roleLevelFromFields(stream) == (None, 0, False)
 
@@ -531,10 +555,12 @@ def test_walkTakesTheRoleFromFieldsWithoutTouchingTheObject():
 	# A positionally-scoped page: the scope decision needs no object and the
 	# role now comes from the field stack, so the walk must resolve ZERO
 	# objects. This is the entire performance claim, stated as an assertion.
-	doc = buildDoc([
-		("Chapter One", FakeObj("HEADING"), [control("DOCUMENT"), control("HEADING", 1)]),
-		para("A substantial opening paragraph that runs on for a while here."),
-	])
+	doc = buildDoc(
+		[
+			("Chapter One", FakeObj("HEADING"), [control("DOCUMENT"), control("HEADING", 1)]),
+			para("A substantial opening paragraph that runs on for a while here."),
+		]
+	)
 	nodes, _, _ = walk(doc, scopeRange=rng(0, 10_000))
 	assert [n.kind for n in nodes] == ["heading", "paragraph"]
 	assert nodes[0].level == 1
@@ -560,10 +586,12 @@ def test_imageOnlyHeadingSurvivesTheFieldStackPath():
 	# An <h1> wrapping a logo <img>: heading role, empty text. This node drives
 	# seenHeading, the hero gate, the prose-run gate and findListLanding, so
 	# an empty-text shortcut ahead of the role check would silently remove it.
-	doc = buildDoc([
-		("", FakeObj("HEADING"), [control("DOCUMENT"), control("HEADING", 1)]),
-		para("Body copy following the image-only masthead heading here."),
-	])
+	doc = buildDoc(
+		[
+			("", FakeObj("HEADING"), [control("DOCUMENT"), control("HEADING", 1)]),
+			para("Body copy following the image-only masthead heading here."),
+		]
+	)
 	nodes, _, _ = walk(doc, scopeRange=rng(0, 10_000))
 	assert [n.kind for n in nodes] == ["heading", "paragraph"]
 
@@ -639,6 +667,7 @@ def test_focusMoveSkipsAFieldInsideChrome(monkeypatch):
 # this branch has been wrong twice and both times the wiring, not the
 # arithmetic, was what was wrong.
 # ---------------------------------------------------------------------------
+
 
 class UnplaceableObj:
 	"""An EDIT whose ancestry cannot be walked: the parent dereference raises,
@@ -746,7 +775,9 @@ def test_focusMoveRefusesAnUnplaceableFieldUnderAPositionalScope(monkeypatch):
 	# Force the positional branch with an article-shaped scope: a range, and
 	# no mainObj behind it.
 	monkeypatch.setattr(
-		ts, "_selectScope", lambda lm: ("article", rng(0, 1000), None, None, None),
+		ts,
+		"_selectScope",
+		lambda lm: ("article", rng(0, 1000), None, None, None),
 	)
 
 	item = UnplaceableNoRangeItem("unplaceable-no-range")
@@ -784,7 +815,9 @@ GeckoLikeInfo.__name__ = "FakeGeckoInfo"
 # The gate matches the class NAME **and** its MODULE, so a same-named class
 # from anywhere else is not trusted. The fake therefore has to impersonate both.
 Gecko_ia2_TextInfo = type(
-	"Gecko_ia2_TextInfo", (FakeInfo,), {"__module__": "virtualBuffers.gecko_ia2"},
+	"Gecko_ia2_TextInfo",
+	(FakeInfo,),
+	{"__module__": "virtualBuffers.gecko_ia2"},
 )
 
 
@@ -805,17 +838,24 @@ def lm(text, landmarkKey, objLandmark=None):
 	return (
 		text,
 		FakeObj("PARAGRAPH", landmark=objLandmark),
-		[FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
-		 FakeFieldCommand("controlStart", field)],
+		[
+			FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),
+			FakeFieldCommand("controlStart", field),
+		],
 	)
 
 
 def walkSupported(doc, **kw):
 	allNodes, positions, allPositions, positional = [], [], [], [0]
 	nodes = ts._walkMainNodes(
-		SupportedTI(doc), kw.pop("mainObj", None), {}, positions,
-		allNodesOut=allNodes, allPositionsOut=allPositions,
-		positionalOut=positional, **kw,
+		SupportedTI(doc),
+		kw.pop("mainObj", None),
+		{},
+		positions,
+		allNodesOut=allNodes,
+		allPositionsOut=allPositions,
+		positionalOut=positional,
+		**kw,
 	)
 	return nodes, allNodes, positional[0]
 
@@ -826,10 +866,12 @@ def test_fieldStackDropsANavChunkWithoutTouchingCom():
 	The nav chunk is dropped by its FIELD landmark alone -- its object carries
 	no landmark, so the parent chain would have ADMITTED it. That asymmetry is
 	what proves the field stack answered."""
-	doc = buildDoc([
-		lm("Home Products Support About Contact", "navigation"),
-		para("A genuine article paragraph with enough text to be a real node."),
-	])
+	doc = buildDoc(
+		[
+			lm("Home Products Support About Contact", "navigation"),
+			para("A genuine article paragraph with enough text to be a real node."),
+		]
+	)
 	nodes, _all, drops = walkSupported(doc)
 	texts = [n.textPreview for n in nodes]
 	assert not any("Home Products" in t for t in texts), "nav must be excluded"
@@ -844,9 +886,11 @@ def test_fieldStackAcceptsContentWithoutResolvingAnObject():
 	ancestor at this offset" (getTextInRange emits the complete ancestor
 	chain), so it must be accepted with NO object fetch. If the accept is
 	removed the walk falls through to the parent chain and fetches."""
-	doc = buildDoc([
-		para("A perfectly ordinary paragraph sitting outside every landmark."),
-	])
+	doc = buildDoc(
+		[
+			para("A perfectly ordinary paragraph sitting outside every landmark."),
+		]
+	)
 	nodes, _all, _d = walkSupported(doc)
 	assert len(nodes) == 1
 	assert FakeInfo.fetches == [], f"paid for COM anyway: {FakeInfo.fetches}"
@@ -860,10 +904,12 @@ def test_unsupportedBackendNeverUsesTheFieldVerdict():
 	chunk would report "no landmark" and all chrome would be admitted. The
 	plain FakeTI is not Gecko-derived, so the nav chunk must be decided by the
 	parent chain -- which here means an object fetch actually happens."""
-	doc = buildDoc([
-		lm("Home Products Support About Contact", "navigation"),
-		para("A genuine article paragraph with enough text to be a real node."),
-	])
+	doc = buildDoc(
+		[
+			lm("Home Products Support About Contact", "navigation"),
+			para("A genuine article paragraph with enough text to be a real node."),
+		]
+	)
 	nodes, _all, _d = walk(doc)
 	assert FakeInfo.fetches, "unsupported backend must fall back to the object"
 
@@ -874,20 +920,26 @@ def test_mainIdKeepsTheIdentityFilter():
 	question. That equivalence is unprobed, so a page WITH a mainObj must
 	still consult the parent chain even on a supported backend."""
 	main = FakeObj("SECTION", landmark="main")
-	doc = buildDoc([
-		("Body text living under the main landmark object here.",
-		 FakeObj("PARAGRAPH", parent=main),
-		 [control("DOCUMENT"), control("PARAGRAPH")]),
-	])
+	doc = buildDoc(
+		[
+			(
+				"Body text living under the main landmark object here.",
+				FakeObj("PARAGRAPH", parent=main),
+				[control("DOCUMENT"), control("PARAGRAPH")],
+			),
+		]
+	)
 	walkSupported(doc, mainObj=main)
 	assert FakeInfo.fetches, "main-id must not be answered by the field stack"
 
 
 def test_malformedFieldStackFallsBackRatherThanAdmitting():
 	"""A stack we cannot parse is NO EVIDENCE, never a content verdict."""
-	broken = ("Some text of reasonable length for a real node here.",
-	          FakeObj("PARAGRAPH"),
-	          [FakeFieldCommand("controlStart", "not-a-dict")])
+	broken = (
+		"Some text of reasonable length for a real node here.",
+		FakeObj("PARAGRAPH"),
+		[FakeFieldCommand("controlStart", "not-a-dict")],
+	)
 	doc = buildDoc([broken])
 	walkSupported(doc)
 	assert FakeInfo.fetches, "malformed stack must fall back to the object"
@@ -912,12 +964,16 @@ def test_noLeadingControlRunIsUnknownNotContent():
 	assertion has to be on the SCOPE outcome, so the object here carries a nav
 	landmark that only the identity filter can see.
 	"""
-	doc = buildDoc([
-		("Home Products Support About Contact Careers Press",
-		 FakeObj("PARAGRAPH", landmark="navigation"),
-		 []),  # non-empty stream, but no leading controlStart
-		para("A genuine article paragraph with enough text to be a real node."),
-	])
+	doc = buildDoc(
+		[
+			(
+				"Home Products Support About Contact Careers Press",
+				FakeObj("PARAGRAPH", landmark="navigation"),
+				[],
+			),  # non-empty stream, but no leading controlStart
+			para("A genuine article paragraph with enough text to be a real node."),
+		]
+	)
 	nodes, _all, _d = walkSupported(doc)
 	texts = [n.textPreview for n in nodes]
 	assert not any("Home Products" in t for t in texts), (
@@ -932,6 +988,7 @@ def test_noLeadingControlRunIsUnknownNotContent():
 # GREEN when the logic they cover was deleted or inverted -- the fourth
 # instance of this branch's signature failure, and the reason this file exists.
 # --------------------------------------------------------------------------
+
 
 def test_chromePosConsultsTheFieldStackBeforePayingForCom():
 	"""SABOTAGE: delete the fieldVerdict return inside the excludeRanges
@@ -952,14 +1009,16 @@ def test_chromePosConsultsTheFieldStackBeforePayingForCom():
 	carries no landmark, so the identity filter would have admitted it -- that
 	asymmetry is what proves which mechanism decided.
 	"""
-	doc = buildDoc([
-		para("Article body text that runs on for a good long while here."),
-		lm("Home About Contact Careers Press Investors", "navigation"),
-	])
+	doc = buildDoc(
+		[
+			para("Article body text that runs on for a good long while here."),
+			lm("Home About Contact Careers Press Investors", "navigation"),
+		]
+	)
 	nodes, allNodes, drops = walkSupported(
 		doc,
 		excludeRanges=[],
-		trustBoundary=rng(0, 0),   # nothing is strictly before this
+		trustBoundary=rng(0, 0),  # nothing is strictly before this
 		untrustedRanges=[],
 	)
 	texts = [n.textPreview for n in nodes]
@@ -968,9 +1027,7 @@ def test_chromePosConsultsTheFieldStackBeforePayingForCom():
 		"which admits this chunk because its object has no landmark"
 	)
 	assert drops >= 1, "a field exclusion here must count as a positional drop"
-	assert FakeInfo.fetches == [], (
-		f"paid for a COM parent chain anyway: {FakeInfo.fetches}"
-	)
+	assert FakeInfo.fetches == [], f"paid for a COM parent chain anyway: {FakeInfo.fetches}"
 
 
 def test_innermostLandmarkWinsOverAnOuterOne():
@@ -1026,8 +1083,7 @@ def test_innermostChromeWinsOverAnOuterMain():
 	nodes, _all, drops = walkSupported(buildDoc([nested, body]))
 	texts = [n.textPreview for n in nodes]
 	assert not any("Home About" in t for t in texts), (
-		"a navigation nested inside <main> is still navigation; the innermost "
-		"landmark decides"
+		"a navigation nested inside <main> is still navigation; the innermost landmark decides"
 	)
 	assert any("genuine article" in t for t in texts)
 	assert drops >= 1
@@ -1057,6 +1113,7 @@ def test_malformedLandmarkValueIsUnknownNotContent():
 	means UNKNOWN. Asserted on the pure function because the walk would mask
 	it: the object fallback happens to give the same answer here.
 	"""
+
 	def stack(landmarkValue):
 		return [
 			FakeFieldCommand("controlStart", {"role": FakeRole("DOCUMENT")}),

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 try:
 	import config as nvdaConfig
+
 	_NVDA_AVAILABLE = True
 except ImportError:
 	_NVDA_AVAILABLE = False

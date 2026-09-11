@@ -117,6 +117,7 @@ def verifierFor(node):
 # Shape of the needle ladder.
 # ---------------------------------------------------------------------------
 
+
 def test_searchFloorIsBelowTheVerificationWidth():
 	# Worth holding, but note what it is NOT: this ordering was once written
 	# down as the reason shortening is safe, and it is far too weak for that.
@@ -157,10 +158,12 @@ LEDE = "The council voted on Tuesday to approve the new transit levy"
 def test_recoversWhenTheTailOfThePreviewChanged():
 	# Hydration rewrote the paragraph past char ~40 (a link got injected, the
 	# byline resolved). The full-width needle cannot match; the head still can.
-	doc = FakeDoc([
-		"Skip to main content",
-		"The council voted on Tuesday to approve a revised transit levy today",
-	])
+	doc = FakeDoc(
+		[
+			"Skip to main content",
+			"The council voted on Tuesday to approve a revised transit levy today",
+		]
+	)
 	node = Node(LEDE)
 	info = ts.findLandingByText(doc, LEDE, verify=verifierFor(node))
 	assert info is not None, "a recoverable landing was thrown away"
@@ -172,10 +175,12 @@ def test_fullWidthSearchAloneWouldHaveFailedThatPage():
 	# Pins the premise of the test above: without a verifier we do exactly one
 	# full-width search, and on this page it finds nothing. If this ever starts
 	# passing, the previous test is no longer testing what it claims.
-	doc = FakeDoc([
-		"Skip to main content",
-		"The council voted on Tuesday to approve a revised transit levy today",
-	])
+	doc = FakeDoc(
+		[
+			"Skip to main content",
+			"The council voted on Tuesday to approve a revised transit levy today",
+		]
+	)
 	assert ts.findLandingByText(doc, LEDE) is None
 	assert len(doc.findCalls) == 1
 
@@ -185,10 +190,12 @@ def test_recoversWhenNbspsCameBackAsOrdinarySpaces():
 	# rebuilt buffer has plain spaces. find() is literal, so the raw needle
 	# misses, while the verifier would have accepted the paragraph happily.
 	captured = "The council voted on" + NBSP + "Tuesday to approve the new transit levy"
-	doc = FakeDoc([
-		"Skip to main content",
-		"The council voted on Tuesday to approve the new transit levy",
-	])
+	doc = FakeDoc(
+		[
+			"Skip to main content",
+			"The council voted on Tuesday to approve the new transit levy",
+		]
+	)
 	node = Node(captured)
 	info = ts.findLandingByText(doc, captured, verify=verifierFor(node))
 	assert info is not None, "an NBSP swap silenced a landing that was right there"
@@ -199,6 +206,7 @@ def test_recoversWhenNbspsCameBackAsOrdinarySpaces():
 # ---------------------------------------------------------------------------
 # Safety: a shorter needle must not be allowed to speak the wrong paragraph.
 # ---------------------------------------------------------------------------
+
 
 def test_theVerifierAloneWouldNotCatchARepeatedOpening():
 	# Measured, not assumed, and the reason the uniqueness rule exists.
@@ -224,12 +232,13 @@ def test_anAmbiguousRungIsRefusedEvenThoughTheVerifierWouldPassIt():
 	# shortening is genuinely needed here -- which is exactly when the teaser
 	# becomes dangerous, because it shares the whole opening the rungs cut back
 	# to.
-	doc = FakeDoc([
-		"Skip to main content",
-		"The council voted on Tuesday to approve the measure, and here is "
-		"what else you missed this week",
-		"The council voted on Tuesday to approve a revised transit levy today",
-	])
+	doc = FakeDoc(
+		[
+			"Skip to main content",
+			"The council voted on Tuesday to approve the measure, and here is what else you missed this week",
+			"The council voted on Tuesday to approve a revised transit levy today",
+		]
+	)
 	node = Node(LEDE)
 	assert doc.full.count("The council voted on Tuesday to approve") == 2, (
 		"the page this test describes is not the page it built"
@@ -248,11 +257,13 @@ def test_anUnambiguousRungStillWinsOnAPageThatHasATeaser():
 	# the rung that cuts back past the divergence is still unique and the real
 	# lede is still reached. If this ever starts returning None, the uniqueness
 	# rule has been tightened into a page-wide veto.
-	doc = FakeDoc([
-		"Skip to main content",
-		"Also today: what else you missed this week in local government news",
-		"The council voted on Tuesday to approve a revised transit levy today",
-	])
+	doc = FakeDoc(
+		[
+			"Skip to main content",
+			"Also today: what else you missed this week in local government news",
+			"The council voted on Tuesday to approve a revised transit levy today",
+		]
+	)
 	node = Node(LEDE)
 	info = ts.findLandingByText(doc, LEDE, verify=verifierFor(node))
 	assert info is not None, "an unambiguous shortened rung was refused"
@@ -266,11 +277,13 @@ def test_aUniqueRungInsideAnotherParagraphIsRejectedByTheVerifier():
 	# a longer block during the rebuild. Landing there would start the user in
 	# the middle of someone else's sentence, so the verifier -- which asks
 	# whether the found paragraph STARTS with what we chose -- has to refuse it.
-	doc = FakeDoc([
-		"Skip to main content",
-		"As we reported earlier, The council voted on Tuesday to approve "
-		"the new transit levy, which drew immediate criticism from commuters",
-	])
+	doc = FakeDoc(
+		[
+			"Skip to main content",
+			"As we reported earlier, The council voted on Tuesday to approve "
+			"the new transit levy, which drew immediate criticism from commuters",
+		]
+	)
 	node = Node(LEDE)
 	info = ts.findLandingByText(doc, LEDE, verify=verifierFor(node))
 	assert info is None, (
@@ -283,10 +296,12 @@ def test_aUniqueRungInsideAnotherParagraphIsRejectedByTheVerifier():
 def test_shorteningIsGatedOnAVerifierBeingSupplied():
 	# With no verifier there is nothing to catch a false hit, so the finder
 	# must not shorten. One search, full width, exactly as before.
-	doc = FakeDoc([
-		"Skip to main content",
-		"The council voted on Tuesday to approve a revised transit levy today",
-	])
+	doc = FakeDoc(
+		[
+			"Skip to main content",
+			"The council voted on Tuesday to approve a revised transit levy today",
+		]
+	)
 	assert ts.findLandingByText(doc, LEDE) is None
 	assert doc.findCalls == [LEDE], doc.findCalls
 	assert doc.allFetches == 0, "the unverified path must not pull the buffer copy"
@@ -296,6 +311,7 @@ def test_shorteningIsGatedOnAVerifierBeingSupplied():
 # Budget. find() re-fetches the whole remaining story text on every call, so
 # the ladder must not be run blind.
 # ---------------------------------------------------------------------------
+
 
 def test_absentCandidatesNeverCostARealSearch():
 	# Nothing on this page resembles the needle. The buffer copy is taken once

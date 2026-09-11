@@ -40,6 +40,7 @@ from . import classifier as clsMod
 from . import config as cfgMod
 from . import feedback as fbMod
 from . import treeSummary as tsMod
+
 # Diagnostic logging is opt-in; see treeSummary._GatedDebugLog.
 from .treeSummary import dlog
 from .detection import web as webMod
@@ -64,6 +65,7 @@ def _getCurrentGestureDisplay(className: str, script_name: str) -> str:
 	default = "NVDA+Z"
 	try:
 		import inputCore
+
 		# NVDA's gesture maps are dicts: gesture_id -> list of bindings,
 		# where each binding is (module_path, className, script_name).
 		# We walk user first (overrides), then locale (default + locale-
@@ -128,7 +130,6 @@ log.info("[TMTS] module imported; defining GlobalPlugin")
 
 
 class GlobalPlugin(globalPluginHandler.GlobalPlugin):
-
 	scriptCategory = _CATEGORY
 
 	# Within this many seconds of a previous fire for the same URL, don't
@@ -463,11 +464,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# `url` was extracted above for the exclusion-list check; reuse it.
 		now = time.monotonic()
 		elapsed = now - self._lastFireTime
-		if (
-			url
-			and url == self._lastUrl
-			and elapsed < self._REFIRE_COOLDOWN_SEC
-		):
+		if url and url == self._lastUrl and elapsed < self._REFIRE_COOLDOWN_SEC:
 			dlog.debug(f"[TMTS] _maybe_fire_ti: cooldown blocking url={url!r} elapsed={elapsed:.2f}s")
 			self._setLastTi(ti)
 			return
@@ -476,11 +473,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# not yank the user off that landing — or off wherever they've
 		# read to since. Z re-runs detection on demand.
 		landedElapsed = now - self._lastLandedTime
-		if (
-			url
-			and url == self._lastLandedUrl
-			and landedElapsed < self._LANDED_SUPPRESS_SEC
-		):
+		if url and url == self._lastLandedUrl and landedElapsed < self._LANDED_SUPPRESS_SEC:
 			dlog.debug(
 				f"[TMTS] _maybe_fire_ti: already landed on url={url!r} "
 				f"{landedElapsed:.1f}s ago — suppressing re-detection"
@@ -489,7 +482,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			self._lastUrl = url
 			self._lastFireTime = now
 			return
-		dlog.debug(f"[TMTS] _maybe_fire_ti: PROCEEDING url={url!r} elapsed={elapsed:.2f}s ti_changed={ti is not self._lastTi()}")
+		dlog.debug(
+			f"[TMTS] _maybe_fire_ti: PROCEEDING url={url!r} elapsed={elapsed:.2f}s ti_changed={ti is not self._lastTi()}"
+		)
 		# This is an ACCEPTED navigation, and only now may we cancel the previous
 		# page's pending hydration retry. Doing it earlier (above the gates) meant
 		# a duplicate or iframe documentLoadComplete killed the real page's retry
@@ -530,11 +525,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# starting with '#/' (Zoom's #/registration) are NOT anchors.
 		fragment = url.partition("#")[2]
 		hasAnchor = bool(fragment) and not fragment.startswith("/")
-		if (
-			not bypassExclusion
-			and (urlSeenBefore or hasAnchor)
-			and self._caretIsMidPage(ti)
-		):
+		if not bypassExclusion and (urlSeenBefore or hasAnchor) and self._caretIsMidPage(ti):
 			dlog.debug(
 				f"[TMTS] _maybe_fire_ti: caret mid-page on "
 				f"{'revisited' if urlSeenBefore else 'anchored'} url — skip"
@@ -584,11 +575,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				# the plot summary. The user heard "nothing found" about a page
 				# that plainly had content.
 				unbuilt = not summary.mainNodes
-				couldRetry = attempt == 0 or (
-					unbuilt and attempt + 1 < self._MAX_DETECTION_ATTEMPTS
-				)
+				couldRetry = attempt == 0 or (unbuilt and attempt + 1 < self._MAX_DETECTION_ATTEMPTS)
 				acted = self._handleResult(
-					ti, summary, isRetry=isRetry, isFinal=not couldRetry,
+					ti,
+					summary,
+					isRetry=isRetry,
+					isFinal=not couldRetry,
 				)
 			finally:
 				tsMod.releaseSummary(summary)
@@ -629,10 +621,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			caretAtSchedule = ti.makeTextInfo(textInfos.POSITION_CARET)
 		except Exception:
 			caretAtSchedule = None
-		dlog.debug(
-			f"[TMTS] scheduling retry (attempt {attempt}) in {delayMs}ms "
-			f"for url={expectedUrl!r}"
-		)
+		dlog.debug(f"[TMTS] scheduling retry (attempt {attempt}) in {delayMs}ms for url={expectedUrl!r}")
 		try:
 			self._pendingRetry = wx.CallLater(
 				delayMs,
@@ -721,6 +710,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		result = clsMod.classify(summary)
 		# Build a verbose diagnostic snippet about the classifier's view.
 		from .classifier import _largestParagraphCluster, _largestHeadingCluster, _heroParagraphChars
+
 		bsize, bchars = _largestParagraphCluster(summary.mainNodes)
 		hsize, hlvl = _largestHeadingCluster(summary.mainNodes)
 		hero = _heroParagraphChars(summary.mainNodes)
@@ -762,8 +752,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					log.exception("[TMTS] FORM ui.message failed")
 			focusSet = tsMod.setFocusOnFirstFormInput(ti)
 			dlog.debug(
-				f"[TMTS] FORM: title={titleText!r} focus_set={focusSet} "
-				f"url={summary.url!r} retry={isRetry}"
+				f"[TMTS] FORM: title={titleText!r} focus_set={focusSet} url={summary.url!r} retry={isRetry}"
 			)
 			# Consider it acted if we either announced the title or moved
 			# focus. Both are real user-perceptible actions.
@@ -913,9 +902,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					# make drift countable. Deliberately carries NO page text —
 					# the debug line above has that, and this one is going to a
 					# file that accrues for months.
-					tsMod._appendPerfLine(
-						f"[TMTS drift] outcome=failed retry={isRetry} url={summary.url!r}"
-					)
+					tsMod._appendPerfLine(f"[TMTS drift] outcome=failed retry={isRetry} url={summary.url!r}")
 					# Reading the WRONG paragraph is worse than reading none.
 					if isFinal:
 						fbMod.notFound()
@@ -930,9 +917,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				# denominator. A `find-shortened` line always sits immediately
 				# before one of these, so the two together say how often
 				# shortening was what did the rescuing.
-				tsMod._appendPerfLine(
-					f"[TMTS drift] outcome=recovered retry={isRetry} url={summary.url!r}"
-				)
+				tsMod._appendPerfLine(f"[TMTS drift] outcome=recovered retry={isRetry} url={summary.url!r}")
 				landingInfo = recoveredInfo
 			# Move the browse-mode caret to the landing position. We use
 			# updateCaret first; that's the canonical way to position the
@@ -945,10 +930,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# landing paragraph. The cursor has already moved.
 			speech.cancelSpeech()
 			speech.speakTextInfo(speechInfo, reason=controlTypes.OutputReason.CARET)
-			firstEight = [
-				(n.kind, n.textLength, n.textPreview[:40])
-				for n in summary.mainNodes[:8]
-			]
+			firstEight = [(n.kind, n.textLength, n.textPreview[:40]) for n in summary.mainNodes[:8]]
 			# Diagnostic: list every paragraph >= 50 chars in mainNodes —
 			# these are the candidates the article-landing cascade considered.
 			# Helps explain why the addon picked the index it did, especially
@@ -1056,11 +1038,13 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# the exclusion list. {hostname} is the website, {hotkey} is
 			# the current binding for the exclusion toggle (NVDA+Z by
 			# default, but reflects user remappings).
-			ui.message(_(
-				"Text Marks the Spot is disabled for {hostname}. "
-				"Press {hotkey} to remove this site from the exclusion list, "
-				"or press Z twice for a one-time detection."
-			).format(hostname=hostname, hotkey=toggleKey))
+			ui.message(
+				_(
+					"Text Marks the Spot is disabled for {hostname}. "
+					"Press {hotkey} to remove this site from the exclusion list, "
+					"or press Z twice for a one-time detection."
+				).format(hostname=hostname, hotkey=toggleKey)
+			)
 			return
 		# Z = scan forward from the user's current cursor position for the
 		# next substantial content paragraph. Independent of whether or
@@ -1153,7 +1137,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 
 	@script(
 		# Translators: input help for the Shift+Z return-to-landing gesture.
-		description=_("Return the cursor to the add-on's landing position on this page, running detection first if none is saved."),
+		description=_(
+			"Return the cursor to the add-on's landing position on this page, running detection first if none is saved."
+		),
 		gesture="kb:shift+z",
 		category=_CATEGORY,
 	)
@@ -1176,10 +1162,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			url = str(getattr(ti, "documentConstantIdentifier", "") or "")
 		except Exception:
 			url = ""
-		if (
-			self._lastInitialLandingInfo is None
-			or self._lastInitialLandingUrl != url
-		):
+		if self._lastInitialLandingInfo is None or self._lastInitialLandingUrl != url:
 			# No saved landing for THIS page. Announcing that and stopping
 			# left the user stranded whenever the auto-trigger structurally
 			# could not fire: switching to an already-open tab produces no
@@ -1260,7 +1243,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		currentlyExcluded = cfgMod.isSiteDisabled(hostname)
 		if currentlyExcluded:
 			# Translators: dialog prompt — confirms removing a site from the exclusion list.
-			prompt = _("Remove {hostname} from the Text Marks the Spot exclusion list?").format(hostname=hostname)
+			prompt = _("Remove {hostname} from the Text Marks the Spot exclusion list?").format(
+				hostname=hostname
+			)
 		else:
 			# Translators: dialog prompt — confirms adding a site to the exclusion list.
 			prompt = _("Add {hostname} to the Text Marks the Spot exclusion list?").format(hostname=hostname)

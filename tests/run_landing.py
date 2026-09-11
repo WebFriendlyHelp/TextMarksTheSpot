@@ -11,7 +11,9 @@
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "addon", "globalPlugins", "TextMarksTheSpot"))
+sys.path.insert(
+	0, os.path.join(os.path.dirname(__file__), "..", "addon", "globalPlugins", "TextMarksTheSpot")
+)
 sys.path.insert(0, os.path.dirname(__file__))
 
 from classifier import Intent
@@ -38,20 +40,20 @@ from classifier_fixtures import (
 # should land for each ARTICLE fixture. Reviewed against the page content the
 # user named as the target.
 EXPECTED_LANDING = [
-	(WIKIPEDIA_MEMORIAL_DAY, 1),    # H1, P 280 (lead)
-	(MAKEUSEOF_ARTICLE,      1),    # H1, P 420 (intro)
-	(WDBO_ARTICLE,           2),    # H1, H2 dek, P 180 (body)
-	(WEBFRIENDLYHELP_HOME,   2),    # H2, H1, P 115 (welcome)
-	(PATTYSWORLDS_HOME,      1),    # H3, P 220 (welcome)
-	(GLIDANCE_HOME,          1),    # H1, P 180 (hero)
-	(STARBUCKS_HOME,         2),    # H2 promo, H1, P 190 (hero)
-	(SSA_HOME,               1),    # H2, P 130 (register CTA paragraph)
-	(SAM_GOV_HOME,          11),    # H1, P 40, H2, 6×short P, H2, H2, P 110
-	(APPLEVIS_ARTICLE,       3),    # H1, P 25, H3, P 265 (description)
-	(LWORKS_HOME,            2),    # H1, P 62 tagline, P 250 (description)
-	(CLEVERBRAILLE_HOME,     0),    # P 180 (first node)
-	(ACB_HOME,               1),    # H1, P 400 (hero)
-	(NFB_HOME,               2),    # H1, H1, P 470 (mission)
+	(WIKIPEDIA_MEMORIAL_DAY, 1),  # H1, P 280 (lead)
+	(MAKEUSEOF_ARTICLE, 1),  # H1, P 420 (intro)
+	(WDBO_ARTICLE, 2),  # H1, H2 dek, P 180 (body)
+	(WEBFRIENDLYHELP_HOME, 2),  # H2, H1, P 115 (welcome)
+	(PATTYSWORLDS_HOME, 1),  # H3, P 220 (welcome)
+	(GLIDANCE_HOME, 1),  # H1, P 180 (hero)
+	(STARBUCKS_HOME, 2),  # H2 promo, H1, P 190 (hero)
+	(SSA_HOME, 1),  # H2, P 130 (register CTA paragraph)
+	(SAM_GOV_HOME, 11),  # H1, P 40, H2, 6×short P, H2, H2, P 110
+	(APPLEVIS_ARTICLE, 3),  # H1, P 25, H3, P 265 (description)
+	(LWORKS_HOME, 2),  # H1, P 62 tagline, P 250 (description)
+	(CLEVERBRAILLE_HOME, 0),  # P 180 (first node)
+	(ACB_HOME, 1),  # H1, P 400 (hero)
+	(NFB_HOME, 2),  # H1, H1, P 470 (mission)
 ]
 
 
@@ -69,7 +71,7 @@ def main() -> int:
 			continue
 
 		got = findArticleLanding(tree)
-		ok = (got == expectedIndex)
+		ok = got == expectedIndex
 		marker = "PASS" if ok else "FAIL"
 		print(f"[{marker}] {label}")
 		print(f"       expected landing index: {expectedIndex}")

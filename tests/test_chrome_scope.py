@@ -106,12 +106,17 @@ FOOT = FakeRange(90, 100)
 # The trust boundary: how far did the scan get?
 # ---------------------------------------------------------------------------
 
+
 def test_boundaryIsTheLastLandmarkSeen():
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("complementary", FakeRange(40, 50)),
-		FakeItem("contentinfo", FakeRange(90, 100)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("complementary", FakeRange(40, 50)),
+				FakeItem("contentinfo", FakeRange(90, 100)),
+			]
+		)
+	)
 	assert scan.mainObj is None
 	assert len(scan.chromeRanges) == 3
 	# Boundary sits at the LAST landmark's start, so the footer and
@@ -131,11 +136,16 @@ def test_aTruncatedScanJustMovesTheBoundaryEarlier():
 
 
 def test_anIteratorThatDiesStillYieldsAUsableBoundary():
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("complementary", FakeRange(40, 50)),
-		FakeItem("contentinfo", FakeRange(90, 100)),
-	], raiseAfter=2))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("complementary", FakeRange(40, 50)),
+				FakeItem("contentinfo", FakeRange(90, 100)),
+			],
+			raiseAfter=2,
+		)
+	)
 	# Two landmarks were seen before the failure and both remain valid.
 	assert scan.trustBoundary.start == 40
 	assert len(scan.chromeRanges) == 2
@@ -144,45 +154,65 @@ def test_anIteratorThatDiesStillYieldsAUsableBoundary():
 def test_anUnplaceableLandmarkFreezesTheBoundaryThere():
 	# We cannot exclude what we cannot place, so trust stops at that point -
 	# but everything BEFORE it is still known and still usable.
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("navigation", None),
-		FakeItem("contentinfo", FakeRange(90, 100)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("navigation", None),
+				FakeItem("contentinfo", FakeRange(90, 100)),
+			]
+		)
+	)
 	assert scan.trustBoundary.start == 0
 	assert len(scan.chromeRanges) == 1
 
 
 def test_aDegenerateRangeFreezesTheBoundary():
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("navigation", FakeRange(20, 20)),
-		FakeItem("contentinfo", FakeRange(90, 100)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("navigation", FakeRange(20, 20)),
+				FakeItem("contentinfo", FakeRange(90, 100)),
+			]
+		)
+	)
 	assert scan.trustBoundary.start == 0
 
 
 def test_anInvertedRangeFreezesTheBoundary():
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("navigation", FakeRange(50, 20)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("navigation", FakeRange(50, 20)),
+			]
+		)
+	)
 	assert scan.trustBoundary.start == 0
 
 
 def test_anUncopyableRangeFreezesTheBoundary():
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("navigation", NoCopyRange(20, 30)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("navigation", NoCopyRange(20, 30)),
+			]
+		)
+	)
 	assert scan.trustBoundary.start == 0
 
 
 def test_outOfOrderLandmarksAreDetected():
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(50, 60)),
-		FakeItem("banner", FakeRange(10, 20)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(50, 60)),
+				FakeItem("banner", FakeRange(10, 20)),
+			]
+		)
+	)
 	assert scan.ordered is False
 
 
@@ -199,10 +229,14 @@ def test_rangesArePrivateCopies():
 
 
 def test_findingMainStillReturnsIt():
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("main", FakeRange(10, 90)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("main", FakeRange(10, 90)),
+			]
+		)
+	)
 	assert scan.mainObj is not None
 	assert scan.mainRange is not None
 
@@ -212,6 +246,7 @@ def test_findingMainStillReturnsIt():
 # buildTreeSummary cannot run outside NVDA, so without these it would be
 # the one load-bearing line with no coverage.
 # ---------------------------------------------------------------------------
+
 
 def test_orderedScanWithABoundaryEnablesPositional():
 	ranges = [NAV]
@@ -282,6 +317,7 @@ def test_scopeSelectionNeverReturnsBothARangeAndAnExclusion():
 # The exclusion test: START position, tri-state on failure.
 # ---------------------------------------------------------------------------
 
+
 def test_chunkInsideAChromeRangeIsExcluded():
 	assert ts._startsInAny(FakeRange(2, 5), [NAV, FOOT]) is True
 
@@ -327,6 +363,7 @@ def test_comparisonFailureIsUnknownNotIncluded():
 # ---------------------------------------------------------------------------
 # Boundary comparison.
 # ---------------------------------------------------------------------------
+
 
 def test_beforeTheBoundaryIsTrusted():
 	assert ts._startsBefore(FakeRange(5, 8), FakeRange(90, 100)) is True
@@ -415,9 +452,7 @@ def test_equalStartNestingIsCoveredByTheOuterRange():
 	# lies inside the region, so it defers to identity.
 	region = FakeRange(20, 80)
 	for chunkStart in (20, 35, 79):
-		assert ts._chromePosVerdict(
-			FakeRange(chunkStart, chunkStart + 3), BOUNDARY, [], [region]
-		) is None
+		assert ts._chromePosVerdict(FakeRange(chunkStart, chunkStart + 3), BOUNDARY, [], [region]) is None
 
 
 # ---------------------------------------------------------------------------
@@ -430,12 +465,17 @@ def test_equalStartNestingIsCoveredByTheOuterRange():
 # tests exist so it cannot happen a third time.
 # ---------------------------------------------------------------------------
 
+
 def test_scanCollectsNonChromeLandmarksSeparately():
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("region", FakeRange(20, 60)),
-		FakeItem("contentinfo", FakeRange(90, 100)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("region", FakeRange(20, 60)),
+				FakeItem("contentinfo", FakeRange(90, 100)),
+			]
+		)
+	)
 	chromeStarts = sorted(r.start for r in scan.chromeRanges)
 	otherStarts = sorted(r.start for r in scan.otherRanges)
 	assert chromeStarts == [0, 90]
@@ -446,19 +486,27 @@ def test_scanCollectsNonChromeLandmarksSeparately():
 
 def test_aNonChromeLandmarkStillAdvancesTheTrustBoundary():
 	# It was placed, so everything before it remains fully known.
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("region", FakeRange(20, 60)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("region", FakeRange(20, 60)),
+			]
+		)
+	)
 	assert scan.trustBoundary.start == 20
 
 
 def test_anUnplaceableNonChromeLandmarkFreezesTrustToo():
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("region", None),
-		FakeItem("contentinfo", FakeRange(90, 100)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("region", None),
+				FakeItem("contentinfo", FakeRange(90, 100)),
+			]
+		)
+	)
 	assert scan.trustBoundary.start == 0
 	assert scan.otherRanges == []
 
@@ -466,11 +514,15 @@ def test_anUnplaceableNonChromeLandmarkFreezesTrustToo():
 def test_selectScopeHandsTheNonChromeRangesToTheCaller():
 	# The link in the chain that had no coverage at all: every previous
 	# _selectScope test unpacked this value and then never asserted on it.
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("region", FakeRange(20, 60)),
-		FakeItem("contentinfo", FakeRange(90, 100)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("region", FakeRange(20, 60)),
+				FakeItem("contentinfo", FakeRange(90, 100)),
+			]
+		)
+	)
 	kind, scopeRange, exclude, boundary, untrusted = ts._selectScope(scan)
 	assert kind == "chrome-pos"
 	assert untrusted is scan.otherRanges
@@ -481,11 +533,15 @@ def test_theChainEndToEndProtectsAChunkInsideARegion():
 	# Scan -> select -> verdict, with no hand-built lists anywhere. A chunk
 	# inside the emitted region defers to identity, because that is where an
 	# omitted nested nav would be; a chunk outside every landmark does not.
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("region", FakeRange(20, 60)),
-		FakeItem("contentinfo", FakeRange(90, 100)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("region", FakeRange(20, 60)),
+				FakeItem("contentinfo", FakeRange(90, 100)),
+			]
+		)
+	)
 	_, _, exclude, boundary, untrusted = ts._selectScope(scan)
 	assert ts._chromePosVerdict(FakeRange(30, 35), boundary, exclude, untrusted) is None
 	assert ts._chromePosVerdict(FakeRange(70, 75), boundary, exclude, untrusted) is True
@@ -496,10 +552,14 @@ def test_orderingComparisonFailureKillsChromePos():
 	# The fail-closed path added this round, previously untested: an ordering
 	# comparison we could not make means the order is UNKNOWN, and unknown
 	# must not read as ordered.
-	scan = ts._findMainLandmark(FakeTI([
-		FakeItem("navigation", FakeRange(0, 10)),
-		FakeItem("navigation", ExplodingRange(20, 30)),
-	]))
+	scan = ts._findMainLandmark(
+		FakeTI(
+			[
+				FakeItem("navigation", FakeRange(0, 10)),
+				FakeItem("navigation", ExplodingRange(20, 30)),
+			]
+		)
+	)
 	assert scan.ordered is False
 	kind, _, exclude, _b, _u = ts._selectScope(scan)
 	assert kind == "chrome"
@@ -514,6 +574,7 @@ def test_orderingComparisonFailureKillsChromePos():
 # out of the page content entirely.
 # ---------------------------------------------------------------------------
 
+
 class FieldItem:
 	def __init__(self, rng, obj=None):
 		self.textInfo = rng
@@ -521,9 +582,7 @@ class FieldItem:
 
 
 def _eligible(item, kind, scopeRange=None, chrome=None, boundary=None, untrusted=None, mainObj=None):
-	return ts._formFieldInScope(
-		item, kind, scopeRange, chrome or [], boundary, untrusted or [], mainObj, {}
-	)
+	return ts._formFieldInScope(item, kind, scopeRange, chrome or [], boundary, untrusted or [], mainObj, {})
 
 
 def test_fieldInsideMainRangeIsEligible():
@@ -541,17 +600,27 @@ def test_mainRangeComparisonFailureRefusesToMoveFocus():
 
 
 def test_chromePosFieldInANavIsRejected():
-	assert _eligible(
-		FieldItem(FakeRange(2, 5)), "chrome-pos",
-		chrome=[NAV], boundary=FakeRange(90, 100),
-	) is False
+	assert (
+		_eligible(
+			FieldItem(FakeRange(2, 5)),
+			"chrome-pos",
+			chrome=[NAV],
+			boundary=FakeRange(90, 100),
+		)
+		is False
+	)
 
 
 def test_chromePosFieldInContentIsEligible():
-	assert _eligible(
-		FieldItem(FakeRange(40, 45)), "chrome-pos",
-		chrome=[NAV], boundary=FakeRange(90, 100),
-	) is True
+	assert (
+		_eligible(
+			FieldItem(FakeRange(40, 45)),
+			"chrome-pos",
+			chrome=[NAV],
+			boundary=FakeRange(90, 100),
+		)
+		is True
+	)
 
 
 def test_chromePosFieldInUntrustedTerritoryNeedsAnObject():
@@ -559,17 +628,28 @@ def test_chromePosFieldInUntrustedTerritoryNeedsAnObject():
 	# defers to identity there; so must this. With no object there is no
 	# identity check available, so no focus move.
 	region = FakeRange(30, 60)
-	assert _eligible(
-		FieldItem(FakeRange(40, 45)), "chrome-pos",
-		chrome=[NAV], boundary=FakeRange(90, 100), untrusted=[region],
-	) is False
+	assert (
+		_eligible(
+			FieldItem(FakeRange(40, 45)),
+			"chrome-pos",
+			chrome=[NAV],
+			boundary=FakeRange(90, 100),
+			untrusted=[region],
+		)
+		is False
+	)
 
 
 def test_fieldPastTheTrustBoundaryNeedsAnObject():
-	assert _eligible(
-		FieldItem(FakeRange(95, 98)), "chrome-pos",
-		chrome=[NAV], boundary=FakeRange(90, 100),
-	) is False
+	assert (
+		_eligible(
+			FieldItem(FakeRange(95, 98)),
+			"chrome-pos",
+			chrome=[NAV],
+			boundary=FakeRange(90, 100),
+		)
+		is False
+	)
 
 
 def test_mainIdPageDoesNotFallIntoTheNoMainBranch():
@@ -610,6 +690,7 @@ def test_aFieldWithNoObjectAndNoRangeIsNeverFocused():
 # zero-seen cases. Do not add one gated on the enumeration returning nothing.
 # The per-chunk field stack is the only positive witness available.
 # ---------------------------------------------------------------------------
+
 
 def test_nativeSwallowShapeDoesNotUnlockAnyLandmarkFreeShortcut():
 	"""THE REGRESSION TEST. An enumeration that yields nothing and returns
