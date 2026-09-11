@@ -1,0 +1,9 @@
+# Revisions to skip when running git blame. Bulk mechanical reformats only:
+# a commit belongs here when it changed no behavior and would otherwise sit
+# on top of the reasoning history that lives in this codebase's comments.
+#
+# GitHub honors this file automatically. To get the same locally, once:
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: apply ruff format across the tree (2026-09-10)
+ace650b6e82341ff4d8968d27fe32995992e8fa6
