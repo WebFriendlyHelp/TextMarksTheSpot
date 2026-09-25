@@ -252,14 +252,100 @@ _PERF_LOG_MAX_BYTES = 1_000_000
 _PERF_LOG_PATH_CACHE: Optional[str] = None
 
 
+def _diagDir() -> Optional[str]:
+	"""The folder the diagnostics marker and logs live in: NVDA's own user
+	configuration folder, the one holding nvda.ini.
+
+	It used to be hard-coded to %APPDATA%\\nvda, which is that folder only for an
+	installed NVDA on its default config path. A portable copy keeps its
+	config in userConfig beside nvda.exe, and --config-path moves it anywhere,
+	so a user following the readme there created the marker where it was never
+	read, and a marker left in %APPDATA%\\nvda by an installed copy silently
+	switched logging on for a portable copy run by the same Windows user
+	(security audit, 2026-09-24, Fable). APPDATA remains the fallback when NVDA
+	cannot say, which is also what the unit tests exercise.
+	"""
+	try:
+		import globalVars
+
+		configPath = getattr(getattr(globalVars, "appArgs", None), "configPath", None)
+		if configPath:
+			return str(configPath)
+	except Exception:
+		pass
+	appdata = os.environ.get("APPDATA")
+	if not appdata:
+		return None
+	return os.path.join(appdata, "nvda")
+
+
+def _nvdaAllowsDiskWrites() -> bool:
+	"""False when NVDA itself forbids writing to disk: secure mode (lock
+	screen, UAC, sign-in) and the installer launcher.
+
+	The consent marker alone was not enough. NVDA runs on secure desktops, and
+	its own rule there is that nothing gets written; an add-on that honoured
+	only its own marker would log on a screen where NVDA does not (security
+	audit, 2026-09-24, GPT-6 Astra). NVDAState.shouldWriteToDisk is NVDA's
+	supported check; the globalVars fallback covers an NVDA that predates it.
+	Outside NVDA (the unit tests) neither exists and the answer is True, so the
+	marker stays the only gate there.
+	"""
+	try:
+		import NVDAState
+
+		check = getattr(NVDAState, "shouldWriteToDisk", None)
+		if check is not None:
+			return bool(check())
+	except Exception:
+		pass
+	try:
+		import globalVars
+
+		args = getattr(globalVars, "appArgs", None)
+		if args is not None:
+			return not (getattr(args, "secure", False) or getattr(args, "launcher", False))
+	except Exception:
+		pass
+	return True
+
+
+def _rotateOrRefuse(path: str, maxBytes: int) -> bool:
+	"""Rotate path to path.old once it passes maxBytes. False means "do not
+	append": the file is over twice its cap because rotation keeps failing.
+
+	Both log writers used to append regardless, so a .old held open by another
+	program (a backup tool, an editor) made every rotation fail and the live
+	file grew without limit while looking rotated (security audit, 2026-09-24).
+	The 2x ceiling leaves room for a transient failure to clear on its own
+	without losing a single line in the common case.
+	"""
+	try:
+		size = os.path.getsize(path)
+	except OSError:
+		return True  # does not exist yet
+	if size <= maxBytes:
+		return True
+	rotated = path + ".old"
+	try:
+		try:
+			os.remove(rotated)
+		except OSError:
+			pass
+		os.rename(path, rotated)
+		return True
+	except OSError:
+		return size <= 2 * maxBytes
+
+
 def _perfLogPath() -> Optional[str]:
 	global _PERF_LOG_PATH_CACHE
 	if _PERF_LOG_PATH_CACHE is not None:
 		return _PERF_LOG_PATH_CACHE
-	appdata = os.environ.get("APPDATA")
-	if not appdata:
+	folder = _diagDir()
+	if not folder:
 		return None
-	_PERF_LOG_PATH_CACHE = os.path.join(appdata, "nvda", "TextMarksTheSpot-perf.log")
+	_PERF_LOG_PATH_CACHE = os.path.join(folder, "TextMarksTheSpot-perf.log")
 	return _PERF_LOG_PATH_CACHE
 
 
@@ -285,16 +371,8 @@ def _appendPerfLine(line: str) -> None:
 	if path is None:
 		return
 	try:
-		try:
-			if os.path.getsize(path) > _PERF_LOG_MAX_BYTES:
-				rotated = path + ".old"
-				try:
-					os.remove(rotated)
-				except OSError:
-					pass
-				os.rename(path, rotated)
-		except OSError:
-			pass  # file doesn't exist yet, or rotation race — both fine
+		if not _rotateOrRefuse(path, _PERF_LOG_MAX_BYTES):
+			return
 		ts = datetime.datetime.now().isoformat(timespec="seconds")
 		with open(path, "a", encoding="utf-8") as fh:
 			fh.write(f"{ts} {line}\n")
@@ -330,25 +408,26 @@ def _captureLogPath() -> Optional[str]:
 	global _CAPTURE_LOG_PATH_CACHE
 	if _CAPTURE_LOG_PATH_CACHE is not None:
 		return _CAPTURE_LOG_PATH_CACHE
-	appdata = os.environ.get("APPDATA")
-	if not appdata:
+	folder = _diagDir()
+	if not folder:
 		return None
-	_CAPTURE_LOG_PATH_CACHE = os.path.join(appdata, "nvda", "TextMarksTheSpot-captures.jsonl")
+	_CAPTURE_LOG_PATH_CACHE = os.path.join(folder, "TextMarksTheSpot-captures.jsonl")
 	return _CAPTURE_LOG_PATH_CACHE
 
 
 def _diagnosticsEnabled() -> bool:
 	"""True only when the developer opt-in marker file is present next to the
-	capture log. Cached for the session; an unreadable APPDATA reads as OFF."""
+	capture log AND NVDA currently permits writing to disk. Cached for the
+	session; an unreadable folder reads as OFF."""
 	global _DIAG_ENABLED
 	if _DIAG_ENABLED is not None:
 		return _DIAG_ENABLED
-	appdata = os.environ.get("APPDATA")
-	if not appdata:
+	folder = _diagDir()
+	if not folder or not _nvdaAllowsDiskWrites():
 		_DIAG_ENABLED = False
 		return False
 	try:
-		_DIAG_ENABLED = os.path.exists(os.path.join(appdata, "nvda", _DIAG_MARKER_NAME))
+		_DIAG_ENABLED = os.path.exists(os.path.join(folder, _DIAG_MARKER_NAME))
 	except Exception:
 		_DIAG_ENABLED = False
 	return _DIAG_ENABLED
@@ -435,6 +514,12 @@ def _appendCapture(summary: "TreeSummary") -> None:
 			# still read as False, which is what they effectively replayed as before.
 			"article_count_trunc": summary.articleCountTruncated,
 			"walk_trunc": summary.walkTruncated,
+			# Two more classifier inputs replay used to default to False: the
+			# NOTICE keyword flag (a confirmation page replayed as ARTICLE) and
+			# guardrail 6's editable-focus flag. Added 2026-09-24; older records
+			# lack them and replay as False, as they always did.
+			"notice_kw": getattr(summary, "noticeKeywordMatch", False),
+			"focus_editable": getattr(summary, "focusedControlIsEditable", False),
 			"pre_main_nodes": [
 				[
 					n.kind,
@@ -463,16 +548,8 @@ def _appendCapture(summary: "TreeSummary") -> None:
 				for n in summary.mainNodes
 			],
 		}
-		try:
-			if os.path.getsize(path) > _CAPTURE_LOG_MAX_BYTES:
-				rotated = path + ".old"
-				try:
-					os.remove(rotated)
-				except OSError:
-					pass
-				os.rename(path, rotated)
-		except OSError:
-			pass
+		if not _rotateOrRefuse(path, _CAPTURE_LOG_MAX_BYTES):
+			return
 		with open(path, "a", encoding="utf-8") as fh:
 			fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
 	except Exception:
@@ -1061,6 +1138,19 @@ def findLandingByText(treeInterceptor, needle: str, verify=None):
 			info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
 			if not info.find(cand):
 				continue
+			if not haystack and cand != needle:
+				# The buffer copy failed, so the count above never ran, and
+				# before 2026-09-24 a shortened rung was then used on presence
+				# alone: exactly the teaser-repeats-its-lede case the count
+				# exists for (security audit, GPT-6 Astra). Refusing shortened
+				# rungs outright would lose real recoveries, so establish
+				# uniqueness the other way instead. find() from POSITION_FIRST
+				# returned the FIRST hit, and a second find() from that hit
+				# searches everything after it, so no second hit means one hit.
+				later = info.copy()
+				later.collapse()
+				if later.find(cand):
+					continue
 			info.collapse()
 			probe = info.copy()
 			probe.expand(textInfos.UNIT_PARAGRAPH)

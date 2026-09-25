@@ -26,6 +26,13 @@ concurrency:
   group: tests-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+# Read-only token. Nothing here writes to the repository, and a test job runs
+# third-party code (pip, pytest plugins), so it should hold no more authority
+# than reading the checkout needs (security audit, 2026-09-24). Actions are
+# pinned to commit SHAs for the same reason release.yml's are.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: windows-latest
@@ -35,10 +42,12 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.13'
 

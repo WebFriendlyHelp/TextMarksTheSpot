@@ -272,6 +272,50 @@ SABOTAGES = [
 		WEB,
 	),
 	(
+		"shortened find rung used on presence alone when the buffer copy fails",
+		"			if not haystack and cand != needle:",
+		"			if False:",
+	),
+	(
+		"diagnostics ignore NVDA's secure-mode write rule",
+		"	if not folder or not _nvdaAllowsDiskWrites():",
+		"	if not folder:",
+	),
+	(
+		"diagnostics folder hard-coded to APPDATA again",
+		'		configPath = getattr(getattr(globalVars, "appArgs", None), "configPath", None)',
+		"		configPath = None",
+	),
+	(
+		"log appends forever when rotation keeps failing",
+		"		return size <= 2 * maxBytes",
+		"		return True",
+	),
+	(
+		"URL hints see redirect parameters again",
+		"	url = _hintableUrl(tree.url)",
+		"	url = tree.url.lower()",
+		CLASSIFIER,
+	),
+	(
+		"URL hints drop the query entirely",
+		'		if "/" in _unquote(value):',
+		"		if True:",
+		CLASSIFIER,
+	),
+	(
+		"exclusion matching forgets the trailing dot",
+		'	host = (hostname or "").strip().lower().rstrip(".")',
+		'	host = (hostname or "").strip().lower()',
+		CONFIG,
+	),
+	(
+		"exclusion matching forgets IDNA",
+		'		return host.encode("idna").decode("ascii")',
+		"		return host",
+		CONFIG,
+	),
+	(
 		"walk cut short by an error reports itself complete again",
 		"			interrupted = not _isAtDocumentEnd(treeInterceptor, info)",
 		"			interrupted = False",

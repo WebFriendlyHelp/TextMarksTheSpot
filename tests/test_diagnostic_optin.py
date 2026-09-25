@@ -19,6 +19,8 @@
 # "writes nothing" test fails.
 
 import os
+import sys
+import types
 
 import treeSummary
 
@@ -95,6 +97,8 @@ class _FakeSummary:
 	# capture logging being broken (2026-09-10).
 	articleCountTruncated = False
 	walkTruncated = False
+	noticeKeywordMatch = True
+	focusedControlIsEditable = False
 	positionallyScoped = False
 	mainNodes = ()
 
@@ -292,3 +296,112 @@ def test_lifecycleAndCrashLoggingStayUngated():
 		# ungated path, which is the one way these could start leaking.
 		assert 'log.exception(f"' not in text, f"{path.name} interpolates into an ungated log"
 	assert infoCalls >= 3, "the lifecycle log lines went missing"
+
+
+# --- NVDA's own write rules, and NVDA's own config folder (2026-09-24) -------
+
+
+def test_secureModeWritesNothingEvenWithTheMarker(monkeypatch, tmp_path):
+	# NVDA forbids disk writes on secure desktops (lock screen, UAC). The
+	# add-on's own marker must not override NVDA's rule.
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
+	monkeypatch.setitem(sys.modules, "NVDAState", types.SimpleNamespace(shouldWriteToDisk=lambda: False))
+	treeSummary._appendPerfLine(_PERF_LINE)
+	treeSummary._appendCapture(_FakeSummary())
+	assert sorted(os.listdir(nvdaDir)) == [treeSummary._DIAG_MARKER_NAME]
+
+
+def test_writesWhenNvdaPermitsThemAndTheMarkerExists(monkeypatch, tmp_path):
+	# Negative twin for the test above: the check must be able to say yes.
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
+	monkeypatch.setitem(sys.modules, "NVDAState", types.SimpleNamespace(shouldWriteToDisk=lambda: True))
+	treeSummary._appendPerfLine(_PERF_LINE)
+	assert os.path.exists(os.path.join(nvdaDir, "TextMarksTheSpot-perf.log"))
+
+
+def test_olderNvdaSecureFlagAlsoBlocksWrites(monkeypatch, tmp_path):
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
+	monkeypatch.setitem(sys.modules, "NVDAState", types.SimpleNamespace())
+	monkeypatch.setitem(
+		sys.modules,
+		"globalVars",
+		types.SimpleNamespace(appArgs=types.SimpleNamespace(secure=True, launcher=False, configPath=nvdaDir)),
+	)
+	assert treeSummary._diagnosticsEnabled() is False
+
+
+def test_markerIsReadFromNvdasConfigFolderNotAppdata(monkeypatch, tmp_path):
+	# A portable NVDA keeps its config beside nvda.exe. Its marker lives there,
+	# and a marker in %APPDATA%\nvda (left by an installed copy) must not count.
+	appdataNvda = _reset(monkeypatch, tmp_path / "appdata")
+	_optIn(appdataNvda)
+	portable = tmp_path / "portable" / "userConfig"
+	portable.mkdir(parents=True)
+	monkeypatch.setitem(
+		sys.modules,
+		"globalVars",
+		types.SimpleNamespace(
+			appArgs=types.SimpleNamespace(secure=False, launcher=False, configPath=str(portable))
+		),
+	)
+	assert treeSummary._diagnosticsEnabled() is False
+	monkeypatch.setattr(treeSummary, "_DIAG_ENABLED", None)
+	_optIn(str(portable))
+	assert treeSummary._diagnosticsEnabled() is True
+	treeSummary._appendPerfLine(_PERF_LINE)
+	assert os.path.exists(portable / "TextMarksTheSpot-perf.log")
+
+
+# --- rotation that keeps failing must stop the file growing (2026-09-24) ------
+
+
+def _failingRename(*a, **k):
+	raise OSError("the .old file is locked by another program")
+
+
+def test_logStopsGrowingWhenRotationKeepsFailing(monkeypatch, tmp_path):
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
+	path = os.path.join(nvdaDir, "TextMarksTheSpot-perf.log")
+	with open(path, "w", encoding="utf-8") as fh:
+		fh.write("x" * (2 * treeSummary._PERF_LOG_MAX_BYTES + 10))
+	monkeypatch.setattr(os, "rename", _failingRename)
+	before = os.path.getsize(path)
+	treeSummary._appendPerfLine(_PERF_LINE)
+	assert os.path.getsize(path) == before
+
+
+def test_logStillAppendsThroughATransientRotationFailure(monkeypatch, tmp_path):
+	# Negative twin: just over the cap, a failed rotation loses nothing.
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
+	path = os.path.join(nvdaDir, "TextMarksTheSpot-perf.log")
+	with open(path, "w", encoding="utf-8") as fh:
+		fh.write("x" * (treeSummary._PERF_LOG_MAX_BYTES + 10))
+	monkeypatch.setattr(os, "rename", _failingRename)
+	before = os.path.getsize(path)
+	treeSummary._appendPerfLine(_PERF_LINE)
+	assert os.path.getsize(path) > before
+
+
+# --- capture records carry every classifier input (2026-09-24) ---------------
+
+
+def test_captureRecordsTheNoticeAndFocusFlagsAndReplayRestoresThem(monkeypatch, tmp_path):
+	import json
+
+	import replay_captures
+
+	nvdaDir = _reset(monkeypatch, tmp_path)
+	_optIn(nvdaDir)
+	treeSummary._appendCapture(_FakeSummary())
+	with open(os.path.join(nvdaDir, "TextMarksTheSpot-captures.jsonl"), encoding="utf-8") as fh:
+		rec = json.loads(fh.readline())
+	assert rec["notice_kw"] is True and rec["focus_editable"] is False
+	tree = replay_captures.summaryFromRecord(rec)
+	assert tree.noticeKeywordMatch is True
+	# Older records without the keys still replay as False.
+	assert replay_captures.summaryFromRecord({"url": "x"}).noticeKeywordMatch is False

@@ -83,6 +83,8 @@ def summaryFromRecord(rec: dict) -> cls.TreeSummary:
 		countsTruncated=rec.get("counts_trunc", False),
 		articleCountTruncated=rec.get("article_count_trunc", False),
 		walkTruncated=rec.get("walk_trunc", False),
+		noticeKeywordMatch=rec.get("notice_kw", False),
+		focusedControlIsEditable=rec.get("focus_editable", False),
 		mainNodes=[_nodeFromRow(r) for r in rec.get("nodes", [])],
 	)
 
@@ -124,7 +126,11 @@ def main(argv: list) -> int:
 
 	if not os.path.exists(path):
 		print(f"No capture file at: {path}")
-		print("Browse a few pages with the add-on (NVDA log level DEBUG) to fill it.")
+		print(
+			"Create the opt-in marker file TextMarksTheSpot-diagnostics-enabled in "
+			"NVDA's user configuration folder (the one holding nvda.ini), restart "
+			"NVDA, and browse a few pages to fill it. The log level does not matter."
+		)
 		return 1
 
 	rows = 0

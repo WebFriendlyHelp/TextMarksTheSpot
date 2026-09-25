@@ -16,6 +16,7 @@ import enum
 import re
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import unquote as _unquote
 
 
 class Intent(enum.Enum):
@@ -400,7 +401,7 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 			"Focused editable control — honoring page-placed focus",
 		)
 
-	url = tree.url.lower()
+	url = _hintableUrl(tree.url)
 
 	# Compute hero/cluster signals once — used to gate FORM and later by
 	# article/list paths.
@@ -775,6 +776,39 @@ def _heroParagraphChars(nodes: list[MainNode]) -> int:
 	if curHasSubstantial and curChars > best:
 		best = curChars
 	return best
+
+
+def _hintableUrl(url: str) -> str:
+	"""The lowercased URL with every query VALUE that names a path blanked.
+
+	The URL hints are substring matches, and they used to run over the whole
+	URL, so an unrelated redirect parameter could decide the intent: an
+	article with three comment-form inputs classified ARTICLE, and the same
+	page at ?next=/register classified FORM, which is the intent that moves
+	keyboard focus (security audit, 2026-09-24, GPT-6 Astra). Anyone who can
+	hand the user a link controls the query string.
+
+	Deliberately narrow rather than "drop the query". The query legitimately
+	carries the page's identity on some of the most common forms on the web:
+	MediaWiki's login is index.php?title=Special:UserLogin, and "userlogin"
+	matching there is the whole point of that hint. A value containing "/"
+	(after percent-decoding) is a PATH, i.e. a destination, which is what
+	returnto=, next=, redirect= and friends carry and what a page's own
+	identity never needs. The fragment is kept too, since SPA routes live
+	there (#/login).
+	"""
+	lower = (url or "").lower()
+	base, sep, rest = lower.partition("?")
+	if not sep:
+		return lower
+	query, hashSep, fragment = rest.partition("#")
+	kept = []
+	for pair in query.split("&"):
+		key, eq, value = pair.partition("=")
+		if "/" in _unquote(value):
+			value = ""
+		kept.append(key + eq + value)
+	return base + "?" + "&".join(kept) + hashSep + fragment
 
 
 def _urlMatches(url: str, intent: Intent) -> bool:

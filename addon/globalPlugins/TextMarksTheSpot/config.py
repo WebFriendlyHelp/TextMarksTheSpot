@@ -48,12 +48,30 @@ def getDisabledSites() -> list:
 		return []
 
 
+def _normHost(hostname: str) -> str:
+	"""The comparison form of a hostname: lowercase, no trailing dot, IDNA.
+
+	Exclusion used to compare lowercased strings only, so excluding
+	example.com did not exclude example.com. (a trailing dot is the same
+	DNS name), and a Unicode domain and its xn-- punycode spelling were two
+	different sites (security audit, 2026-09-24). Stored entries are left as
+	the user saved them; only the comparison is canonical. A name the IDNA
+	codec rejects is compared as plain lowercase, exactly as before.
+	"""
+	host = (hostname or "").strip().lower().rstrip(".")
+	try:
+		return host.encode("idna").decode("ascii")
+	except Exception:
+		return host
+
+
 def isSiteDisabled(hostname: str) -> bool:
-	"""Check if hostname is in the disabled-sites list. Case-insensitive."""
+	"""Check if hostname is in the disabled-sites list. Case-insensitive, and
+	a trailing dot or Unicode-versus-punycode spelling does not matter."""
 	if not hostname:
 		return False
-	lower = hostname.lower()
-	return any(h.lower() == lower for h in getDisabledSites())
+	target = _normHost(hostname)
+	return any(_normHost(h) == target for h in getDisabledSites())
 
 
 def addDisabledSite(hostname: str) -> bool:
@@ -62,7 +80,8 @@ def addDisabledSite(hostname: str) -> bool:
 	if not _NVDA_AVAILABLE or not hostname:
 		return False
 	current = getDisabledSites()
-	if any(h.lower() == hostname.lower() for h in current):
+	target = _normHost(hostname)
+	if any(_normHost(h) == target for h in current):
 		return False
 	current.append(hostname)
 	try:
@@ -78,8 +97,8 @@ def removeDisabledSite(hostname: str) -> bool:
 	if not _NVDA_AVAILABLE or not hostname:
 		return False
 	current = getDisabledSites()
-	lower = hostname.lower()
-	newList = [h for h in current if h.lower() != lower]
+	target = _normHost(hostname)
+	newList = [h for h in current if _normHost(h) != target]
 	if len(newList) == len(current):
 		return False
 	try:

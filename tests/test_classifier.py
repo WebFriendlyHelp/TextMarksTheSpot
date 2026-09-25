@@ -6,6 +6,7 @@
 # this session has at least one test that would have failed without it.
 
 import classifier as cls
+from classifier import MainNode, TreeSummary
 
 
 def _node(kind, length, level=None, preview=""):
@@ -1004,3 +1005,38 @@ def test_surveyingArticleWithBodyClusterStaysEditorial():
 		)
 	)
 	assert result.intent != cls.Intent.FORM
+
+
+# ---------------------------------------------------------------------------
+# A redirect parameter must not decide the intent. Added 2026-09-24.
+#
+# The URL hints are substring matches and used to see the whole URL, so the
+# same article page at ?next=/register classified FORM, the intent that moves
+# keyboard focus. Whoever hands the user a link controls the query string.
+# ---------------------------------------------------------------------------
+
+
+def _commentedArticle(url):
+	t = TreeSummary(url=url)
+	t.mainNodes = [
+		MainNode(kind="heading", level=1, textLength=30, textPreview="Headline of the story here ok"),
+		MainNode(kind="paragraph", textLength=120, textPreview="x" * 60),
+	]
+	t.formInputCount = 3
+	t.interactiveControlCount = 6
+	return t
+
+
+def test_redirectParameterDoesNotTurnAnArticleIntoAForm():
+	for suffix in ("", "?next=/register", "?returnto=%2Fsignup&x=1", "?redirect=https://idp.example/login"):
+		result = cls.classify(_commentedArticle("https://news.example/story-slug" + suffix))
+		assert result.intent == cls.Intent.ARTICLE, suffix
+
+
+def test_queryThatNamesThePageStillCountsAsAHint():
+	# Negative twin: MediaWiki's login lives in the query, and the fragment
+	# carries SPA routes. Neither may be lost.
+	wiki = "https://en.wikipedia.org/w/index.php?title=Special:UserLogin&returnto=Main+Page"
+	assert cls.classify(_commentedArticle(wiki)).intent == cls.Intent.FORM
+	assert "userlogin" in cls._hintableUrl(wiki)
+	assert cls._hintableUrl("https://app.example/#/login?next=/a") == "https://app.example/#/login?next="

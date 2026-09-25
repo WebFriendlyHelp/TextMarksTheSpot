@@ -337,3 +337,48 @@ def test_aNeedleBelowTheFloorIsRefusedOutright():
 	node = Node("short")
 	assert ts.findLandingByText(doc, "short", verify=verifierFor(node)) is None
 	assert doc.findCalls == []
+
+
+# ---------------------------------------------------------------------------
+# When the buffer copy FAILS, uniqueness must still be established. 2026-09-24.
+#
+# The occurrence count runs over a one-time copy of the buffer. If fetching it
+# raised, the count was skipped and every shortened rung was used on presence
+# alone, so a hydration-time error turned the teaser case back on.
+# ---------------------------------------------------------------------------
+
+
+class NoCopyDoc(FakeDoc):
+	def makeTextInfo(self, position):
+		if position == _FakeTextInfos.POSITION_ALL:
+			raise RuntimeError("buffer copy failed mid-hydration (simulated)")
+		return super().makeTextInfo(position)
+
+
+_TEASER_PAGE = [
+	"Skip to main content",
+	"The council voted on Tuesday to approve the measure, and here is what else you missed this week",
+	"The council voted on Tuesday to approve a revised transit levy today",
+]
+
+
+def test_anAmbiguousRungIsRefusedEvenWhenTheBufferCopyFails():
+	doc = NoCopyDoc(_TEASER_PAGE)
+	assert ts.findLandingByText(doc, LEDE, verify=verifierFor(Node(LEDE))) is None, (
+		"with the buffer copy unavailable a shortened rung matching twice was used"
+	)
+
+
+def test_anUnambiguousRungStillWinsWhenTheBufferCopyFails():
+	# Negative twin: the fallback must not become "never shorten".
+	doc = NoCopyDoc(
+		[
+			"Skip to main content",
+			"Also today: what else you missed this week in local government news",
+			"The council voted on Tuesday to approve a revised transit levy today",
+		]
+	)
+	info = ts.findLandingByText(doc, LEDE, verify=verifierFor(Node(LEDE)))
+	assert info is not None
+	info.expand(_FakeTextInfos.UNIT_PARAGRAPH)
+	assert info.text.startswith("The council voted on Tuesday to approve a revised")
