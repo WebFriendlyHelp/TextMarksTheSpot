@@ -266,6 +266,13 @@ Every real release — anything tagged, anything that reaches GitHub Releases or
 
 The manual `scons` + `gh release create` path is the **fallback for when CI is broken** (release.yml says so in its header) — not the normal flow.
 
+**release.yml is two jobs since 2026-09-24, and changing it has its own rules.** `build` runs everything third-party (pip, choco, SCons, tests) on a READ-ONLY token; only `publish` holds `contents: write`, and it runs nothing but `gh` on the uploaded artifact. Actions are pinned to commit SHAs and tools to exact versions, the ones v1.0.16 built with, so bumping one is a deliberate edit like the ruff pin. The tag reaches PowerShell only through `$env:TAG`, validated as plain semver first; never paste `${{ github.ref_name }}` into a `run:` block again. Two operational rules came out of that work:
+
+- **To exercise a release.yml change without publishing**, push a throwaway commit that adds this branch to the trigger, gates `publish` on `startsWith(github.ref, 'refs/tags/')`, and gives `TAG` a fallback of the current version, then revert it. Run 36083708242 is the example. `actionlint` catches syntax, not whether choco still has the pinned version.
+- **Never force-push a `v*` tag with release.yml enabled.** A moved tag is a push event and fires the workflow. `gh workflow disable release.yml`, push, `gh workflow enable release.yml`.
+
+**History was rewritten on 2026-09-24** (git filter-repo, removing the capture corpus committed before 2026-07-22). Every commit from 2026-07-21 onward has a new hash, so a hash cited in older notes, logs or messages for that period will not resolve; the pre-rewrite history is in `%USERPROFILE%\repo-backups\TextMarksTheSpot-before-history-rewrite-2026-09-24.bundle`. Any other clone needs a fresh clone or a hard reset to origin/main.
+
 ### Verify the build
 
 ```
@@ -343,7 +350,7 @@ When adding one, avoid adjacent unbounded runs that can split the same character
 (`\s*x?\s*`) and scans that restart from every candidate (`\(...[^)]*\)$`), and add
 it to `test_regex_linear.py` with a timing test and an equivalence test.
 
-NVDA-dependent code (treeSummary's walk, speech, tones, event hooks) is NOT unit-testable — that surface stays manual via the log viewer (`NVDA+F1`, search for `[TMTS]`). Each new NVDA API gets a 5–20 line standalone probe add-on before it appears in real code — see "API probes before real code" below and SPEC.md.
+NVDA-dependent BEHAVIOUR (what the walk really yields, what NVDA really speaks, which events really fire) is NOT unit-testable. The GlobalPlugin's DECISIONS are, through the fakes in `tests/nvda_stubs.py` (2026-09-24), and real behaviour is testable on the throwaway VM with real NVDA and Edge (`~/.claude/sr-web-harness/nvda-addon/`); otherwise the surface stays manual via the log viewer (`NVDA+F1`, search for `[TMTS]`). Each new NVDA API gets a 5–20 line standalone probe add-on before it appears in real code — see "API probes before real code" below and SPEC.md.
 
 ## API probes before real code
 
