@@ -356,7 +356,7 @@ NVDA-dependent BEHAVIOUR (what the walk really yields, what NVDA really speaks, 
 
 For each NVDA API the add-on uses for the first time, write a minimal standalone probe add-on, install it, observe in the NVDA log viewer, uninstall. Probes listed in SPEC.md §"API probes BEFORE committing real code": `event_treeInterceptor_gainFocus` firing behavior, `sayAll` / `SayAllHandler.readText` from an arbitrary position, settings-panel `categoryClasses` register/terminate cleanliness, `tones.beep` from inside a focus event. Each probe is 5–20 lines.
 
-Probes live in `probes/<name>/` (each a miniature add-on: `manifest.ini` plus `addon/globalPlugins/...`) and build with the generic wrapper:
+Probes live in `probes/<name>/` (each a miniature add-on: `probe-manifest.ini` plus `addon/globalPlugins/...`; the manifest is deliberately NOT named `manifest.ini` in the repo, because bestmidi.com's GitHub crawler read `probes/field_stack/manifest.ini` as the real add-on's metadata and a third-party store mirror listed the probe's description beside the 1.0.17 download; the build scripts write it into the package as `manifest.ini`) and build with the generic wrapper:
 
 ```powershell
 .\probes\build_probe.ps1 field_stack   # -> probes\field_stack\tmts_probe_field_stack-0.1.0.nvda-addon

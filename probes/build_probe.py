@@ -26,10 +26,13 @@ def main(probe_name: str) -> int:
 		print(f"ERROR: probe folder not found: {probe_dir}", file=sys.stderr)
 		return 1
 
-	manifest = probe_dir / "manifest.ini"
+	# Named probe-manifest.ini in the repo so GitHub crawlers that index add-ons by
+	# their manifest.ini (bestmidi.com) do not list a probe as the real add-on. It
+	# is still written into the package as manifest.ini, which NVDA requires.
+	manifest = probe_dir / "probe-manifest.ini"
 	addon_dir = probe_dir / "addon"
 	if not manifest.is_file():
-		print(f"ERROR: missing manifest.ini in {probe_dir}", file=sys.stderr)
+		print(f"ERROR: missing probe-manifest.ini in {probe_dir}", file=sys.stderr)
 		return 1
 	if not addon_dir.is_dir():
 		print(f"ERROR: missing addon/ folder in {probe_dir}", file=sys.stderr)
@@ -39,7 +42,7 @@ def main(probe_name: str) -> int:
 	name_m = re.search(r"^\s*name\s*=\s*(.+?)\s*$", manifest_text, re.MULTILINE)
 	ver_m = re.search(r"^\s*version\s*=\s*(.+?)\s*$", manifest_text, re.MULTILINE)
 	if not name_m or not ver_m:
-		print("ERROR: manifest.ini missing 'name' or 'version'", file=sys.stderr)
+		print("ERROR: probe-manifest.ini missing 'name' or 'version'", file=sys.stderr)
 		return 1
 	addon_name = name_m.group(1).strip()
 	addon_ver = ver_m.group(1).strip()

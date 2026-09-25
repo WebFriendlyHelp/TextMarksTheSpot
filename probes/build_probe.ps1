@@ -25,17 +25,20 @@ if (-not (Test-Path $probeDir)) {
     exit 1
 }
 
-$manifest = Join-Path $probeDir "manifest.ini"
+# Named probe-manifest.ini in the repo so GitHub crawlers that index add-ons by
+# their manifest.ini (bestmidi.com) do not list a probe as the real add-on. It
+# is copied into the package as manifest.ini, which NVDA requires.
+$manifest = Join-Path $probeDir "probe-manifest.ini"
 $addonDir = Join-Path $probeDir "addon"
-if (-not (Test-Path $manifest)) { Write-Error "Missing manifest.ini in $probeDir"; exit 1 }
+if (-not (Test-Path $manifest)) { Write-Error "Missing probe-manifest.ini in $probeDir"; exit 1 }
 if (-not (Test-Path $addonDir)) { Write-Error "Missing addon/ folder in $probeDir"; exit 1 }
 
 # Read version + name from manifest
 $manifestText = Get-Content $manifest -Raw
 $nameMatch    = [regex]::Match($manifestText, '(?m)^\s*name\s*=\s*(.+?)\s*$')
 $versionMatch = [regex]::Match($manifestText, '(?m)^\s*version\s*=\s*(.+?)\s*$')
-if (-not $nameMatch.Success)    { Write-Error "manifest.ini missing 'name'";    exit 1 }
-if (-not $versionMatch.Success) { Write-Error "manifest.ini missing 'version'"; exit 1 }
+if (-not $nameMatch.Success)    { Write-Error "probe-manifest.ini missing 'name'";    exit 1 }
+if (-not $versionMatch.Success) { Write-Error "probe-manifest.ini missing 'version'"; exit 1 }
 $addonName    = $nameMatch.Groups[1].Value
 $addonVersion = $versionMatch.Groups[1].Value
 
@@ -50,7 +53,7 @@ if (Test-Path $addonPath) { Remove-Item $addonPath -Force }
 $staging = Join-Path $env:TEMP "tmts_probe_build_$Name"
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Path $staging | Out-Null
-Copy-Item $manifest -Destination $staging
+Copy-Item $manifest -Destination (Join-Path $staging "manifest.ini")
 robocopy $addonDir $staging /E /XD __pycache__ /XF *.pyc /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
 Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $zipPath -Force
 Rename-Item $zipPath $addonPath -Force
