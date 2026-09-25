@@ -2,6 +2,90 @@
 
 Newest entries at the top.
 
+## 2026-09-24 - security and bug audit, and the fixes (branch security-hardening)
+
+Three independent reviews: a Fable subagent, GPT-6 Astra through Codex, and
+the GPT security model (gpt-daybreak-blue-latest), which ran out of Codex quota
+three quarters of the way through but had independently confirmed the three
+high findings by then. Casey's brief for the fixes: lose no functionality, only
+reduce risk or improve efficiency. Every item below was held to that, and the
+places where it shaped the design are the useful part.
+
+**The headline, reproduced on the VM.** A web page could freeze NVDA. The
+copyright detector had two unbounded `\s*` runs separated only by an optional
+group, and the photo-credit detector rescanned `[^)]*` from every "(ap "
+opener; both run over every chunk's FULL text on the main thread, inside one
+regex call the walk deadline cannot interrupt. Released v1.0.16 on a test page
+in NVDA 2026.2: walk 4709 ms over three chunks, truncated, landed on the junk
+copyright paragraph. This branch: walk 75 ms, not truncated, landed on the real
+story. The fix keeps what matches IDENTICAL (possessive runs, and a tail check
+that is provably equivalent), and `test_regex_linear.py` checks both halves:
+timing on hostile input, and agreement with the old patterns on 120,000 random
+strings. Either test alone passes on a wrong fix.
+
+**Decisions where "no lost functionality" changed the design:**
+
+- Z does NOT cancel a pending retry, though CLAUDE.md said it did and Fable
+  flagged the mismatch. If Z moved the caret the retry already abandons; if Z
+  found nothing, the page is usually still hydrating and the retry is what
+  lands it. The doc was wrong, not the code.
+- The mail-scheme check on the ready path is a DENYLIST. The poll path's
+  allowlist would have stopped detection on pages whose URL Gecko cannot read
+  (None on a COM error) and on reader view (`about:reader`), both of which have
+  always been detected.
+- "Focus is in another document" requires focus to have a DIFFERENT tree
+  interceptor. Focus with none (menu, address bar mid-load) is the normal state
+  while a page comes up, and counting it would have cost landings.
+- The query-string fix blanks only query VALUES that contain a path.
+  Dropping the query outright would have broken MediaWiki login
+  (`index.php?title=Special:UserLogin`), and the fragment carries SPA routes.
+  Replayed over every captured page on this machine (about 500 records, 27
+  with path-valued parameters): zero decisions changed.
+- The find-uniqueness fallback proves uniqueness with a second find() rather
+  than refusing shortened needles when the buffer copy fails, which would have
+  thrown away real drift recoveries.
+- The walk-interrupted flag first counted ANY exception, and the unit-test fakes
+  end every walk by raising at the document end. Had real NVDA done the same,
+  every walk would have read as truncated and bare forms would silently have
+  lost their focus move. So it checks `POSITION_LAST` first, and the VM
+  confirmed a bare form still gets its focus move.
+- Shift+Z falls back to fresh detection, not an error message, when the saved
+  landing no longer verifies.
+
+**The GlobalPlugin is unit-testable now.** `tests/nvda_stubs.py` loads it
+under fakes, as its own package name, and removes the stub modules afterwards,
+so the rest of the suite never sees a fake NVDA. It proves decisions only.
+
+**CI.** release.yml is two jobs, so the write token never coexists with pip,
+choco or SCons; actions pinned by SHA; tools pinned to what v1.0.16 built with;
+the tag arrives as data and must be plain semver. Exercised for real by a
+temporary branch trigger (run 36083708242, build green, publish skipped), then
+reverted. The first tag push after merging is still the first time the PUBLISH
+job itself runs; watch it.
+
+**Found on the VM and left alone:** a walk started mid-document can spin at the
+document end until the 1000-iteration node cap and report itself truncated (10
+chunks, about 50 ms). Only the new Z second pass starts mid-document, and it
+never reads that flag. A full walk from the top ended cleanly on every page
+tried. Worth understanding before anything else starts walks mid-document.
+
+**Two VM traps worth remembering:** a OneDrive toast in the guest stole the
+foreground and produced empty transcripts, and after that the guest's UI
+Automation kept failing ("Catastrophic failure") for every build, including
+controls that had passed. Two failing controls is what showed it was the guest,
+not the add-on; a reboot cleared it.
+
+**Not verifiable here, stated plainly:** the tab-switch retry guard, the mail
+scheme skip, secure-mode suppression, the portable config folder, and the
+exclusion-failure message are pinned by unit tests and sabotage entries, not by
+a live run, since the VM has no mail client, no secure-desktop driver, and no
+failing config write to provoke.
+
+**Deliberately not done:** rewriting git history to remove the capture corpus
+committed before 2026-07-22 (13 public news URLs, no tokens). It is public in
+the repository's history, but removing it needs a force push, which is
+Casey's call.
+
 ## 2026-09-10 - Google's AI Overview, and two rules that did not survive measurement
 
 Started as "why does the add-on skip Google's AI Overview" and became a session

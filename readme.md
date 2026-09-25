@@ -100,7 +100,7 @@ The add-on also keeps no record of the pages you visit. It can write a technical
 
 To switch it on, create an empty file named TextMarksTheSpot-diagnostics-enabled in your NVDA user configuration folder, then restart NVDA. The folder is the one holding your nvda.ini, reachable from the Start menu as "Explore NVDA user configuration directory". To switch it back off, delete that file and restart NVDA.
 
-While it is on, the add-on writes two files into that same folder: TextMarksTheSpot-perf.log, which records timing and the address of each page it looked at, and TextMarksTheSpot-captures.jsonl, which additionally records short previews of the page text so a bad landing can be reproduced. Both stay on your machine, both are safe to delete at any time, and both stop growing the moment you remove the marker file.
+While it is on, the add-on writes two files into that same folder: TextMarksTheSpot-perf.log, which records timing and the address of each page it looked at, and TextMarksTheSpot-captures.jsonl, which additionally records short previews of the page text so a bad landing can be reproduced. Both stay on your machine, both are safe to delete at any time, and both stop growing the moment you remove the marker file. Nothing is ever written on secure screens such as the Windows sign-in or lock screen, even with the marker file in place.
 
 ## Compatibility
 
