@@ -6,4 +6,4 @@
 #     git config blame.ignoreRevsFile .git-blame-ignore-revs
 
 # style: apply ruff format across the tree (2026-09-10)
-ace650b6e82341ff4d8968d27fe32995992e8fa6
+21f4276d0230955a903e7dd345c382209c93a280
