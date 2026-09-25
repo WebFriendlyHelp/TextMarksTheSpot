@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.17
+
+A web page can no longer freeze NVDA, and Z keeps working all the way down a long page.
+
+- **NVDA no longer goes silent on certain pages.** A paragraph padded with tens of thousands of blank spaces, or a long run of repeated brackets, could lock NVDA up for several seconds while the add-on looked at it, and during that time NVDA said nothing at all. On a test page it froze for nearly five seconds and then landed on the padding. It now reads the same page in a fraction of a second and lands on the real story.
+- **Z works to the bottom of long pages.** The add-on only has a couple of seconds to read a page, and it always started reading from the top. On a very long page, like a Bible Gateway chapter or a big discussion thread, once you had read past the point it could reach in that time, Z said "Nothing else to land on" with plenty of page left. When that happens now, it reads again starting from where you are.
+- **Shift+Z checks before it moves you.** Some pages rebuild themselves after the add-on lands. Shift+Z could then return you to the old position after a different paragraph had moved into it, and read you that paragraph instead. It now makes sure the paragraph is still the one it saved, finds it again by its wording if the page moved it, and works out a fresh landing if it is gone. With the same page open in two tabs, Shift+Z in the second tab no longer uses the first tab's saved spot.
+- **The page you left stays quiet when you switch tabs.** If you switched to another tab while a page was still loading, that first page could finish, speak its landing, or move your focus into one of its fields while you were reading the other tab. It now notices you have moved on and stays quiet.
+- **No automatic landing inside email messages.** In a mail program that shows messages as web pages, such as Thunderbird, a message could in some cases get an automatic landing, even though email is not supported yet. It now leaves messages alone. Pressing Z twice or Shift+Z still works there if you ask for it.
+- **An article stays an article whatever link brought you there.** Some links carry a "send me back here after signing in" address, and a sign-in address in that part of the link could make an ordinary article with a comment box count as a sign-in form, which moves your keyboard focus into a field. That part of the link no longer counts.
+- **Big forms can't hold up NVDA while the add-on finds the first field.** Finding the first field now stops after a set limit instead of checking every field on the page, so a page with hundreds of fields outside the form can't stall NVDA.
+- **The exclusion list is more dependable.** NVDA+Z now tells you if the list could not be saved, instead of saying the site was added. And a site written with a dot on the end, or an international domain name written either way, now counts as the same site.
+- **The diagnostic log never writes on secure screens.** Even with the log switched on, nothing is written on the Windows sign-in or lock screen. A portable copy of NVDA now looks for the switch-on file in its own configuration folder, as the documentation always said.
+
+Known gaps, unchanged from 1.0.16: a video row that also carries a written description under each video can still trip the headline wall, so some search results pages land on a video. Consent banners that never say what they store, the "We value your privacy" wording, are still not caught, and that costs you one press of Down Arrow. On some articles the cursor lands on the author's biography instead of the story; recipe sites can still land on a marketing line or a reader's review; the Verge and TechCrunch home pages lead with a large featured story and land on a headline further down the list; single-field sign-in pages that ask for your email first still get no landing (the two low beeps); and script-drawn result widgets like the fast.com speed test are still not detected.
+
 ## 1.0.16
 
 Search results pages stop landing on a video title, and cookie banners stop winning the landing.

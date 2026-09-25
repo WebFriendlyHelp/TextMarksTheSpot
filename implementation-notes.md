@@ -81,10 +81,17 @@ exclusion-failure message are pinned by unit tests and sabotage entries, not by
 a live run, since the VM has no mail client, no secure-desktop driver, and no
 failing config write to provoke.
 
-**Deliberately not done:** rewriting git history to remove the capture corpus
-committed before 2026-07-22 (13 public news URLs, no tokens). It is public in
-the repository's history, but removing it needs a force push, which is
-Casey's call.
+**History rewritten, at Casey's go-ahead (same day).** git filter-repo removed
+`tests/fixtures/capture_corpus.jsonl` from every commit, then main,
+chrome-pos-attempt and the tags v1.0.14 to v1.0.16 were force-pushed with
+leases, with release.yml disabled for the tag push so it could not fire.
+Every branch tree and the v1.0.0 and v1.0.16 tag trees were compared against a
+pre-rewrite bundle and are identical. Commits from 2026-07-21 onward have new
+hashes; the reformat commit in .git-blame-ignore-revs was remapped (ace650b is
+now 21f4276). Backup: `%USERPROFILE%\repo-backups\TextMarksTheSpot-before-history-rewrite-2026-09-24.bundle`.
+Any other clone needs a fresh clone or a hard reset to origin/main. GitHub can
+still serve the old commits by hash until its own garbage collection runs; a
+support request is the only way to purge that sooner.
 
 ## 2026-09-10 - Google's AI Overview, and two rules that did not survive measurement
 
