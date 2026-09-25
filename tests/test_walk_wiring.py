@@ -37,6 +37,7 @@ class _FakeTextInfos:
 	"""The constants and the FieldCommand type the walk reads off the module."""
 
 	POSITION_FIRST = "POSITION_FIRST"
+	POSITION_LAST = "POSITION_LAST"
 	UNIT_PARAGRAPH = "UNIT_PARAGRAPH"
 	FieldCommand = FakeFieldCommand
 
@@ -1137,3 +1138,132 @@ def test_landmarkValueIsStrippedBeforeMatching():
 		FakeFieldCommand("controlStart", {"role": FakeRole("SECTION"), "landmark": "  NAVIGATION  "}),
 	]
 	assert ts._landmarkScopeFromFields(stack) is False
+
+
+# ---------------------------------------------------------------------------
+# The focus search is BOUNDED and fetches objects lazily. Added 2026-09-24.
+#
+# It was the one enumeration in the module with no scan cap and no deadline,
+# and it fetched every candidate's object (a fresh COM call on a real page)
+# before the cheap positional check that usually rejects it. A page with
+# hundreds of fields outside its form could stall NVDA's main thread here.
+# ---------------------------------------------------------------------------
+
+
+class CountingItem:
+	"""A field whose `.obj` access is counted, as each access is a COM fetch."""
+
+	fetches = 0
+
+	def __init__(self, name, start, end):
+		self.name = name
+		self.textInfo = rng(start, end)
+		self._obj = FakeObj("EDIT")
+		self._obj.focused = []
+		self._obj.setFocus = lambda n=name, o=self._obj: o.focused.append(n)
+
+	@property
+	def obj(self):
+		CountingItem.fetches += 1
+		return self._obj
+
+
+def _mainPosScan():
+	return ts.LandmarkScan(
+		mainObj=FakeObj("LANDMARK"),
+		mainRange=rng(100_000, 200_000),
+		chromeRanges=[],
+		otherRanges=[],
+		trustBoundary=None,
+		seen=1,
+		exhausted=True,
+	)
+
+
+def test_focusSearchGivesUpAfterItsScanCap(monkeypatch):
+	outside = [CountingItem(f"sidebar{i}", i * 10, i * 10 + 5) for i in range(ts._FOCUS_SCAN_LIMIT)]
+	real = CountingItem("real", 150_000, 150_010)
+	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
+	monkeypatch.setattr(ts, "_findMainLandmark", lambda ti: _mainPosScan())
+	assert ts.setFocusOnFirstFormInput(FocusTI(outside + [real])) is False
+	assert real._obj.focused == [], "the cap must fail closed, not keep scanning"
+
+
+def test_focusSearchStillFindsAFieldJustInsideTheCap(monkeypatch):
+	# Negative twin: the cap must not cost a form whose field is reachable.
+	outside = [CountingItem(f"sidebar{i}", i * 10, i * 10 + 5) for i in range(ts._FOCUS_SCAN_LIMIT - 1)]
+	real = CountingItem("real", 150_000, 150_010)
+	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
+	monkeypatch.setattr(ts, "_findMainLandmark", lambda ti: _mainPosScan())
+	assert ts.setFocusOnFirstFormInput(FocusTI(outside + [real])) is True
+	assert real._obj.focused == ["real"]
+
+
+def test_focusSearchGivesUpAtItsDeadline(monkeypatch):
+	clock = iter(range(0, 10_000))
+	monkeypatch.setattr(ts.time, "monotonic", lambda: next(clock) * ts._FOCUS_TIME_BUDGET_SEC)
+	items = [CountingItem(f"sidebar{i}", i * 10, i * 10 + 5) for i in range(5)]
+	items.append(CountingItem("real", 150_000, 150_010))
+	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
+	monkeypatch.setattr(ts, "_findMainLandmark", lambda ti: _mainPosScan())
+	assert ts.setFocusOnFirstFormInput(FocusTI(items)) is False
+
+
+def test_focusSearchDoesNotFetchObjectsOfPositionallyRejectedFields(monkeypatch):
+	outside = [CountingItem(f"sidebar{i}", i * 10, i * 10 + 5) for i in range(50)]
+	real = CountingItem("real", 150_000, 150_010)
+	monkeypatch.setattr(ts, "_NVDA_AVAILABLE", True)
+	monkeypatch.setattr(ts, "_findMainLandmark", lambda ti: _mainPosScan())
+	CountingItem.fetches = 0
+	assert ts.setFocusOnFirstFormInput(FocusTI(outside + [real])) is True
+	assert CountingItem.fetches == 1, (
+		f"{CountingItem.fetches} object fetches; only the winning field needs its object, once"
+	)
+
+
+# ---------------------------------------------------------------------------
+# A walk an error cut short must say so. Added 2026-09-24.
+#
+# formWantsBrowseLanding keys on the ABSENCE of a preamble paragraph and
+# trusts a non-truncated walk to have seen everything. An error just after a
+# form's title used to report a complete walk, so the form read as bare and
+# keyboard focus skipped the instructions. The twin matters as much: an error
+# AT the end of the document is ordinary (these fakes end every walk that
+# way), and flagging it would mark every walk truncated.
+# ---------------------------------------------------------------------------
+
+
+class EndAwareTI(FakeTI):
+	def makeTextInfo(self, position):
+		if position == "POSITION_LAST":
+			last = self.doc[-1]
+			return FakeInfo(self.doc, last.end - 1, last.end - 1)
+		return FakeInfo(self.doc, 0, 0)
+
+
+class DyingChunk(Chunk):
+	@property
+	def text(self):
+		raise RuntimeError("buffer died mid-walk (simulated COM error)")
+
+	@text.setter
+	def text(self, value):
+		pass
+
+
+def _walkTruncated(doc):
+	truncated = [None]
+	ts._walkMainNodes(EndAwareTI(doc), None, {}, [], truncatedOut=truncated)
+	return truncated[0]
+
+
+def test_walkThatReachesTheEndIsNotTruncated():
+	doc = buildDoc([para("Form title"), para("First field label"), para("Second field label")])
+	assert _walkTruncated(doc) is False
+
+
+def test_walkAnErrorCutShortIsTruncated():
+	doc = buildDoc([para("Form title"), para("Instructions that were never read."), para("tail")])
+	dying = doc[1]
+	doc[1] = DyingChunk(dying.start, dying.end, "", dying.obj, dying.fields)
+	assert _walkTruncated(doc) is True

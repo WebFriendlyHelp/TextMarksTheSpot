@@ -479,10 +479,15 @@ def _appendCapture(summary: "TreeSummary") -> None:
 		pass
 
 
-def buildTreeSummary(treeInterceptor) -> TreeSummary:
+def buildTreeSummary(treeInterceptor, startInfo=None) -> TreeSummary:
 	"""Inspect the browse-mode tree and produce a TreeSummary for the
 	classifier. Read-only. Returns an empty TreeSummary if the interceptor
 	is None or unusable.
+
+	`startInfo`, when given, starts the paragraph walk there instead of at the
+	top of the document. Only the Z key's second pass uses it, on a page too
+	long for the 2 s walk budget to reach the cursor from the top. Everything
+	else about the summary (counts, scope) is computed exactly as usual.
 
 	Scoping: when a <main> landmark is present, all counts and node walking
 	are filtered to nodes inside <main>. When no <main> exists, nodes inside
@@ -723,6 +728,7 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 		untrustedRanges=untrustedRanges,
 		positionalOut=walkPositional,
 		preambleNodesOut=preMainNodes,
+		startInfo=startInfo,
 	)
 	summary.preMainNodes = preMainNodes
 	t3 = time.monotonic()
@@ -831,6 +837,7 @@ def buildTreeSummary(treeInterceptor) -> TreeSummary:
 	summary.countsTruncated = countsTruncated[0]
 	summary.articleCountTruncated = articleTruncated[0]
 	summary.walkTruncated = walkTruncated[0]
+	summary.scopeFellBack = fallbackRan
 	_capturedPositions[id(summary)] = positions
 
 	# [TMTS counts-phase]: per-call-site breakdown of the PRIMARY counts phase
@@ -1140,11 +1147,19 @@ def _formFieldInScope(
 	branch.
 	"""
 	ti = getattr(item, "textInfo", None)
-	obj = getattr(item, "obj", None)
+	# The object is fetched LAZILY. On a real quick-nav item `.obj` is a
+	# property that builds a fresh cross-process NVDAObject on every access
+	# (11 to 29 ms measured), and the positional branches below never need
+	# it. Fetching it up front made every out-of-scope field cost one COM
+	# round trip for nothing (security audit, 2026-09-24).
+
+	def getObj():
+		return getattr(item, "obj", None)
 
 	# Positional INCLUSION (main-pos / article): must be inside the range.
 	if scopeRange is not None:
 		if ti is None:
+			obj = getObj()
 			# Tri-state for the same reason as the identity branch below, and
 			# it is not only the chrome scopes that need it: `article` scope
 			# is positional with NO <main>, so mainObj is None here too and
@@ -1175,6 +1190,7 @@ def _formFieldInScope(
 	# or a chain deeper than 30, used to read here as "proven content" and
 	# could put the caret in a header search box. The docstring above claimed
 	# this function failed closed throughout; until 2026-07-18 it did not.
+	obj = getObj()
 	return obj is not None and _inScopeVerdict(obj, mainObj, cache) is True
 
 
@@ -1234,12 +1250,26 @@ def setFocusOnFirstFormInput(treeInterceptor) -> bool:
 			cache,
 		)
 
+	# BOUNDED, like every other enumeration in this module. This was the one
+	# with neither a scan cap nor a deadline, so a page with hundreds of
+	# fields outside the form, or one stuck mid-load where every quick-nav
+	# item hangs on COM, could stall NVDA's main thread here with nothing to
+	# stop it (security audit, 2026-09-24). Running out of budget fails
+	# CLOSED: no focus move, and the caller has already announced the form
+	# title, which is the documented safe branch.
+	deadline = time.monotonic() + _FOCUS_TIME_BUDGET_SEC
+	scanned = 0
 	for itemType in ("edit", "formField"):
 		try:
-			for item in treeInterceptor._iterNodesByType(itemType):
+			for rawItem in treeInterceptor._iterNodesByType(itemType):
+				scanned += 1
+				if scanned > _FOCUS_SCAN_LIMIT or time.monotonic() > deadline:
+					dlog.debug(f"[TMTS] form focus: budget exhausted after {scanned - 1} fields, no move")
+					return False
+				item = _OneFetchItem(rawItem)
 				if not _inMain(item):
 					continue
-				obj = getattr(item, "obj", None)
+				obj = item.obj
 				if obj is None:
 					continue
 				try:
@@ -1250,6 +1280,41 @@ def setFocusOnFirstFormInput(treeInterceptor) -> bool:
 		except Exception:
 			continue
 	return False
+
+
+# Budget for setFocusOnFirstFormInput. The scan cap matches the counts'
+# _COUNT_SCAN_LIMIT, which already bounds how many fields the classifier ever
+# looked at to call the page a form. It is shared across the "edit" and
+# "formField" passes, since the second repeats the first's cost.
+_FOCUS_SCAN_LIMIT = 300
+_FOCUS_TIME_BUDGET_SEC = 1.0
+
+
+class _OneFetchItem:
+	"""A quick-nav item whose ``obj`` is fetched at most once.
+
+	The scope check and the focus move both need the object, and on a real
+	item each ``.obj`` access is a fresh COM fetch, so without this the field
+	that finally wins paid for its object twice.
+	"""
+
+	__slots__ = ("_item", "_obj", "_fetched")
+
+	def __init__(self, item):
+		self._item = item
+		self._obj = None
+		self._fetched = False
+
+	@property
+	def textInfo(self):
+		return getattr(self._item, "textInfo", None)
+
+	@property
+	def obj(self):
+		if not self._fetched:
+			self._obj = getattr(self._item, "obj", None)
+			self._fetched = True
+		return self._obj
 
 
 def _isFocusEditable() -> bool:
@@ -3065,6 +3130,7 @@ def _walkMainNodes(
 	untrustedRanges=None,
 	positionalOut: Optional[list] = None,
 	preambleNodesOut: Optional[list] = None,
+	startInfo=None,
 ) -> list[MainNode]:
 	# Walk the whole document by UNIT_PARAGRAPH; emit only nodes that
 	# pass _inScope (inside <main> if present, or outside chrome
@@ -3088,13 +3154,24 @@ def _walkMainNodes(
 	# second traversal.
 	#
 	# truncatedOut (optional, single-element list): set to True if we
-	# stopped on the node cap or the time budget rather than reaching the
-	# end of the document.
+	# stopped on the node cap or the time budget, OR on an unexpected error,
+	# rather than reaching the end of the document. "Truncated" means "this
+	# walk cannot prove anything is ABSENT past where it stopped", and a walk
+	# an exception cut short proves exactly as little as one the clock cut
+	# short. Before 2026-09-24 the error path reported a complete walk, so a
+	# buffer error just after a form's title read as "bare form, no preamble"
+	# and keyboard focus jumped past instructions the user never heard.
+	#
+	# startInfo (optional): start the walk here instead of at the top.
 	result: list[MainNode] = []
 	walkStart = time.monotonic()
 	deadline = walkStart + WALK_TIME_BUDGET_SEC
 	try:
-		info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
+		if startInfo is not None:
+			info = startInfo.copy()
+			info.collapse()
+		else:
+			info = treeInterceptor.makeTextInfo(textInfos.POSITION_FIRST)
 	except Exception:
 		return result
 
@@ -3165,6 +3242,7 @@ def _walkMainNodes(
 	# progress check below.
 	prevStart = None
 	truncated = False
+	interrupted = False
 	for _ in range(WALK_NODE_LIMIT):
 		# Wall-clock guard. Checked per-iteration: one time.monotonic() call
 		# is nanoseconds against a ~7ms expand(), so the check is free
@@ -3404,6 +3482,12 @@ def _walkMainNodes(
 			# top forces a move only when that fails to advance.
 			info.collapse(end=True)
 		except Exception:
+			# An error at the END of the document is how some buffers say
+			# "no more paragraphs" (the unit-test fakes model exactly that),
+			# and counting it as an interruption would mark every walk
+			# truncated, which would quietly stop bare forms getting their
+			# focus move. Only an error short of the end is an interruption.
+			interrupted = not _isAtDocumentEnd(treeInterceptor, info)
 			break
 	else:
 		# The for loop ran to completion without breaking, which means we
@@ -3445,8 +3529,10 @@ def _walkMainNodes(
 			f"(node cap {WALK_NODE_LIMIT}, time budget {WALK_TIME_BUDGET_SEC}s) — "
 			f"landing will be chosen from the document so far"
 		)
+	if interrupted:
+		dlog.debug(f"[TMTS walk-interrupted] error stopped the walk at raw_seen={rawSeen}")
 	if truncatedOut is not None:
-		truncatedOut[0] = truncated
+		truncatedOut[0] = truncated or interrupted
 
 	if droppedAfterStart:
 		dlog.debug(
@@ -3473,6 +3559,20 @@ def _walkMainNodes(
 			f"raw_with_text={rawWithText} main_obj_set={mainObj is not None}"
 		)
 	return result
+
+
+def _isAtDocumentEnd(treeInterceptor, info) -> bool:
+	"""True when info starts at or past the document's last position.
+
+	Unanswerable reads as False, i.e. "interrupted": this only ever decides
+	whether a walk that died on an error may claim to be complete, and the
+	conservative answer there is no.
+	"""
+	try:
+		last = treeInterceptor.makeTextInfo(textInfos.POSITION_LAST)
+		return info.compareEndPoints(last, "startToStart") >= 0
+	except Exception:
+		return False
 
 
 def _nodeFromRole(roleName: Optional[str], level: int, text: str) -> Optional[MainNode]:

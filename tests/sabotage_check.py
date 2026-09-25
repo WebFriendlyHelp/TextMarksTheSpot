@@ -271,6 +271,97 @@ SABOTAGES = [
 		"	if close < 0:",
 		WEB,
 	),
+	(
+		"walk cut short by an error reports itself complete again",
+		"			interrupted = not _isAtDocumentEnd(treeInterceptor, info)",
+		"			interrupted = False",
+	),
+	(
+		"every walk ending on an error counts as interrupted",
+		"			interrupted = not _isAtDocumentEnd(treeInterceptor, info)",
+		"			interrupted = True",
+	),
+	(
+		"ready mail documents auto-landed again",
+		"		if not bypassExclusion and _isMailDocument(ti):",
+		"		if False:",
+		INIT,
+	),
+	(
+		"mail skip also blocks explicit requests",
+		"		if not bypassExclusion and _isMailDocument(ti):",
+		"		if _isMailDocument(ti):",
+		INIT,
+	),
+	(
+		"retry runs in a background tab again",
+		'			return\n		if _focusIsOnAnotherDocument(ti):\n			dlog.debug("[TMTS] retry:',
+		'			return\n		if False:\n			dlog.debug("[TMTS] retry:',
+		INIT,
+	),
+	(
+		"readiness poll fires in a background tab again",
+		'			if _focusIsOnAnotherDocument(ti):\n				dlog.debug("[TMTS] readiness poll:',
+		'			if False:\n				dlog.debug("[TMTS] readiness poll:',
+		INIT,
+	),
+	(
+		"focus with no document counts as another document",
+		"	return focusTi is not None and focusTi is not ti",
+		"	return focusTi is not ti",
+		INIT,
+	),
+	(
+		"Shift+Z trusts the saved bookmark without checking it",
+		'				if webMod.landingTextMatches(cand.text or "", node):\n					return saved, cand',
+		"				if True:\n					return saved, cand",
+		INIT,
+	),
+	(
+		"Shift+Z uses another tab's bookmark again",
+		"		if savedTi is ti:",
+		"		if True:",
+		INIT,
+	),
+	(
+		"Z never walks again from the cursor",
+		"				if nextIdx is None and summary.walkTruncated:",
+		"				if False:",
+		INIT,
+	),
+	(
+		"Z second pass walks on every page",
+		"				if nextIdx is None and summary.walkTruncated:",
+		"				if nextIdx is None:",
+		INIT,
+	),
+	(
+		"Z second pass lands from a fallen-back tree",
+		"						if not second.scopeFellBack:",
+		"						if True:",
+		INIT,
+	),
+	(
+		"NVDA+Z announces success regardless of the write",
+		"				if cfgMod.addDisabledSite(hostname) or cfgMod.isSiteDisabled(hostname):",
+		"				if cfgMod.addDisabledSite(hostname) or True:",
+		INIT,
+	),
+	(
+		"form-focus search unbounded again",
+		"				if scanned > _FOCUS_SCAN_LIMIT or time.monotonic() > deadline:",
+		"				if False:",
+	),
+	(
+		"form-focus search loses only its deadline",
+		"				if scanned > _FOCUS_SCAN_LIMIT or time.monotonic() > deadline:",
+		"				if scanned > _FOCUS_SCAN_LIMIT:",
+	),
+	(
+		"form-field object fetched eagerly again",
+		'	def getObj():\n		return getattr(item, "obj", None)\n',
+		'	_eager = getattr(item, "obj", None)\n\n	def getObj():\n		return _eager\n',
+	),
 ]
 
 

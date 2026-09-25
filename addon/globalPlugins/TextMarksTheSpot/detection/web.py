@@ -598,6 +598,8 @@ def _hasTrailingPhotoCredit(text: str) -> bool:
 		return False
 	start = text.rfind(")", 0, close) + 1
 	return _PHOTO_CREDIT_END_RE.search(text, start) is not None
+
+
 # Agency / credit tokens that essentially never occur in legitimate article
 # body prose, regardless of position. Caught even without the trailing-paren
 # shape (e.g. "Photo credit: Jane Doe", "Image courtesy of the city").
@@ -1975,6 +1977,7 @@ that the cursor has walked off the article and into chrome."""
 def findNextContentLanding(
 	tree: TreeSummary,
 	afterIdx: int,
+	allowShortFallback: bool = True,
 ) -> Optional[int]:
 	"""Z-key forward scan: return the index of the next substantial
 	content paragraph in mainNodes strictly after `afterIdx`. Skips
@@ -1991,6 +1994,12 @@ def findNextContentLanding(
 	does NOT track or use the previous addon-landing index — Z is meant
 	to advance from the user's CURRENT position, not from the last place
 	the addon dropped them.
+
+	`allowShortFallback=False` is for a tree that is only PART of the page
+	(the Z key's second pass, walked from the cursor). The short-content
+	fallback below keys on "nothing anywhere clears the 50-char bar", and a
+	partial tree cannot answer that about the whole page, so the caller says
+	whether the rest of the page already did.
 	"""
 	for i in range(afterIdx + 1, len(tree.mainNodes)):
 		node = tree.mainNodes[i]
@@ -2008,7 +2017,9 @@ def findNextContentLanding(
 	# Only then, rescan below the cursor with the notice bar (30 chars).
 	# Article-class pages (which have 50+ char paragraphs somewhere) keep
 	# the strict bar, so end-of-article Z behavior is unchanged.
-	if not any(n.kind == "paragraph" and n.textLength >= LANDING_MIN_PARAGRAPH_CHARS for n in tree.mainNodes):
+	if allowShortFallback and not any(
+		n.kind == "paragraph" and n.textLength >= LANDING_MIN_PARAGRAPH_CHARS for n in tree.mainNodes
+	):
 		for i in range(afterIdx + 1, len(tree.mainNodes)):
 			node = tree.mainNodes[i]
 			if node.kind != "paragraph":

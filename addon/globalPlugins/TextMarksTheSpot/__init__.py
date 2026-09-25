@@ -126,6 +126,65 @@ def _isWebDocument(ti) -> bool:
 	return url.startswith(_WEB_URL_SCHEMES)
 
 
+# Mail-client URL schemes. The poll path above uses a strict ALLOWLIST, which is
+# right there: it acts on a document NVDA never handed us, so it wants positive
+# evidence. The ready path needs the opposite shape. A ready TI whose URL could
+# not be read (Gecko answers None on a COM error) or that is a legitimate
+# non-http page (Firefox reader view is about:reader, a PDF viewer is often an
+# extension URL) has always been detected, and must keep being detected. What
+# must never happen is a landing inside a mail message, so the ready path skips
+# exactly these. Before 2026-09-24 it checked nothing, so a Thunderbird message
+# that already had a ready browse-mode document when its load event arrived
+# could be auto-landed (security audit, Fable).
+_MAIL_URL_SCHEMES = (
+	"imap:",
+	"imap-message:",
+	"mailbox:",
+	"mailbox-message:",
+	"news:",
+	"news-message:",
+	"snews:",
+	"nntp:",
+	"pop:",
+	"pop3:",
+	"mid:",
+	"cid:",
+	"ews:",
+	"ews-message:",
+	"owl:",
+	"owl-message:",
+)
+
+
+def _isMailDocument(ti) -> bool:
+	"""True only when the URL positively names a mail-client scheme."""
+	try:
+		url = str(getattr(ti, "documentConstantIdentifier", "") or "").strip().lower()
+	except Exception:
+		return False
+	return url.startswith(_MAIL_URL_SCHEMES)
+
+
+def _focusIsOnAnotherDocument(ti) -> bool:
+	"""True when keyboard focus is in a DIFFERENT browse-mode document than ti.
+
+	A delayed callback (readiness poll, hydration retry) captured ti when it was
+	scheduled. Switching to an already-loaded tab fires no load event, so nothing
+	cancels that callback, and without this check page A's retry could speak A's
+	paragraph, or move keyboard focus into A's form, while the user was reading
+	tab B (security audit, GPT-6 Astra). Deliberately narrow: focus with NO
+	tree interceptor (a menu, the address bar mid-load) does not count, because
+	that is also the ordinary state while a page is still coming up, and
+	treating it as "elsewhere" would cost real landings.
+	"""
+	try:
+		focus = api.getFocusObject()
+		focusTi = getattr(focus, "treeInterceptor", None) if focus is not None else None
+	except Exception:
+		return False
+	return focusTi is not None and focusTi is not ti
+
+
 log.info("[TMTS] module imported; defining GlobalPlugin")
 
 
@@ -215,8 +274,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		self._lastLandedUrl = None
 		self._lastLandedTime = 0.0
 		# Pending wx.CallLater handle for the deferred-retry mechanism.
-		# Cancelled whenever a new detection cycle starts (real navigation,
-		# Z press, refresh, alt-tab to a new TI).
+		# Cancelled when an accepted navigation starts a new detection cycle.
+		# A Z press does NOT cancel it, deliberately: if Z moved the caret the
+		# retry abandons on its own caret-moved check, and if Z found nothing
+		# the page is usually still hydrating, which is exactly what the retry
+		# is waiting for. Switching to another tab is caught at fire time by
+		# _focusIsOnAnotherDocument.
 		self._pendingRetry = None
 		# Pending wx.CallLater handle for the TreeInterceptor readiness poll.
 		self._pendingReadyPoll = None
@@ -232,6 +295,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# directly — no recalculation. Reset on new TI / page load.
 		self._lastInitialLandingInfo = None
 		self._lastInitialLandingUrl = None
+		# What that landing WAS (the MainNode, which holds no COM objects) and
+		# which document it was captured in (weakly, like _lastTiRef). Shift+Z
+		# verifies the saved position still holds this paragraph, in this
+		# document, before moving the caret to it.
+		self._lastInitialLandingNode = None
+		self._lastInitialLandingTiRef = None
 
 	def terminate(self):
 		# Called by NVDA on add-on disable, uninstall, or reload. We must
@@ -253,6 +322,8 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			log.exception("[TMTS] terminate: progressStop failed")
 		self._lastInitialLandingInfo = None
 		self._lastInitialLandingUrl = None
+		self._lastInitialLandingNode = None
+		self._lastInitialLandingTiRef = None
 		log.info("[TMTS] terminate: clean shutdown complete")
 		super().terminate()
 
@@ -336,6 +407,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if ti is None or not getattr(ti, "isReady", False):
 			self._scheduleReadyPoll(obj, bypassExclusion, attempt=1)
 			return
+		# Automatic loads only: double-Z and Shift+Z are explicit requests and
+		# keep working wherever the user presses them.
+		if not bypassExclusion and _isMailDocument(ti):
+			dlog.debug("[TMTS] _maybeFire: mail-client document (scheme) — skip")
+			return
 		self._maybeFireTi(ti, bypassExclusion=bypassExclusion)
 
 	def _scheduleReadyPoll(self, obj, bypassExclusion, attempt):
@@ -382,6 +458,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# "act when unsure" the guardrails forbid.
 			if not _isWebDocument(ti):
 				dlog.debug("[TMTS] readiness poll: not a web document (scheme) — abandon")
+				return
+			if _focusIsOnAnotherDocument(ti):
+				dlog.debug("[TMTS] readiness poll: focus is in another document — abandon")
 				return
 			dlog.debug(f"[TMTS] readiness poll: ready after {attempt} attempt(s) — proceeding")
 			self._maybeFireTi(ti, bypassExclusion=bypassExclusion)
@@ -657,6 +736,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			currentUrl = ""
 		if currentUrl != expectedUrl:
 			dlog.debug(f"[TMTS] retry: url changed (was {expectedUrl!r}, now {currentUrl!r}) — abandon")
+			return
+		if _focusIsOnAnotherDocument(ti):
+			dlog.debug("[TMTS] retry: focus is in another document — abandon")
 			return
 		# If the user started reading during the wait (caret moved from
 		# where it was when the retry was scheduled), the retry must not
@@ -969,10 +1051,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			try:
 				self._lastInitialLandingInfo = landingInfo.copy()
 				self._lastInitialLandingUrl = summary.url
+				self._lastInitialLandingNode = landedNode
+				try:
+					self._lastInitialLandingTiRef = weakref.ref(ti)
+				except TypeError:
+					self._lastInitialLandingTiRef = None
 			except Exception:
 				log.exception("[TMTS] failed to save Shift+Z return-to-landing position")
 				self._lastInitialLandingInfo = None
 				self._lastInitialLandingUrl = None
+				self._lastInitialLandingNode = None
+				self._lastInitialLandingTiRef = None
 			self._recordLanding(summary.url)
 			return True
 		except Exception:
@@ -1080,23 +1169,48 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 					# cursor position (rare).
 					ui.message(_("Cannot scan from the current position."))
 					return
-				# Find the highest main_node index whose textInfo starts at
-				# or before the current caret. That's the user's "current"
-				# position — the next content scan starts at index+1.
-				currentIdx = -1
-				for i in range(len(summary.mainNodes)):
-					nodeInfo = tsMod.getLandingTextinfo(summary, i)
-					if nodeInfo is None:
-						continue
-					try:
-						cmp = nodeInfo.compareEndPoints(caretInfo, "startToStart")
-					except Exception:
-						continue
-					if cmp <= 0:
-						currentIdx = i
-					else:
-						break
+				currentIdx = self._nodeIndexAtCaret(summary, caretInfo)
 				nextIdx = webMod.findNextContentLanding(summary, currentIdx)
+				if nextIdx is None and summary.walkTruncated:
+					# LONG PAGE. The walk always starts at the top of the
+					# document and stops at its 2 s budget, so once the user
+					# has read past that point every node below the cursor is
+					# simply not in the tree, and Z answered "Nothing else to
+					# land on" with the rest of the page still ahead (security
+					# audit, 2026-09-24: BibleGateway truncates near chunk
+					# 300). Look again, walking from the cursor this time.
+					# Only on this path, so every page Z already handled gets
+					# exactly the answer it got before.
+					second = tsMod.buildTreeSummary(ti, startInfo=caretInfo)
+					keep = False
+					try:
+						# A scoped walk that found nothing fell back to the
+						# whole (partial) tree, which from mid-page means the
+						# footer. Never land from that.
+						if not second.scopeFellBack:
+							pageHasSubstantial = any(
+								n.kind == "paragraph" and n.textLength >= webMod.LANDING_MIN_PARAGRAPH_CHARS
+								for n in summary.mainNodes
+							)
+							secondCurrent = self._nodeIndexAtCaret(second, caretInfo)
+							secondNext = webMod.findNextContentLanding(
+								second,
+								secondCurrent,
+								allowShortFallback=not pageHasSubstantial,
+							)
+							dlog.debug(
+								f"[TMTS] Z: first walk truncated, second walk from caret "
+								f"nodes={len(second.mainNodes)} next={secondNext}"
+							)
+							if secondNext is not None:
+								keep = True
+								tsMod.releaseSummary(summary)
+								summary = second
+								currentIdx = secondCurrent
+								nextIdx = secondNext
+					finally:
+						if not keep:
+							tsMod.releaseSummary(second)
 				if nextIdx is None:
 					# Diagnostic: dump the full node list — "nothing below
 					# the cursor" has repeatedly turned out to mean either
@@ -1134,6 +1248,26 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				tsMod.releaseSummary(summary)
 		except Exception:
 			log.exception("[TMTS] Z scan-from-caret failed")
+
+	@staticmethod
+	def _nodeIndexAtCaret(summary, caretInfo) -> int:
+		# The highest mainNodes index whose position starts at or before the
+		# caret: the user's "current" node. The next-content scan starts at
+		# index+1. -1 when the caret is before every node.
+		currentIdx = -1
+		for i in range(len(summary.mainNodes)):
+			nodeInfo = tsMod.getLandingTextinfo(summary, i)
+			if nodeInfo is None:
+				continue
+			try:
+				cmp = nodeInfo.compareEndPoints(caretInfo, "startToStart")
+			except Exception:
+				continue
+			if cmp <= 0:
+				currentIdx = i
+			else:
+				break
+		return currentIdx
 
 	@script(
 		# Translators: input help for the Shift+Z return-to-landing gesture.
@@ -1173,34 +1307,32 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# site. Feedback is the working tone + landing speech (or the
 			# two-beep not-found), deliberately no spoken preamble, matching
 			# the double-Z one-shot rationale.
-			hostname = _hostnameFromUrl(url)
-			if hostname and cfgMod.isSiteDisabled(hostname):
-				# Exclusion is still honored here -- the user turned this
-				# site off, and double-Z is the documented one-time
-				# override, not Shift+Z.
-				# Translators: spoken when Shift+Z has no saved landing for
-				# the current page (no detection has run, or URL changed).
-				ui.message(_("No saved landing on this page."))
-				return
-			# An explicit user request must not be debounced: reset the
-			# document-identity / cooldown / post-landing gates exactly as
-			# the Z script does. bypassExclusion=True additionally lifts
-			# the restored-position caret gate (the flag gates both);
-			# exclusion itself was already checked just above.
-			self._lastTiRef = None
-			self._lastUrl = None
-			self._lastFireTime = 0.0
-			self._lastLandedUrl = None
-			self._lastLandedTime = 0.0
-			dlog.debug(f"[TMTS] Shift+Z: no saved landing for url={url!r} — running on-demand detection")
-			self._maybeFire(focus, bypassExclusion=True)
+			# Translators: spoken when Shift+Z has no saved landing for
+			# the current page (no detection has run, or URL changed).
+			self._detectOnDemand(focus, url, _("No saved landing on this page."))
 			return
+		# VERIFY before moving. The saved TextInfo is a bookmark into a buffer
+		# that keeps changing: an SPA that re-renders after the landing leaves
+		# the old offset inside a different paragraph, which is the exact drift
+		# the auto-landing's stale-position guard exists for (7 of 42 landings
+		# in the 2026-07-14 soak). And the save is keyed by URL, so a second tab
+		# on the same address used to receive the FIRST tab's bookmark. So:
+		# re-expand and check the text; if it moved, or this is another
+		# document, re-find it by text here; if even that fails, compute a
+		# fresh landing rather than read the wrong paragraph (security audit,
+		# 2026-09-24).
+		target = self._verifiedSavedLanding(ti)
+		if target is None:
+			dlog.debug(f"[TMTS] Shift+Z: saved landing no longer verifies on url={url!r} — re-detecting")
+			# Translators: spoken when the saved landing position could not
+			# be restored (rare — usually means the page changed).
+			self._detectOnDemand(focus, url, _("Could not return to the saved landing."))
+			return
+		landingInfo, speechInfo = target
 		fbMod.working()
 		try:
-			self._lastInitialLandingInfo.updateCaret()
+			landingInfo.updateCaret()
 			speech.cancelSpeech()
-			speechInfo = self._lastInitialLandingInfo.copy()
-			speechInfo.expand(textInfos.UNIT_PARAGRAPH)
 			speech.speakTextInfo(speechInfo, reason=controlTypes.OutputReason.CARET)
 			dlog.debug(f"[TMTS] Shift+Z return-to-landing on url={url!r}")
 		except Exception:
@@ -1208,6 +1340,67 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			# Translators: spoken when the saved landing position could not
 			# be restored (rare — usually means the page changed).
 			ui.message(_("Could not return to the saved landing."))
+
+	def _detectOnDemand(self, focus, url, excludedMessage):
+		"""One-shot detection for Shift+Z, bypassing the debounce gates."""
+		hostname = _hostnameFromUrl(url)
+		if hostname and cfgMod.isSiteDisabled(hostname):
+			# Exclusion is still honored here -- the user turned this site
+			# off, and double-Z is the documented one-time override, not
+			# Shift+Z.
+			ui.message(excludedMessage)
+			return
+		# An explicit user request must not be debounced: reset the
+		# document-identity / cooldown / post-landing gates exactly as the Z
+		# script does. bypassExclusion=True additionally lifts the
+		# restored-position caret gate (the flag gates both); exclusion
+		# itself was already checked just above.
+		self._lastTiRef = None
+		self._lastUrl = None
+		self._lastFireTime = 0.0
+		self._lastLandedUrl = None
+		self._lastLandedTime = 0.0
+		dlog.debug(f"[TMTS] Shift+Z: running on-demand detection for url={url!r}")
+		self._maybeFire(focus, bypassExclusion=True)
+
+	def _verifiedSavedLanding(self, ti):
+		"""(caretInfo, speechInfo) for the saved landing in ti, or None.
+
+		Same verify-then-re-find-by-text sequence the auto-landing uses, so the
+		two paths cannot disagree about what counts as "still our paragraph".
+		"""
+		saved = self._lastInitialLandingInfo
+		node = self._lastInitialLandingNode
+		if saved is None or node is None:
+			return None
+		savedTiRef = self._lastInitialLandingTiRef
+		try:
+			savedTi = savedTiRef() if savedTiRef is not None else None
+		except Exception:
+			savedTi = None
+		if savedTi is ti:
+			try:
+				cand = saved.copy()
+				cand.expand(textInfos.UNIT_PARAGRAPH)
+				if webMod.landingTextMatches(cand.text or "", node):
+					return saved, cand
+			except Exception:
+				pass
+		try:
+			recovered = tsMod.findLandingByText(
+				ti,
+				node.textPreview,
+				verify=lambda found: webMod.landingTextMatches(found, node),
+			)
+			if recovered is None:
+				return None
+			cand = recovered.copy()
+			cand.expand(textInfos.UNIT_PARAGRAPH)
+			if webMod.landingTextMatches(cand.text or "", node):
+				return recovered, cand
+		except Exception:
+			log.exception("[TMTS] Shift+Z re-find failed")
+		return None
 
 	@script(
 		# Translators: input help for the NVDA+Z site-exclusion toggle.
@@ -1264,13 +1457,28 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				# site-exclusion dialog (clicks No instead of Yes).
 				ui.message(_("No change. Exclusion list unchanged."))
 				return
+			# Speak what actually happened. Both calls return False when the
+			# config write fails (and also when the entry was already in the
+			# requested state, which the membership check covers), and
+			# announcing success regardless told the user a site was excluded
+			# that would fire again on the next page load.
 			if currentlyExcluded:
-				cfgMod.removeDisabledSite(hostname)
-				# Translators: spoken confirmation after removal from exclusion list.
-				ui.message(_("Removed {hostname} from exclusion list.").format(hostname=hostname))
+				if cfgMod.removeDisabledSite(hostname) or not cfgMod.isSiteDisabled(hostname):
+					# Translators: spoken confirmation after removal from exclusion list.
+					ui.message(_("Removed {hostname} from exclusion list.").format(hostname=hostname))
+				else:
+					# Translators: spoken when removing a site from the exclusion
+					# list failed (the NVDA configuration could not be saved).
+					ui.message(
+						_("Could not remove {hostname} from the exclusion list.").format(hostname=hostname)
+					)
 			else:
-				cfgMod.addDisabledSite(hostname)
-				# Translators: spoken confirmation after addition to exclusion list.
-				ui.message(_("Added {hostname} to exclusion list.").format(hostname=hostname))
+				if cfgMod.addDisabledSite(hostname) or cfgMod.isSiteDisabled(hostname):
+					# Translators: spoken confirmation after addition to exclusion list.
+					ui.message(_("Added {hostname} to exclusion list.").format(hostname=hostname))
+				else:
+					# Translators: spoken when adding a site to the exclusion list
+					# failed (the NVDA configuration could not be saved).
+					ui.message(_("Could not add {hostname} to the exclusion list.").format(hostname=hostname))
 
 		wx.CallAfter(_showDialog)

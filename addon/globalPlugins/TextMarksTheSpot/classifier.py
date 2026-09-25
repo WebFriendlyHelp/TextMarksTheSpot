@@ -139,6 +139,11 @@ class TreeSummary:
 	# while a fast walk of the same page landed in browse mode at the top
 	# of the order (2026-07-17). Landing must not depend on walk timing.
 	walkTruncated: bool = False
+	# True when the scoped walk found nothing and mainNodes is the whole
+	# document instead. The Z key's second pass refuses to land from such a
+	# tree, since starting mid-page past <main> would otherwise land in the
+	# footer.
+	scopeFellBack: bool = False
 
 	# Nodes the walk BUILT and then discarded because they sit before the
 	# scoped region began, i.e. above whatever NVDA reports as <main>. Never
