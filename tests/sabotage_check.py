@@ -26,7 +26,12 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TREE = os.path.join(ROOT, "addon", "globalPlugins", "TextMarksTheSpot", "treeSummary.py")
+PLUGIN = os.path.join(ROOT, "addon", "globalPlugins", "TextMarksTheSpot")
+TREE = os.path.join(PLUGIN, "treeSummary.py")
+WEB = os.path.join(PLUGIN, "detection", "web.py")
+INIT = os.path.join(PLUGIN, "__init__.py")
+CLASSIFIER = os.path.join(PLUGIN, "classifier.py")
+CONFIG = os.path.join(PLUGIN, "config.py")
 
 
 def runPytest(*args):
@@ -246,11 +251,35 @@ SABOTAGES = [
 		"		pass\n"
 		'	elif scopeKind == "chrome":',
 	),
+	# --- Security audit 2026-09-24: a web page must not be able to freeze
+	# --- NVDA through a quadratic regex over a chunk's full text.
+	(
+		"copyright whitespace runs made backtracking again",
+		r"\bcopyright\s*+(?:©|\(c\))?\s*+(?:19|20)",
+		r"\bcopyright\s*(?:©|\(c\))?\s*(?:19|20)",
+		WEB,
+	),
+	(
+		"caption check goes back to the bare quadratic search",
+		"	if _hasTrailingPhotoCredit(text):\n		return True",
+		"	if _PHOTO_CREDIT_END_RE.search(text):\n		return True",
+		WEB,
+	),
+	(
+		"photo-credit tail check removed, so every opener rescans",
+		"	if close < 0 or not _AFTER_CREDIT_PAREN_RE.fullmatch(text, close + 1):",
+		"	if close < 0:",
+		WEB,
+	),
 ]
 
 
 def main():
-	original = open(TREE, "rb").read()  # captured ONCE, before anything
+	# An entry is (name, find, replace) against treeSummary.py, or
+	# (name, find, replace, path) against another source file.
+	entries = [e if len(e) == 4 else (*e, TREE) for e in SABOTAGES]
+	paths = sorted({e[3] for e in entries})
+	originals = {p: open(p, "rb").read() for p in paths}  # captured ONCE, before anything
 	failures = []
 	try:
 		base = runPytest("tests/")
@@ -260,28 +289,34 @@ def main():
 			return 1
 		print("baseline: green")
 
-		# Anchors below are written with \n. Git can hand this file back with
+		# Anchors below are written with \n. Git can hand a file back with
 		# CRLF endings after a checkout, and every MULTI-LINE anchor then misses
 		# with "0 hits" - which reads like a stale anchor and quietly retires the
 		# check. Normalize for matching; the original bytes are restored either
 		# way in the finally.
-		text = original.decode("utf-8").replace("\r\n", "\n")
-		for name, find, replace in SABOTAGES:
+		texts = {p: originals[p].decode("utf-8").replace("\r\n", "\n") for p in paths}
+		for name, find, replace, path in entries:
+			text = texts[path]
 			if text.count(find) != 1:
 				failures.append(f"{name}: anchor not unique ({text.count(find)} hits)")
 				continue
-			open(TREE, "w", encoding="utf-8", newline="").write(text.replace(find, replace, 1))
-			res = runPytest("tests/")
+			try:
+				open(path, "w", encoding="utf-8", newline="").write(text.replace(find, replace, 1))
+				res = runPytest("tests/")
+			finally:
+				open(path, "wb").write(originals[path])
 			if res.returncode == 0:
 				failures.append(f"{name}: SUITE STAYED GREEN -- the test does not catch this")
 				print(f"  NOT CAUGHT: {name}")
 			else:
 				print(f"  caught:     {name}")
 	finally:
-		open(TREE, "wb").write(original)
+		for p in paths:
+			open(p, "wb").write(originals[p])
 
 	# Do not trust the restore -- prove it.
-	assert open(TREE, "rb").read() == original, "RESTORE FAILED; source is damaged"
+	for p in paths:
+		assert open(p, "rb").read() == originals[p], f"RESTORE FAILED; {p} is damaged"
 	final = runPytest("tests/")
 	if final.returncode != 0:
 		print("POST-RESTORE SUITE IS RED:")

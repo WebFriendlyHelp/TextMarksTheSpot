@@ -568,9 +568,36 @@ def _looksLikeBreadcrumb(text: str) -> bool:
 _PHOTO_CREDIT_END_RE = _re.compile(
 	r"\(\s*(?:photo|image|getty|ap|reuters|afp|epa|bloomberg|"
 	r"istock(?:photo)?|shutterstock|adobe\s+stock|unsplash|pexels|pixabay|"
-	r"dreamstime|depositphotos|wikimedia|file\s+photo|courtesy)\b[^)]*\)\s*\.?\s*$",
+	r"dreamstime|depositphotos|wikimedia|file\s+photo|courtesy)\b[^)]*\)\s*+\.?\s*+$",
 	_re.IGNORECASE,
 )
+# What may follow the credit's closing paren: whitespace, one optional period,
+# whitespace. Possessive so a long whitespace run cannot be re-split.
+_AFTER_CREDIT_PAREN_RE = _re.compile(r"\s*+\.?\s*+")
+
+
+def _hasTrailingPhotoCredit(text: str) -> bool:
+	"""Same answer as ``_PHOTO_CREDIT_END_RE.search(text)``, in linear time.
+
+	The bare search is QUADRATIC on hostile text: every "(ap " opener scans
+	``[^)]*`` to the end of the chunk and fails there, so a paragraph of
+	"(ap " repeated 40,000 times froze NVDA's main thread for over two seconds
+	inside one regex call the walk deadline cannot interrupt (security audit,
+	2026-09-24). This runs on the FULL text of every walked chunk.
+
+	Equivalence: a match must end at the LAST ")" in the text, with only
+	whitespace and one optional period after it, and ``[^)]*`` forbids any
+	other ")" inside the match, so the opener sits after the second-last ")".
+	Checking the tail first and searching only that final segment gives the
+	identical answer, and once the tail is known good the first opener naming
+	an agency matches at once, so nothing is rescanned.
+	tests/test_regex_linear.py pins the equivalence against the old pattern.
+	"""
+	close = text.rfind(")")
+	if close < 0 or not _AFTER_CREDIT_PAREN_RE.fullmatch(text, close + 1):
+		return False
+	start = text.rfind(")", 0, close) + 1
+	return _PHOTO_CREDIT_END_RE.search(text, start) is not None
 # Agency / credit tokens that essentially never occur in legitimate article
 # body prose, regardless of position. Caught even without the trailing-paren
 # shape (e.g. "Photo credit: Jane Doe", "Image courtesy of the city").
@@ -638,7 +665,7 @@ def _looksLikeImageCaption(text: str) -> bool:
 	"""
 	if not text:
 		return False
-	if _PHOTO_CREDIT_END_RE.search(text):
+	if _hasTrailingPhotoCredit(text):
 		return True
 	if _looksLikePhotoCreditChain(text):
 		return True
@@ -688,7 +715,14 @@ def _nodeIsCaption(node) -> bool:
 #     real pages use inside "Terms\xa0and\xa0Conditions".
 _LEGAL_BOILERPLATE_RE = _re.compile(
 	r"\ball rights reserved\b"
-	r"|\bcopyright\s*(?:©|\(c\))?\s*(?:19|20)\d{2}\b"
+	# Possessive \s*+ on both runs (Python 3.11+, NVDA 2024.1's floor). With
+	# two plain \s* separated only by an optional group, a failed match
+	# re-split the whitespace every way it could: "Copyright" plus 40,000
+	# non-breaking spaces froze NVDA for five seconds (security audit,
+	# 2026-09-24). Neither run can usefully give characters back, since the
+	# optional group and the year both start with a non-space, so what
+	# matches is unchanged. tests/test_regex_linear.py pins that.
+	r"|\bcopyright\s*+(?:©|\(c\))?\s*+(?:19|20)\d{2}\b"
 	r"|©\s*(?:19|20)\d{2}\b"
 	r"|\bdo not sell (?:or share )?my personal information\b"
 	r"|\byou\s+(?:agree|consent)\s+to\s+(?:our|the|these)\s+(?:terms|privacy\s+policy)\b",
