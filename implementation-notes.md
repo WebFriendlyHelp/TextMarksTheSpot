@@ -2,6 +2,24 @@
 
 Newest entries at the top.
 
+## 2026-10-26 - NVDA 2026.3: verified compatible, lastTested bumped
+
+Casey installed 2026.3 (build 58174) and had been browsing on it without
+trouble. Checked the bundled `changes.html` section for 2026.3: it declares no
+API break (that stays a .1-release thing), and none of its deprecations touch
+anything this add-on imports (braille and brailleInput moves, touchTracker
+constants, `useUniscribe`, the `ui` HTML dialog constants, the LCID table). The
+session log shows 1.0.17 loading on 2026.3 with no exception and a real auto
+landing. The store's `nvdaAPIVersions.json` lists 2026.3.0 as non-experimental,
+so a stable-channel submission with lastTested 2026.3.0 will pass.
+
+Two 2026.3 changes worth knowing about. The new "Native selection mode" browse
+mode option (off by default) syncs NVDA's selection to the browser; the landing
+moves the caret through `TextInfo.updateCaret`, which should be unaffected, but
+it has not been tried with the option on. And add-on updates no longer leave
+the old version's modules loaded (#18971), which removes a first-restart
+oddity users could hit after updating us.
+
 ## 2026-09-24 - security and bug audit, and the fixes (branch security-hardening)
 
 Three independent reviews: a Fable subagent, GPT-6 Astra through Codex, and
