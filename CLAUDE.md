@@ -260,6 +260,8 @@ Every real release — anything tagged, anything that reaches GitHub Releases or
 
 **Run it through the `humanizer` skill before shipping**, same as any other prose deliverable, and obey Casey's punctuation rules: no em dashes, straight quotes. Remember this text is read aloud by a screen reader — no emoji, no symbol bullets, no decorative characters.
 
+**A commit that touches `changelog.md` is refused by the `outbound-voice-guard` hook until the newest entry passes the preflight.** The anchor is the previous release's entry, which Casey approved: copy that `## 1.0.x` section into the scratchpad and run `python ~/.claude/skills/humanizer/scripts/outbound_preflight.py --kind changelog changelog.md --anchor <that file>`. Any later edit to the entry needs a fresh run.
+
 **A side-loaded add-on will NOT show "What's new" even when the changelog is correct.** NVDA's store reads it from the installed manifest fine (`addonStore/models/addon.py:230-232`), but the menu item is gated on the add-on having come from the store (`gui/addonStoreGui/viewModels/store.py:289-291`). So the absence of "What's new" on a local install is expected and is NOT evidence of a packaging bug. Don't go chasing it.
 
 **Do NOT also run `gh release create` after pushing the tag.** CI already creates the release; a manual one collides (CI fails with "a release with the same tag name already exists") and omits the unversioned asset the Latest URL depends on. If a manual release got created by mistake: `gh release delete vX.Y.Z --yes` (keeps the tag), then `gh run rerun <run-id>` to let CI publish properly.
