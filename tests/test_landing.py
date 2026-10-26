@@ -786,6 +786,90 @@ def test_contentSectionDoesNotClaimADistantParagraph():
 	assert 5 <= idx <= 8, f"expected the product description block, got idx={idx}"
 
 
+def _nvdaWhatsNewNodes():
+	# NVDA 2026.3's bundled changes.html, captured live 2026-10-26: a release
+	# summary of six sentence-ending paragraphs under the version heading, then
+	# a "New Features" section of bullets.
+	return [
+		_node("heading", 18, preview="What's New in NVDA", level=1),
+		_node("heading", 6, preview="2026.3", level=2),
+		_node(
+			"paragraph",
+			124,
+			preview="This release includes significant performance improvements.",
+			endsSentence=True,
+		),
+		_node(
+			"paragraph",
+			498,
+			preview="Several performance improvements have been made to reduce la.",
+			endsSentence=True,
+		),
+		_node(
+			"paragraph",
+			408,
+			preview="Context menus and keyboard shortcuts have been added to it.",
+			endsSentence=True,
+		),
+		_node(
+			"paragraph", 380, preview="Touch screen input has been significantly expanded.", endsSentence=True
+		),
+		_node("heading", 12, preview="New Features", level=3),
+		_node("paragraph", 96, preview='• Add-ons can be removed from the "Updatable add-ons" tab in'),
+		_node(
+			"paragraph",
+			74,
+			preview="• Chinese text can now be navigated by word using built-in i.",
+			endsSentence=True,
+		),
+	]
+
+
+def test_contentSectionYieldsToALongProseLeadAboveIt():
+	# The "features" phrase matched "New Features" and the gate, which runs
+	# before every size gate, jumped past four paragraphs of release summary to
+	# a bullet. A section heading vouches for its own text on a page that has
+	# not already opened with substantial prose; here it had.
+	idx = web.findArticleLanding(_summaryWith(_nvdaWhatsNewNodes()))
+	assert idx == 2, f"expected the release summary, got idx={idx}"
+
+
+def test_contentSectionStillWinsOverProseAboveTheFirstHeading():
+	# Negative twin: long sentence-ending text BEFORE any heading is where
+	# product pages keep their chrome (shipping notices, cookie-ish blurbs), so
+	# it must not switch the section gate off.
+	nodes = [
+		_node(
+			"paragraph",
+			240,
+			preview="Free shipping on orders over fifty dollars, see our terms.",
+			endsSentence=True,
+		),
+		_node("heading", 30, preview="Stainless Travel Mug", level=1),
+		_node("paragraph", 20, preview="4.5 out of 5 stars"),
+		_node("heading", 15, preview="About this item", level=2),
+		_node(
+			"paragraph",
+			180,
+			preview="Premium stainless steel with a brushed finish makes this.",
+			endsSentence=True,
+		),
+		_node(
+			"paragraph", 150, preview="Dishwasher safe and built to last for daily use.", endsSentence=True
+		),
+	]
+	assert web.findArticleLanding(_summaryWith(nodes)) == 4
+
+
+def test_contentSectionStillWinsOverShortProseLead():
+	# Negative twin: the lead has to be LONG. A short sentence under the title
+	# is the shape of a product tagline, and the section still outranks it.
+	nodes = _nvdaWhatsNewNodes()
+	for n in nodes[2:6]:
+		n.textLength = 120
+	assert web.findArticleLanding(_summaryWith(nodes)) != 2
+
+
 def test_definitionalLedeBeatsAPrerequisiteNoteAboveIt():
 	# The cluster gate awards the landing to the FIRST of two adjacent
 	# substantial paragraphs. On the real vovsoft page that is a prerequisite

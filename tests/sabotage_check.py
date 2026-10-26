@@ -253,6 +253,19 @@ SABOTAGES = [
 	),
 	# --- Security audit 2026-09-24: a web page must not be able to freeze
 	# --- NVDA through a quadratic regex over a chunk's full text.
+	# --- 2026-10-26: a content-section heading yields to a long prose lead.
+	(
+		"content-section gate ignores the prose lead above it",
+		"				return None\n			continue\n		seenHeading = True",
+		"				pass\n			continue\n		seenHeading = True",
+		WEB,
+	),
+	(
+		"prose lead counted even before the first heading",
+		"			if (\n				seenHeading\n				and node.kind",
+		"			if (\n				True\n				and node.kind",
+		WEB,
+	),
 	(
 		"copyright whitespace runs made backtracking again",
 		r"\bcopyright\s*+(?:©|\(c\))?\s*+(?:19|20)",

@@ -216,9 +216,26 @@ def _findContentSectionLanding(nodes, minChars):
 	to the normal article-shape heuristics.
 	"""
 	count = len(nodes)
+	seenHeading = False
 	for i, node in enumerate(nodes):
 		if node.kind != "heading":
+			# A page that has already opened with long sentence-ending prose
+			# under its first heading has its lead; a later "Features" or
+			# "Overview" heading is just a section. NVDA's own What's New put
+			# six paragraphs of release summary above "New Features" and this
+			# gate skipped all of them to land on a bullet. Pre-heading prose
+			# does not count, because that is where chrome sits on the product
+			# pages this gate exists for.
+			if (
+				seenHeading
+				and node.kind == "paragraph"
+				and node.textLength >= VERY_SUBSTANTIAL_PARAGRAPH_CHARS
+				and _nodeEndsSentence(node)
+				and not _isChromeParagraph(node)
+			):
+				return None
 			continue
+		seenHeading = True
 		headingText = (node.textPreview or "").strip().lower()
 		if not headingText:
 			continue
