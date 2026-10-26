@@ -20,3 +20,6 @@ addon/doc/
 # commit them. tests/test_replay_corpus.py skips itself when this is absent,
 # so a fresh clone still runs green.
 tests/fixtures/local/
+
+# GitHub Pages output, built by tools/build_pages_site.py
+site/

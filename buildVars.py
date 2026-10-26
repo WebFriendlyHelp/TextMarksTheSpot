@@ -36,7 +36,7 @@ Known gaps, unchanged from 1.0.17: a video row that also carries a written descr
 	# Author(s)
 	addon_author="Casey Mathews <help@webfriendlyhelp.com>",
 	# URL for the add-on documentation support
-	addon_url="https://github.com/WebFriendlyHelp/TextMarksTheSpot",
+	addon_url="https://webfriendlyhelp.github.io/TextMarksTheSpot/",
 	# URL for the add-on repository where the source code can be found
 	addon_sourceURL="https://github.com/WebFriendlyHelp/TextMarksTheSpot",
 	# Documentation file name

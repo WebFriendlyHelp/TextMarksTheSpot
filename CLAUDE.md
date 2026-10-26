@@ -160,6 +160,7 @@ If `globalPlugins/` is not a direct child of the archive root, NVDA registers th
 - `changelog.md` (project root) — user-visible changelog. Update for each release.
 - `readme.md` (project root) — user-facing add-on documentation. **SCons auto-copies this to `addon/doc/<baseLanguage>/readme.md` at build time**, then renders it to `readme.html` for the Add-on Store. Don't maintain `addon/doc/en/readme.md` directly — it gets overwritten on every build.
 - `style.css` (project root) — CSS for the rendered HTML doc.
+- `tools/build_pages_site.py` + `.github/workflows/pages.yml` — publish `readme.md` (as index.html) and `changelog.md` (as changelog.html) to the user-facing site, `https://webfriendlyhelp.github.io/TextMarksTheSpot/`, on every push to main that touches either file. It is the repo's website link and the manifest's `addon_url`; point users there, not at `#readme`. A release whose changelog is written is therefore also a site update; there is no separate step.
 - `pyproject.toml` — linting / formatting config.
 - `COPYING.txt` — GPL v2 license text.
 
