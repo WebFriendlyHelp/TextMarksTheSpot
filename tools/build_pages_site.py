@@ -45,7 +45,7 @@ STYLE = """
 	main { padding: 16px 0; }
 	a { color: #0b57d0; }
 	a:focus-visible { outline: 3px solid #111; outline-offset: 2px; }
-	.skip { position: absolute; left: 8px; top: -48px; background: #fff; color: #111;
+	.skip { position: absolute; left: 8px; top: -100px; background: #fff; color: #111;
 		border: 2px solid #111; padding: 8px 10px; }
 	.skip:focus { top: 8px; }
 	h1, h2, h3 { line-height: 1.3; }
