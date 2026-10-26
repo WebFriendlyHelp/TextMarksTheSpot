@@ -2,6 +2,29 @@
 
 Newest entries at the top.
 
+## 2026-10-26 (later) - content-section gate yields to a long prose lead (1.0.18)
+
+Found by replaying Casey's capture log, not from a report: NVDA's own
+changes.html matched "features" on its "New Features" heading, and because
+`_findContentSectionLanding` runs before every size gate it skipped six
+sentence-ending paragraphs of release summary (124 to 498 chars) to land on a
+bullet. Same rule-order-beats-evidence fault the cascade is known for. The gate
+now declines after a non-chrome, sentence-ending paragraph of
+`VERY_SUBSTANTIAL_PARAGRAPH_CHARS` or more that sits AFTER the first heading.
+Pre-heading prose is excluded on purpose (product pages keep shipping and promo
+text there), and the length bar keeps a short tagline under a product title
+from switching the gate off. Replay over all 279 captured records changed two
+landings, both better: this page, and the Clipman getting-started guide (node 62
+under "Features" became the guide's 380-char opening). Tests both ways plus two
+sabotage entries.
+
+Also seen in the logs and NOT changed: an app reporting `resources://home`
+fired 263 empty documents in five weeks, each ending in the not-found double
+beep. Unidentified so far; see the open question in the session summary before
+touching the beep logic.
+
+Not VM-tested: ACE-Test was in use by the Voyager Access session.
+
 ## 2026-10-26 - NVDA 2026.3: verified compatible, lastTested bumped
 
 Casey installed 2026.3 (build 58174) and had been browsing on it without
