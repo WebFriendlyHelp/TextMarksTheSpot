@@ -165,6 +165,23 @@ def _isMailDocument(ti) -> bool:
 	return url.startswith(_MAIL_URL_SCHEMES)
 
 
+# An app's own interface served from a private scheme, not a page anyone reads.
+# Remote Incident Manager (Electron) shows its home screen as resources://home/,
+# an empty document that fired 330 loads in five weeks, each ending in the
+# not-found beep. Skipped on the ready path for the same reason as mail: there
+# is never a landing to find. Z, Shift+Z and double-Z still work there.
+_APP_UI_URL_SCHEMES = ("resources:",)
+
+
+def _isAppUiDocument(ti) -> bool:
+	"""True only when the URL positively names an app-interface scheme."""
+	try:
+		url = str(getattr(ti, "documentConstantIdentifier", "") or "").strip().lower()
+	except Exception:
+		return False
+	return url.startswith(_APP_UI_URL_SCHEMES)
+
+
 def _focusIsOnAnotherDocument(ti) -> bool:
 	"""True when keyboard focus is in a DIFFERENT browse-mode document than ti.
 
@@ -411,6 +428,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# keep working wherever the user presses them.
 		if not bypassExclusion and _isMailDocument(ti):
 			dlog.debug("[TMTS] _maybeFire: mail-client document (scheme) — skip")
+			return
+		if not bypassExclusion and _isAppUiDocument(ti):
+			dlog.debug("[TMTS] _maybeFire: app-interface document (scheme) — skip")
 			return
 		self._maybeFireTi(ti, bypassExclusion=bypassExclusion)
 

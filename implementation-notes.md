@@ -2,6 +2,18 @@
 
 Newest entries at the top.
 
+## 2026-10-26 (evening) - Remote Incident Manager's resources:// screens are skipped (1.0.18)
+
+The `resources://home` mystery from the entry below was Remote Incident Manager
+(Casey identified it; the process was running here). Its Electron UI is served
+from a private scheme and every load was an empty tree ending in the not-found
+beep. Fix: `_APP_UI_URL_SCHEMES` beside the mail denylist on the READY path,
+automatic loads only, so Z and Shift+Z still work there. A denylist, not the
+poll path's allowlist, for the same reason as mail: reader view and extension
+PDF viewers are non-http pages that must keep being detected. If another app
+turns up on its own scheme, add the scheme here rather than widening to "any
+non-http scheme". Tested red then green in `test_plugin_guards.py`.
+
 ## 2026-10-26 (later) - content-section gate yields to a long prose lead (1.0.18)
 
 Found by replaying Casey's capture log, not from a report: NVDA's own

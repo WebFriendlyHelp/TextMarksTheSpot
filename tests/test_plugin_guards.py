@@ -122,6 +122,18 @@ def test_readyMailDocumentIsNotAutoLanded(plugin, gp, monkeypatch):
 	assert calls == []
 
 
+def test_readyAppUiDocumentIsNotAutoLanded(plugin, gp, monkeypatch):
+	# Remote Incident Manager's own screens are an Electron app on a private
+	# resources:// scheme. 330 empty loads, each ending in the not-found beep.
+	calls = _captureFireTi(gp, monkeypatch)
+	gp._maybeFire(types.SimpleNamespace(treeInterceptor=makeTi(plugin, "resources://home/")))
+	assert calls == []
+	gp._maybeFire(
+		types.SimpleNamespace(treeInterceptor=makeTi(plugin, "resources://home/")), bypassExclusion=True
+	)
+	assert calls == [True]
+
+
 def test_readyWebAndUnreadableUrlDocumentsStillFire(plugin, gp, monkeypatch):
 	calls = _captureFireTi(gp, monkeypatch)
 	for url in ("https://example.com/", "", "about:reader?url=https://x.org"):
