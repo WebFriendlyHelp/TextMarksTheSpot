@@ -33,7 +33,7 @@ If the add-on isn't confident about what the page is for, it stays silent and yo
 The landing depends on the kind of page:
 
 - Article (Wikipedia, news story, blog post): the cursor moves to the first real paragraph and NVDA reads it. You skip the menu, the cookie banner, and the "skip to main content" link without pressing H or P.
-- List or index page (news homepage, search results, a grid of cards): the cursor moves to the first headline so you can start scanning with `H`. No auto-read.
+- List or index page (news homepage, search results, a grid of cards): the cursor moves to the first headline and NVDA reads it, so you can start scanning with `H` from there.
 - Form page (signup, login, contact): the form's title is announced and focus moves to the first field.
 - Status page (closed form, "thank you for submitting", maintenance, 404): the cursor lands on the status sentence.
 - Result widget (speed test, weather, single-quote stock price, battery level): the cursor lands on the label so the value reads on the next arrow press.
