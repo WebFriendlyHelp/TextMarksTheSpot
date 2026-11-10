@@ -2,6 +2,47 @@
 
 Newest entries at the top.
 
+## 2026-11-10 - Fable review fixes (branch fix/fable-review-2026-11-10)
+
+Six of the nine findings fixed, each with a failing test first and a sabotage
+entry; the decisions and traps worth keeping:
+
+- **Single letter navigation is ours to honour, not NVDA's.** NVDA's rule
+  (`BrowseModeTreeInterceptor.getAlternativeScript`: character gesture plus
+  `singleLetterNavEnabled` False means no script) only runs on scripts found
+  on the tree interceptor. `scriptHandler._yieldObjectsForFindScript` yields
+  global plugins first, so a global plugin's `kb:z` never meets it. Both Z
+  scripts now apply the same test; `isCharacter` is checked so a user who
+  remaps the script to a modifier chord keeps it, as core's own scripts do.
+- **The ready-TI path now checks `_focusIsOnAnotherDocument` too.** Checked
+  why that cannot drop the focused page's own load: line 441 of
+  `eventHandler.doPreDocumentLoadComplete` re-resolves
+  `focusObject.treeInterceptor` after building a new TI for a document that is
+  the focus or a focus ancestor, so focus and the event's TI agree before
+  plugins see the event.
+- **Explicit requests override the editable-focus rule in two places.** The
+  `_maybeFireTi` gate AND the classifier's `SILENT_FOCUS_HONORED`. Clearing only
+  the gate still ends silent, because that intent deliberately plays no
+  not-found tone. `explicit` rides through `_scheduleRetry` / `_fireRetry`,
+  since only the LAST attempt may play the tone. The capture log still records
+  the real `focus_editable`, because `_appendCapture` runs inside
+  `buildTreeSummary`, before the override.
+- **The loose FORM URL hints skip the query; the fragment stays.** Only
+  `createaccount` and `userlogin` could ever match in a query (every other hint
+  needs a slash, and slash values are blanked), and the strict segment rule
+  still reads `title=Special:UserLogin`. An appended `#/register` STILL counts,
+  by design: it is indistinguishable from Zoom's real `#/registration` route.
+  0 of 225 local capture records changed hint.
+- **`gui.messageBox` is deprecated in NVDA 2026.3** for
+  `gui.message.MessageDialog`, which 2024.1 lacks, so the exclusion dialog uses
+  `prePopup` / `postPopup` instead. Revisit `MessageDialog.ask` when the minimum
+  NVDA reaches 2025.1; it also tells NVDA a blocking dialog is up, which the
+  pre/post pair does not.
+- **`pytest.xfail()` inside a test body ends the test.** The corpus known-gap
+  row is now a strict `xfail` mark limited to `AssertionError`.
+- **Not changed, written up for Casey: L1**, a `getScript` override so Z is
+  never trapped outside browse mode.
+
 ## 2026-10-26 (evening) - Remote Incident Manager's resources:// screens are skipped (1.0.18)
 
 The `resources://home` mystery from the entry below was Remote Incident Manager
