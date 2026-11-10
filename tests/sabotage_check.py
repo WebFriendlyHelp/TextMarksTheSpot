@@ -412,6 +412,24 @@ SABOTAGES = [
 		INIT,
 	),
 	(
+		"Shift+Z silenced by editable focus again",
+		"		if not bypassExclusion and tsMod.isFocusEditable():",
+		"		if tsMod.isFocusEditable():",
+		INIT,
+	),
+	(
+		"explicit request silenced by the classifier's focus rule",
+		"			if explicit:\n				# The classifier's focus rule",
+		"			if False:\n				# The classifier's focus rule",
+		INIT,
+	),
+	(
+		"explicit request's retry forgets it was explicit",
+		"			self._runDetection(ti, attempt=attempt, explicit=explicit)",
+		"			self._runDetection(ti, attempt=attempt)",
+		INIT,
+	),
+	(
 		"Z ignores single letter navigation off",
 		'	if getattr(ti, "singleLetterNavEnabled", True):\n		return False',
 		"	if True:\n		return False",

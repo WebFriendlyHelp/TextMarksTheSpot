@@ -634,7 +634,10 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# silent — no working tone, no pulse, no detection. The classifier
 		# would otherwise catch this too, but only AFTER we'd already played
 		# the working tone, which is exactly what was firing on DDG.
-		if tsMod.isFocusEditable():
+		# Automatic loads only: Shift+Z and double-Z are the user's explicit
+		# override ("Z still lets the user override manually"), and returning
+		# here gave them no tone and no message at all.
+		if not bypassExclusion and tsMod.isFocusEditable():
 			dlog.debug("[TMTS] _maybe_fire_ti: focus editable — skip")
 			return
 		# Restored-position gate: when the user comes BACK to a page they
@@ -664,11 +667,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# Pre-cancelling here silenced NVDA's voice on pages our classifier
 		# doesn't act on (form/app/unknown), making the add-on feel broken.
 		try:
-			self._runDetection(ti)
+			self._runDetection(ti, explicit=bypassExclusion)
 		except Exception:
 			log.exception("[TMTS] detection error")
 
-	def _runDetection(self, ti, attempt=0):
+	def _runDetection(self, ti, attempt=0, explicit=False):
 		# First attempt plays the working tone + pulse. Retries run
 		# silently — no second working tone (user already heard one) and
 		# no pulse (the wait between attempts already conveys "thinking").
@@ -684,6 +687,11 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		couldRetry = attempt == 0
 		try:
 			summary = tsMod.buildTreeSummary(ti)
+			if explicit:
+				# The classifier's focus rule honours a page that put focus in
+				# a form field. An explicit request overrides it, or it ends in
+				# SILENT_FOCUS_HONORED, which deliberately plays no tone.
+				summary.focusedControlIsEditable = False
 			try:
 				# AN EMPTY TREE IS NOT AN ANSWER. Zero nodes does not mean
 				# "this page has no content" — it means NVDA's virtual buffer
@@ -728,9 +736,9 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# never builds cannot retry forever.
 		if not acted and couldRetry:
 			delay = self._EMPTY_RETRY_DELAY_MS if unbuilt else self._RETRY_DELAY_MS
-			self._scheduleRetry(ti, attempt + 1, delay)
+			self._scheduleRetry(ti, attempt + 1, delay, explicit=explicit)
 
-	def _scheduleRetry(self, ti, attempt=1, delayMs=None):
+	def _scheduleRetry(self, ti, attempt=1, delayMs=None, explicit=False):
 		# Capture the URL at scheduling time so the retry can verify the
 		# user hasn't navigated away by the time it fires.
 		if delayMs is None:
@@ -756,6 +764,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				expectedUrl,
 				caretAtSchedule,
 				attempt,
+				explicit,
 			)
 		except Exception:
 			log.exception("[TMTS] failed to schedule retry")
@@ -771,7 +780,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			pass
 		self._pendingRetry = None
 
-	def _fireRetry(self, ti, expectedUrl, caretAtSchedule=None, attempt=1):
+	def _fireRetry(self, ti, expectedUrl, caretAtSchedule=None, attempt=1, explicit=False):
 		# Runs on the wx main thread after the scheduled delay.
 		self._pendingRetry = None
 		if not getattr(ti, "isReady", False):
@@ -803,7 +812,7 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 				return
 		dlog.debug(f"[TMTS] retry: firing (attempt {attempt})")
 		try:
-			self._runDetection(ti, attempt=attempt)
+			self._runDetection(ti, attempt=attempt, explicit=explicit)
 		except Exception:
 			log.exception("[TMTS] retry error")
 

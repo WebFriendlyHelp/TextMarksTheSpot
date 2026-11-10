@@ -168,7 +168,7 @@ def test_focusElsewhereMeansAnotherTreeInterceptor(plugin, gp):
 
 def _captureDetection(gp, monkeypatch):
 	runs = []
-	monkeypatch.setattr(gp, "_runDetection", lambda ti, attempt=0: runs.append(ti))
+	monkeypatch.setattr(gp, "_runDetection", lambda ti, attempt=0, explicit=False: runs.append(ti))
 	return runs
 
 
@@ -464,3 +464,71 @@ def test_readyLoadWithFocusOutsideAnyDocumentStillRunsDetection(plugin, gp, monk
 	REC.focus = types.SimpleNamespace(treeInterceptor=None)
 	gp._maybeFire(types.SimpleNamespace(treeInterceptor=a))
 	assert runs == [a]
+
+
+# --- An explicit request overrides the editable-focus gate (M2) ---------------
+# Guardrail: honour a page that put focus in a form field on LOAD; "Z still lets
+# the user override manually". Shift+Z's on-demand detection and double-Z on an
+# excluded site are explicit requests too, and used to return with no tone and
+# no message when focus was on an edit field, checkbox or list.
+
+
+def test_shiftZRunsDetectionWhenFocusIsOnAFormField(plugin, gp, monkeypatch):
+	monkeypatch.setattr(plugin.tsMod, "isFocusEditable", lambda: True)
+	runs = []
+	monkeypatch.setattr(gp, "_runDetection", lambda ti, attempt=0, **kw: runs.append(kw))
+	ti = makeTi(plugin, "https://login.example/")
+	focusOn(ti)
+	gp.script_returnToLanding(Gesture())
+	assert runs == [{"explicit": True}], "Shift+Z did nothing, silently"
+
+
+def test_automaticLoadStillHonoursAFocusedFormField(plugin, gp, monkeypatch):
+	monkeypatch.setattr(plugin.tsMod, "isFocusEditable", lambda: True)
+	runs = []
+	monkeypatch.setattr(gp, "_runDetection", lambda ti, attempt=0, **kw: runs.append(kw))
+	ti = makeTi(plugin, "https://login.example/")
+	focusOn(ti)
+	gp._maybeFire(types.SimpleNamespace(treeInterceptor=ti))
+	assert runs == []
+
+
+def _classifierSees(plugin, gp, monkeypatch):
+	"""Run _runDetection for real up to the classifier; record what it saw."""
+	seen = []
+
+	def build(ti, startInfo=None):
+		s = TreeSummary(url="https://login.example/")
+		s.mainNodes = [para(BODY)]
+		s.focusedControlIsEditable = True
+		return s
+
+	monkeypatch.setattr(plugin.tsMod, "buildTreeSummary", build)
+	monkeypatch.setattr(plugin.tsMod, "releaseSummary", lambda s: None)
+
+	def handle(ti, summary, isRetry=False, isFinal=True):
+		seen.append((plugin.clsMod.classify(summary).intent, isFinal))
+		return False
+
+	monkeypatch.setattr(gp, "_handleResult", handle)
+	return seen
+
+
+def test_explicitDetectionIsNotSilencedByTheClassifiersFocusRule(plugin, gp, monkeypatch):
+	seen = _classifierSees(plugin, gp, monkeypatch)
+	ti = makeTi(plugin, "https://login.example/")
+	gp._runDetection(ti, explicit=True)
+	assert seen and seen[0][0] != plugin.clsMod.Intent.SILENT_FOCUS_HONORED
+	# The retry of an explicit request is explicit too, or its final attempt
+	# comes back SILENT_FOCUS_HONORED and the not-found tone never plays.
+	retry = REC.callLaters[-1]
+	assert retry.fn == gp._fireRetry
+	focusOn(ti)
+	retry.fn(*retry.args)
+	assert len(seen) == 2 and seen[1][0] != plugin.clsMod.Intent.SILENT_FOCUS_HONORED
+
+
+def test_automaticDetectionStillHonoursTheClassifiersFocusRule(plugin, gp, monkeypatch):
+	seen = _classifierSees(plugin, gp, monkeypatch)
+	gp._runDetection(makeTi(plugin, "https://login.example/"))
+	assert seen[0][0] == plugin.clsMod.Intent.SILENT_FOCUS_HONORED
