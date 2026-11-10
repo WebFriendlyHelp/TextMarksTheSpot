@@ -48,7 +48,7 @@ The add-on binds three gestures. Every other NVDA key behaves the way it always 
 - `Shift+Z` in browse mode: return to where the add-on first placed you on this page. A quick jump back. If the add-on has not placed you anywhere yet, for example when you switch back to a tab that was already open, `Shift+Z` runs the detection right then and takes you to the result.
 - `NVDA+Z` in browse mode: add or remove the current site from the exclusion list. NVDA asks before changing it. On an excluded site, press `Z` twice quickly for a one-time detection that does not change the list.
 
-Outside browse mode (terminals, edit fields, native apps), `Z` types a normal letter.
+Outside browse mode (terminals, edit fields, native apps), `Z` types a normal letter. The same happens in browse mode when you have turned single letter navigation off with `NVDA+Shift+Space`, so a web app's own Z shortcut still works.
 
 ## Tips and tricks
 
