@@ -542,3 +542,25 @@ def test_moduleLevelStringsUseTheAddonsOwnTranslations(plugin):
 	# built-in catalogue, so a contributed .po file would translate the
 	# manifest but none of the spoken messages.
 	assert plugin._CATEGORY == nvda_stubs.ADDON_GETTEXT_MARK + "Text Marks the Spot"
+
+
+# --- The exclusion dialog is raised the way NVDA raises its own (L4) ----------
+
+
+def test_exclusionDialogIsWrappedInPrePopupAndPostPopup(plugin, gp, monkeypatch):
+	# Without prePopup NVDA's hidden main frame is not brought forward, so on a
+	# machine where NVDA lacks foreground rights the question can open behind
+	# the browser and the user hears nothing after NVDA+Z.
+	_toggle(plugin, gp, monkeypatch, excluded=False, writeOk=True)
+	assert REC.popupEvents == ["prePopup", "ShowModal", "postPopup"]
+
+
+def test_exclusionDialogStillRestoresFocusWhenTheDialogFails(plugin, gp, monkeypatch):
+	def boom(self):
+		REC.popupEvents.append("ShowModal")
+		raise RuntimeError("dialog failed")
+
+	monkeypatch.setattr(nvda_stubs.FakeMessageDialog, "ShowModal", boom)
+	with pytest.raises(RuntimeError):
+		_toggle(plugin, gp, monkeypatch, excluded=False, writeOk=True)
+	assert REC.popupEvents == ["prePopup", "ShowModal", "postPopup"]

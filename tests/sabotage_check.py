@@ -442,6 +442,18 @@ SABOTAGES = [
 		INIT,
 	),
 	(
+		"exclusion dialog opened without prePopup",
+		"			gui.mainFrame.prePopup()\n",
+		"",
+		INIT,
+	),
+	(
+		"exclusion dialog never restores focus",
+		"			finally:\n				gui.mainFrame.postPopup()",
+		"			finally:\n				pass",
+		INIT,
+	),
+	(
 		"Z ignores single letter navigation off",
 		'	if getattr(ti, "singleLetterNavEnabled", True):\n		return False',
 		"	if True:\n		return False",

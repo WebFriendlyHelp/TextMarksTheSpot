@@ -1511,14 +1511,24 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			prompt = _("Add {hostname} to the Text Marks the Spot exclusion list?").format(hostname=hostname)
 
 		def _showDialog():
-			with wx.MessageDialog(
-				gui.mainFrame,
-				prompt,
-				# Translators: dialog title for the site-exclusion confirm.
-				_("Text Marks the Spot: Site Exclusion"),
-				style=wx.YES_NO | wx.ICON_QUESTION,
-			) as dialog:
-				result = dialog.ShowModal()
+			# prePopup raises NVDA's hidden main frame and saves the focus;
+			# postPopup restores it. Without the pair the question could open
+			# behind the browser where NVDA lacks foreground rights (a
+			# portable copy), and the user heard nothing after NVDA+Z.
+			# gui.messageBox would do this too but is deprecated in NVDA
+			# 2026.3 for gui.message.MessageDialog, which 2024.1 lacks.
+			gui.mainFrame.prePopup()
+			try:
+				with wx.MessageDialog(
+					gui.mainFrame,
+					prompt,
+					# Translators: dialog title for the site-exclusion confirm.
+					_("Text Marks the Spot: Site Exclusion"),
+					style=wx.YES_NO | wx.ICON_QUESTION,
+				) as dialog:
+					result = dialog.ShowModal()
+			finally:
+				gui.mainFrame.postPopup()
 			if result != wx.ID_YES:
 				# Translators: spoken when the user cancels the
 				# site-exclusion dialog (clicks No instead of Yes).

@@ -31,6 +31,7 @@ class Recorder:
 		self.cancels = 0
 		self.callLaters = []
 		self.focus = None
+		self.popupEvents = []
 
 
 REC = Recorder()
@@ -66,7 +67,18 @@ class FakeMessageDialog:
 		return False
 
 	def ShowModal(self):
+		REC.popupEvents.append("ShowModal")
 		return FakeMessageDialog.answer
+
+
+class FakeMainFrame:
+	"""gui.mainFrame: records the prePopup/postPopup pair around a dialog."""
+
+	def prePopup(self):
+		REC.popupEvents.append("prePopup")
+
+	def postPopup(self):
+		REC.popupEvents.append("postPopup")
 
 
 class BrowseModeDocumentTreeInterceptor:
@@ -115,7 +127,7 @@ def _modules():
 	mod("browseMode", BrowseModeDocumentTreeInterceptor=BrowseModeDocumentTreeInterceptor)
 	mod("controlTypes", OutputReason=types.SimpleNamespace(CARET="caret"))
 	mod("globalPluginHandler", GlobalPlugin=_GlobalPluginBase)
-	mod("gui", mainFrame=None)
+	mod("gui", mainFrame=FakeMainFrame())
 	mod(
 		"speech",
 		cancelSpeech=lambda: setattr(REC, "cancels", REC.cancels + 1),
