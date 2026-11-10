@@ -16,9 +16,13 @@
 # absent, so a fresh clone runs green with no corpus at all.
 #
 # Each case asserts a substring of the LANDED node's preview — readable and
-# stable against the frozen fixture. A known-bad landing is an xfail carrying the
-# desired target, so it flips to a failure (telling us to drop the xfail) the day
-# it starts landing right.
+# stable against the frozen fixture. A known-bad landing is a STRICT xfail mark
+# carrying the desired target: the body still runs, so the day it starts landing
+# right the XPASS fails the suite (telling us to drop the xfail). It used to call
+# pytest.xfail() inside the test, which ends the test before replaying anything,
+# so it reported xfail whatever the landing was (Fable review, 2026-11-10). A
+# missing record is pytest.fail, not an AssertionError, so the mark (which only
+# expects AssertionError) cannot swallow it either.
 
 import json
 import os
@@ -41,7 +45,7 @@ def _find(urlFrag):
 	for r in _records():
 		if urlFrag in r["url"]:
 			return r
-	raise AssertionError(f"no captured record with URL containing {urlFrag!r}")
+	pytest.fail(f"no captured record with URL containing {urlFrag!r}")
 
 
 # (url fragment, expected substring of the landed node's preview, xfail reason or None)
@@ -77,10 +81,16 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("urlFrag,expect,xfailReason", CASES)
-def test_corpusLanding(urlFrag, expect, xfailReason):
-	if xfailReason:
-		pytest.xfail(xfailReason)
+def _params():
+	for urlFrag, expect, xfailReason in CASES:
+		marks = ()
+		if xfailReason:
+			marks = pytest.mark.xfail(reason=xfailReason, strict=True, raises=AssertionError)
+		yield pytest.param(urlFrag, expect, marks=marks, id=urlFrag)
+
+
+@pytest.mark.parametrize("urlFrag,expect", _params())
+def test_corpusLanding(urlFrag, expect):
 	rec = _find(urlFrag)
 	out = replay(rec)
 	preview = out["landing_preview"] or ""
