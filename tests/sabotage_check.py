@@ -405,6 +405,13 @@ SABOTAGES = [
 		INIT,
 	),
 	(
+		"ready path detects in a background tab again",
+		"		if not bypassExclusion and _focusIsOnAnotherDocument(ti):\n"
+		'			dlog.debug("[TMTS] _maybeFire: focus is in another document',
+		'		if False:\n			dlog.debug("[TMTS] _maybeFire: focus is in another document',
+		INIT,
+	),
+	(
 		"Z ignores single letter navigation off",
 		'	if getattr(ti, "singleLetterNavEnabled", True):\n		return False',
 		"	if True:\n		return False",

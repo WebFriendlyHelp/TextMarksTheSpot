@@ -448,6 +448,17 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		if not bypassExclusion and _isAppUiDocument(ti):
 			dlog.debug("[TMTS] _maybeFire: app-interface document (scheme) — skip")
 			return
+		# A load event for a document the user is not in: tab A reloading, or
+		# an iframe in it finishing, while they read tab B. The poll and the
+		# retry already abandon on this; the ready path did not, so A's
+		# landing could be spoken over B. Checked before _maybeFireTi so B's
+		# own pending retry is not cancelled either. Safe for the focused page:
+		# NVDA's pre-step (eventHandler.doPreDocumentLoadComplete) re-resolves
+		# the focus object's interceptor when the loaded document is the focus
+		# or a focus ancestor, so the two agree before we see the event.
+		if not bypassExclusion and _focusIsOnAnotherDocument(ti):
+			dlog.debug("[TMTS] _maybeFire: focus is in another document — skip")
+			return
 		self._maybeFireTi(ti, bypassExclusion=bypassExclusion)
 
 	def _scheduleReadyPoll(self, obj, bypassExclusion, attempt):

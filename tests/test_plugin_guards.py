@@ -425,3 +425,42 @@ def test_aRemappedNonCharacterGestureStillActsWithSingleLetterNavigationOff(plug
 	gp.script_retrigger(g)
 	assert g.sent == 0
 	assert ran == ["scan"]
+
+
+# --- A ready background document's load event is ignored (M1) -----------------
+# The readiness poll and the retry already abandon when focus is in another
+# document; the path taken when the TI is ALREADY ready did not, so tab A
+# reloading while the user read tab B ran detection on A and could speak over B.
+
+
+def _liveDetection(plugin, gp, monkeypatch):
+	monkeypatch.setattr(plugin.tsMod, "isFocusEditable", lambda: False)
+	return _captureDetection(gp, monkeypatch)
+
+
+def test_readyLoadInABackgroundTabDoesNotRunDetection(plugin, gp, monkeypatch):
+	runs = _liveDetection(plugin, gp, monkeypatch)
+	a = makeTi(plugin, "https://a.example/")
+	focusOn(makeTi(plugin, "https://b.example/"))
+	bRetry = nvda_stubs.FakeCallLater(1500, lambda: None)
+	gp._pendingRetry = bRetry
+	gp._maybeFire(types.SimpleNamespace(treeInterceptor=a))
+	assert runs == [], "detected (and could speak) in a tab the user is not reading"
+	assert bRetry.running, "killed the focused tab's own hydration retry"
+
+
+def test_readyLoadInTheFocusedTabStillRunsDetection(plugin, gp, monkeypatch):
+	runs = _liveDetection(plugin, gp, monkeypatch)
+	a = makeTi(plugin, "https://a.example/")
+	focusOn(a)
+	gp._maybeFire(types.SimpleNamespace(treeInterceptor=a))
+	assert runs == [a]
+
+
+def test_readyLoadWithFocusOutsideAnyDocumentStillRunsDetection(plugin, gp, monkeypatch):
+	# Address bar or a menu mid-load: no TI on focus is NOT "elsewhere".
+	runs = _liveDetection(plugin, gp, monkeypatch)
+	a = makeTi(plugin, "https://a.example/")
+	REC.focus = types.SimpleNamespace(treeInterceptor=None)
+	gp._maybeFire(types.SimpleNamespace(treeInterceptor=a))
+	assert runs == [a]
