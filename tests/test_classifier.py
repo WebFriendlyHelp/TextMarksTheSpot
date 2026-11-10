@@ -1040,3 +1040,22 @@ def test_queryThatNamesThePageStillCountsAsAHint():
 	assert cls.classify(_commentedArticle(wiki)).intent == cls.Intent.FORM
 	assert "userlogin" in cls._hintableUrl(wiki)
 	assert cls._hintableUrl("https://app.example/#/login?next=/a") == "https://app.example/#/login?next="
+
+
+def test_slashFreeQueryDecorationDoesNotTurnAnArticleIntoAForm():
+	# Fable review 2026-11-10 (L2): a query VALUE with no slash survives
+	# _hintableUrl, and the loose "createaccount" / "userlogin" hints matched
+	# inside it, so a link decoration flipped a short article to FORM.
+	for suffix in ("?ref=createaccount", "?utm_campaign=userlogin&x=1"):
+		result = cls.classify(_commentedArticle("https://news.example/story-about-council" + suffix))
+		assert result.intent == cls.Intent.ARTICLE, suffix
+
+
+def test_queryThatNamesThePageByItsOwnSegmentIsStillAHint():
+	# Negative twin: the strict whole-segment rule still reads the query, so
+	# MediaWiki's account-creation and login pages stay FORM.
+	for url in (
+		"https://en.wikipedia.org/w/index.php?title=Special:CreateAccount&returnto=Main+Page",
+		"https://en.wikipedia.org/w/index.php?title=Special:UserLogin",
+	):
+		assert cls.classify(_commentedArticle(url)).intent == cls.Intent.FORM, url

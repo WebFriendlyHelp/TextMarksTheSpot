@@ -430,6 +430,12 @@ SABOTAGES = [
 		INIT,
 	),
 	(
+		"loose FORM hints read the query again",
+		"	formUrlHint = _urlMatches(_withoutQuery(url), Intent.FORM) or isAuthUrl",
+		"	formUrlHint = _urlMatches(url, Intent.FORM) or isAuthUrl",
+		CLASSIFIER,
+	),
+	(
 		"Z ignores single letter navigation off",
 		'	if getattr(ti, "singleLetterNavEnabled", True):\n		return False',
 		"	if True:\n		return False",

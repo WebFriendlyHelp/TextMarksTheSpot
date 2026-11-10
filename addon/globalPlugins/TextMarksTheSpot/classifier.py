@@ -477,8 +477,13 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# loose substring hints, not weaker) — without this, a 2-input login on
 	# a URL the loose hints miss (e.g. /auth with no trailing slash) would
 	# meet the bar but stall at 0.52 confidence and return UNKNOWN.
+	# The loose FORM substrings skip the query: a slash-free value survives
+	# _hintableUrl, and "createaccount" / "userlogin" matched inside link
+	# decoration like ?ref=createaccount (Fable review, 2026-11-10). A query
+	# that names the page itself (MediaWiki's title=Special:UserLogin) is
+	# still read by the strict whole-segment rule just above.
 	isAuthUrl = _urlIsAuthForm(url)
-	formUrlHint = _urlMatches(url, Intent.FORM) or isAuthUrl
+	formUrlHint = _urlMatches(_withoutQuery(url), Intent.FORM) or isAuthUrl
 	hasEditorialUrl = _urlMatches(url, Intent.ARTICLE) and not formUrlHint
 	formBlocked = (
 		strongArticleCluster
@@ -809,6 +814,12 @@ def _hintableUrl(url: str) -> str:
 			value = ""
 		kept.append(key + eq + value)
 	return base + "?" + "&".join(kept) + hashSep + fragment
+
+
+def _withoutQuery(url: str) -> str:
+	"""The URL with its query string removed; the fragment is kept (SPA routes)."""
+	main, hashSep, fragment = url.partition("#")
+	return main.partition("?")[0] + hashSep + fragment
 
 
 def _urlMatches(url: str, intent: Intent) -> bool:
