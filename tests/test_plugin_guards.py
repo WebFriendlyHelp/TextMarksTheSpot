@@ -532,3 +532,13 @@ def test_automaticDetectionStillHonoursTheClassifiersFocusRule(plugin, gp, monke
 	seen = _classifierSees(plugin, gp, monkeypatch)
 	gp._runDetection(makeTi(plugin, "https://login.example/"))
 	assert seen[0][0] == plugin.clsMod.Intent.SILENT_FOCUS_HONORED
+
+
+# --- Strings go through the add-on's own catalogue (L3) -----------------------
+
+
+def test_moduleLevelStringsUseTheAddonsOwnTranslations(plugin):
+	# Without addonHandler.initTranslation() every _() resolves to NVDA's
+	# built-in catalogue, so a contributed .po file would translate the
+	# manifest but none of the spoken messages.
+	assert plugin._CATEGORY == nvda_stubs.ADDON_GETTEXT_MARK + "Text Marks the Spot"

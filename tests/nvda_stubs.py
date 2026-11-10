@@ -35,6 +35,8 @@ class Recorder:
 
 REC = Recorder()
 
+ADDON_GETTEXT_MARK = "[addon catalogue] "
+
 
 class FakeCallLater:
 	def __init__(self, delay, fn, *args):
@@ -102,6 +104,13 @@ def _modules():
 		m[name] = module
 		return module
 
+	def initTranslation():
+		# NVDA's version installs the add-on's own gettext as `_` in the
+		# CALLING module (addonHandler.initTranslation, installed 2026.3.1).
+		# The marker prefix lets a test see which `_` a string went through.
+		sys._getframe(1).f_globals["_"] = lambda s: ADDON_GETTEXT_MARK + s
+
+	mod("addonHandler", initTranslation=initTranslation)
 	mod("api", getFocusObject=lambda: REC.focus)
 	mod("browseMode", BrowseModeDocumentTreeInterceptor=BrowseModeDocumentTreeInterceptor)
 	mod("controlTypes", OutputReason=types.SimpleNamespace(CARET="caret"))

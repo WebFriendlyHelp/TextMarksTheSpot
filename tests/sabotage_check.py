@@ -436,6 +436,12 @@ SABOTAGES = [
 		CLASSIFIER,
 	),
 	(
+		"add-on translations never initialised",
+		"\naddonHandler.initTranslation()\n",
+		"\n",
+		INIT,
+	),
+	(
 		"Z ignores single letter navigation off",
 		'	if getattr(ti, "singleLetterNavEnabled", True):\n		return False',
 		"	if True:\n		return False",

@@ -24,6 +24,7 @@ import time
 import weakref
 from urllib.parse import urlparse
 
+import addonHandler
 import api
 import browseMode
 import controlTypes
@@ -44,6 +45,12 @@ from . import treeSummary as tsMod
 # Diagnostic logging is opt-in; see treeSummary._GatedDebugLog.
 from .treeSummary import dlog
 from .detection import web as webMod
+
+# Install the add-on's own gettext as this module's `_`, before the first _()
+# below. Without it every string resolves through NVDA's built-in catalogue,
+# so a contributed translation would reach the manifest but none of the
+# spoken messages.
+addonHandler.initTranslation()
 
 
 def _hostnameFromUrl(url: str):
