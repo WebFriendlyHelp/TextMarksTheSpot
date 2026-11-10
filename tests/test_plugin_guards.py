@@ -365,3 +365,63 @@ def test_exclusionToggleAnnouncesSuccess(plugin, gp, monkeypatch):
 def test_exclusionToggleAnnouncesAFailedWrite(plugin, gp, monkeypatch):
 	assert _toggle(plugin, gp, monkeypatch, excluded=False, writeOk=False).startswith("Could not add")
 	assert _toggle(plugin, gp, monkeypatch, excluded=True, writeOk=False).startswith("Could not remove")
+
+
+# --- Z and Shift+Z respect NVDA's single letter navigation toggle (M3) --------
+# NVDA's own rule (BrowseModeTreeInterceptor.getAlternativeScript, installed
+# 2026.3.1): with ti.singleLetterNavEnabled False, a CHARACTER gesture goes to
+# the page. A global plugin script is found before the tree interceptor's, so
+# that rule never reaches ours; the scripts must apply it themselves.
+
+
+class Gesture:
+	def __init__(self, isCharacter=True):
+		self.isCharacter = isCharacter
+		self.sent = 0
+
+	def send(self):
+		self.sent += 1
+
+
+def _zWiring(gp, monkeypatch):
+	ran = []
+	monkeypatch.setattr(gp, "_scanForwardFromCaret", lambda focus: ran.append("scan"))
+	monkeypatch.setattr(gp, "_detectOnDemand", lambda focus, url, msg: ran.append("detect"))
+	return ran
+
+
+@pytest.mark.parametrize("scriptName", ["script_retrigger", "script_returnToLanding"])
+def test_zKeysPassThroughWhenSingleLetterNavigationIsOff(plugin, gp, monkeypatch, scriptName):
+	ran = _zWiring(gp, monkeypatch)
+	ti = makeTi(plugin, "https://app.example/")
+	ti.singleLetterNavEnabled = False
+	focusOn(ti)
+	g = Gesture()
+	getattr(gp, scriptName)(g)
+	assert g.sent == 1, "the page never received the key"
+	assert ran == []
+
+
+@pytest.mark.parametrize("scriptName", ["script_retrigger", "script_returnToLanding"])
+def test_zKeysStillActWhenSingleLetterNavigationIsOn(plugin, gp, monkeypatch, scriptName):
+	ran = _zWiring(gp, monkeypatch)
+	ti = makeTi(plugin, "https://app.example/")
+	ti.singleLetterNavEnabled = True
+	focusOn(ti)
+	g = Gesture()
+	getattr(gp, scriptName)(g)
+	assert g.sent == 0
+	assert len(ran) == 1
+
+
+def test_aRemappedNonCharacterGestureStillActsWithSingleLetterNavigationOff(plugin, gp, monkeypatch):
+	# NVDA's rule only diverts character gestures; a user who rebinds the
+	# script to, say, NVDA+Alt+Z keeps it working, as core's own scripts do.
+	ran = _zWiring(gp, monkeypatch)
+	ti = makeTi(plugin, "https://app.example/")
+	ti.singleLetterNavEnabled = False
+	focusOn(ti)
+	g = Gesture(isCharacter=False)
+	gp.script_retrigger(g)
+	assert g.sent == 0
+	assert ran == ["scan"]

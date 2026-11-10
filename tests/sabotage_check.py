@@ -405,6 +405,18 @@ SABOTAGES = [
 		INIT,
 	),
 	(
+		"Z ignores single letter navigation off",
+		'	if getattr(ti, "singleLetterNavEnabled", True):\n		return False',
+		"	if True:\n		return False",
+		INIT,
+	),
+	(
+		"single letter navigation off diverts non-character gestures too",
+		'	return bool(getattr(gesture, "isCharacter", True))',
+		"	return True",
+		INIT,
+	),
+	(
 		"form-focus search unbounded again",
 		"				if scanned > _FOCUS_SCAN_LIMIT or time.monotonic() > deadline:",
 		"				if False:",

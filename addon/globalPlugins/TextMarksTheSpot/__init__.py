@@ -202,6 +202,22 @@ def _focusIsOnAnotherDocument(ti) -> bool:
 	return focusTi is not None and focusTi is not ti
 
 
+def _singleLetterNavIsOff(ti, gesture) -> bool:
+	"""True when NVDA would send this key to the page instead of browse mode.
+
+	NVDA+Shift+Space turns single letter navigation off so a web app's own
+	one-key shortcuts (Gmail's Z is undo) reach the page. NVDA applies that in
+	BrowseModeTreeInterceptor.getAlternativeScript: a CHARACTER gesture with
+	ti.singleLetterNavEnabled False gets no script. A global plugin's script is
+	found before the tree interceptor's (scriptHandler._yieldObjectsForFindScript),
+	so that rule never reaches Z or Shift+Z; we apply the same test ourselves.
+	Verified in the installed NVDA 2026.3.1 library.zip, 2026-11-10.
+	"""
+	if getattr(ti, "singleLetterNavEnabled", True):
+		return False
+	return bool(getattr(gesture, "isCharacter", True))
+
+
 log.info("[TMTS] module imported; defining GlobalPlugin")
 
 
@@ -1105,10 +1121,12 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 			ti is None
 			or not isinstance(ti, browseMode.BrowseModeDocumentTreeInterceptor)
 			or getattr(ti, "passThrough", False)
+			or _singleLetterNavIsOff(ti, gesture)
 		):
 			# Not in active browse mode (no TI, wrong TI type, or browse mode
-			# is in focus/forms mode where keys go to the page). Let the host
-			# app receive the Z keystroke.
+			# is in focus/forms mode where keys go to the page), or the user
+			# turned single letter navigation off. Let the host app receive
+			# the Z keystroke.
 			gesture.send()
 			return
 		# Determine the current hostname / exclusion state once.
@@ -1300,13 +1318,15 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 	def script_returnToLanding(self, gesture):
 		# Snap back to the position the addon's initial detection chose.
 		# No recalculation — uses the textInfo captured at detection time.
-		# Outside browse mode, pass through (uppercase Z).
+		# Outside browse mode, or with single letter navigation off, pass
+		# through (uppercase Z).
 		focus = api.getFocusObject()
 		ti = getattr(focus, "treeInterceptor", None) if focus is not None else None
 		if (
 			ti is None
 			or not isinstance(ti, browseMode.BrowseModeDocumentTreeInterceptor)
 			or getattr(ti, "passThrough", False)
+			or _singleLetterNavIsOff(ti, gesture)
 		):
 			gesture.send()
 			return
