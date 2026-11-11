@@ -2,6 +2,46 @@
 
 Newest entries at the top.
 
+## 2026-11-11 - Z and Shift+Z declined in getScript (branch fix/vm-tmts-zpass-2026-11-11)
+
+- **Why.** The Z and Shift+Z scripts are global-plugin bindings, so NVDA found
+  them in every program and the scripts passed the key on with gesture.send().
+  In the VM (NVDA 2026.3.1, keys through the Hyper-V keyboard into Notepad),
+  keys 8 ms apart came out reordered and keys 1 ms apart lost every z; NVDA
+  with add-ons disabled kept them all. Password-manager auto-type and text
+  expanders type that fast. This was L1 of the 2026-11-10 review, held until a
+  VM reproduction; the reproduction settled it.
+- **What.** GlobalPlugin.getScript returns no script for those two scripts
+  unless focus is in a ready-or-not browse-mode document that is not in focus
+  mode and, for a character gesture, has single letter navigation on. The
+  scripts keep their own pass-through as a second line.
+- **Checked against NVDA's own source, tag release-2026.3.1** (not recall):
+  baseObject.py ScriptableObject.getScript (lines 295 to 315) maps
+  normalizedIdentifiers to the bound script and returns None otherwise;
+  scriptHandler.py _getObjScript (line 53 on) calls obj.getScript(gesture) and
+  _yieldObjectsForFindScript (line 181 on) asks global plugins before the
+  tree interceptor; inputCore.InputManager.executeGesture raises
+  NoInputGestureAction when gesture.script is None, otherwise queues the
+  script on the event queue (the main thread); keyboardHandler.py
+  internal_keyDownEvent (lines 305 to 325) lets the key through to Windows on
+  NoInputGestureAction and traps it otherwise, which is why a re-sent key can
+  arrive after keys typed behind it. browseMode.py
+  BrowseModeTreeInterceptor.getAlternativeScript (lines 446 to 462) is the
+  rule copied here: passThrough keeps the script for any gesture, a
+  non-character gesture keeps it, and singleLetterNavEnabled False gives a
+  character gesture no script; its docstring says it runs on the input hook
+  thread, as getScript does, so the focus lookup here is the same kind NVDA
+  makes there. NVDA Developer Guide 2026.3.1, "Basics of a Global Plugin":
+  "Any commands bound by a Global Plugin can be executed by the user wherever
+  they are in the operating system, regardless of application", which is the
+  capture this change narrows. The guide does not describe overriding
+  getScript; the source is the authority for it.
+- **What the tests prove and do not.** tests/test_plugin_guards.py drives
+  getScript through stubs (tests/nvda_stubs.py gained a getScript like
+  ScriptableObject's); that proves the decision, not NVDA's key routing. The
+  routing was proved in the VM (counts in the commit message and the VM
+  report).
+
 ## 2026-11-11 - 1.0.19 release prep (branch release/prep-2026-11-11)
 
 - **Percent-decoding for the strict auth rule is scoped to title=.** Decoding
