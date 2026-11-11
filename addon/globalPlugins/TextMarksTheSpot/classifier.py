@@ -821,24 +821,31 @@ def _hintableUrl(url: str) -> str:
 
 
 def _decodedForAuthMatch(url: str) -> str:
-	"""The URL percent-decoded for the strict auth rule, except query values.
+	"""The URL for the strict auth rule, with MediaWiki's encoded Special: colon
+	decoded and nothing else.
 
-	The path and fragment are decoded whole. In the query only the value of a
-	title= key is decoded, because that is where MediaWiki names the page
-	(title=Special%3AUserLogin); any other value is free text or decoration
-	and stays as written. Caller passes the already-lowercased URL.
+	Links often write Special:UserLogin as Special%3AUserLogin, in the path
+	(/wiki/...) or in a title= value. Only that colon is decoded, and only in
+	those two places. 1.0.18 decoded nothing, and decoding more (a whole path,
+	the fragment, any title= value) turned /search/tag%3Aauth or #q=site%3Alogin
+	into an auth page (release review, 2026-11-11). Caller passes the
+	already-lowercased URL.
 	"""
-	base, sep, rest = url.partition("?")
-	if not sep:
-		return _unquote(url)
-	query, hashSep, fragment = rest.partition("#")
-	kept = []
-	for pair in query.split("&"):
-		key, eq, value = pair.partition("=")
-		if key == "title":
-			value = _unquote(value)
-		kept.append(key + eq + value)
-	return _unquote(base) + "?" + "&".join(kept) + hashSep + _unquote(fragment)
+	main, hashSep, fragment = url.partition("#")
+	base, sep, query = main.partition("?")
+	base = base.replace(_SPECIAL_ENCODED, "special:")
+	if sep:
+		kept = []
+		for pair in query.split("&"):
+			key, eq, value = pair.partition("=")
+			if key == "title":
+				value = value.replace(_SPECIAL_ENCODED, "special:")
+			kept.append(key + eq + value)
+		query = "&".join(kept)
+	return base + sep + query + hashSep + fragment
+
+
+_SPECIAL_ENCODED = "special%3a"
 
 
 def _withoutQuery(url: str) -> str:

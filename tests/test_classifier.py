@@ -1093,3 +1093,24 @@ def test_percentDecodingIsLimitedToThePagesOwnTitle():
 		"https://en.wikipedia.org/w/index.php?TITLE=Special%3ACreateAccount",
 	):
 		assert cls.classify(_commentedArticle(url)).intent == cls.Intent.FORM, url
+
+
+def test_encodedPathFragmentAndOtherTitlesKeepTheirOldReading():
+	# Fable release review 2026-11-11, low 4 (a regression from 1.0.18): the
+	# fix above still decoded the path and the fragment whole, and every
+	# title= value, which 1.0.18 never did. These were ARTICLE in 1.0.18 and
+	# became FORM; only MediaWiki's encoded Special: page name needs decoding.
+	for url in (
+		"https://s.example/search/tag%3Aauth",
+		"https://s.example/go/https%3A%2F%2Fx.example%2Flogin",
+		"https://s.example/results#q=site%3Alogin",
+		"https://blog.example/post?title=x%3Alogin",
+		"https://blog.example/post?title=my%2Elogin%2Estory",
+	):
+		assert cls.classify(_commentedArticle(url)).intent == cls.Intent.ARTICLE, url
+	# Negative twin: the encoded Special: page in the path still counts.
+	for url in (
+		"https://en.wikipedia.org/wiki/Special%3AUserLogin",
+		"https://en.wikipedia.org/wiki/Special%3aCreateAccount?returnto=Main+Page",
+	):
+		assert cls.classify(_commentedArticle(url)).intent == cls.Intent.FORM, url

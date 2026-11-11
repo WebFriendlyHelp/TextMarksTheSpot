@@ -443,8 +443,14 @@ SABOTAGES = [
 	),
 	(
 		"strict auth rule decodes every query value, not just title=",
-		'		if key == "title":\n			value = _unquote(value)',
-		"		value = _unquote(value)",
+		'			if key == "title":\n				value = value.replace(_SPECIAL_ENCODED, "special:")',
+		"			value = _unquote(value)",
+		CLASSIFIER,
+	),
+	(
+		"strict auth rule decodes the whole URL again, as before 1.0.19's fix",
+		"	return base + sep + query + hashSep + fragment\n",
+		"	return _unquote(base + sep + query + hashSep + fragment)\n",
 		CLASSIFIER,
 	),
 	(
