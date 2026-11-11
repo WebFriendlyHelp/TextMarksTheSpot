@@ -50,6 +50,8 @@ The add-on binds three gestures. Every other NVDA key behaves the way it always 
 
 Outside browse mode (terminals, edit fields, native apps), `Z` types a normal letter. The same happens in browse mode when you have turned single letter navigation off with `NVDA+Shift+Space`, so a web app's own Z shortcut still works.
 
+If you assign `Z`'s or `Shift+Z`'s command to a different key in NVDA's Input Gestures dialog, that key is handled differently: NVDA gives it to the add-on in every program, not only on web pages, and outside browse mode the add-on then passes it on to the program. Pick a key you don't need for typing.
+
 ## Tips and tricks
 
 - The cursor lands on the first real paragraph automatically. If that pick is off, press NVDA's `H` to find the heading of the section you want, then press `Z` to drop onto the first paragraph below it.
