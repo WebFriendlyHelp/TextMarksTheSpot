@@ -1059,3 +1059,19 @@ def test_queryThatNamesThePageByItsOwnSegmentIsStillAHint():
 		"https://en.wikipedia.org/w/index.php?title=Special:UserLogin",
 	):
 		assert cls.classify(_commentedArticle(url)).intent == cls.Intent.FORM, url
+
+
+def test_percentEncodedPageNameInTheQueryIsStillAHint():
+	# Pre-merge review 2026-11-10, low 1: links often encode MediaWiki's colon
+	# as %3A. The strict whole-segment rule needs a slash, dot or colon before
+	# the word, and "%3a" ends in a letter, so the login page lost its FORM
+	# hint once the loose substrings stopped reading the query.
+	for url in (
+		"https://en.wikipedia.org/w/index.php?title=Special%3AUserLogin&returnto=Main+Page",
+		"https://en.wikipedia.org/w/index.php?title=Special%3aCreateAccount",
+	):
+		assert cls.classify(_commentedArticle(url)).intent == cls.Intent.FORM, url
+	# Negative twin: decoding does not bring back link decoration.
+	for suffix in ("?ref=createaccount", "?ref=%63reateaccount", "?utm_campaign=user%6Cogin"):
+		result = cls.classify(_commentedArticle("https://news.example/story-about-council" + suffix))
+		assert result.intent == cls.Intent.ARTICLE, suffix

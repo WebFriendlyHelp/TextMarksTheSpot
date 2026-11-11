@@ -481,8 +481,10 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# _hintableUrl, and "createaccount" / "userlogin" matched inside link
 	# decoration like ?ref=createaccount (Fable review, 2026-11-10). A query
 	# that names the page itself (MediaWiki's title=Special:UserLogin) is
-	# still read by the strict whole-segment rule just above.
-	isAuthUrl = _urlIsAuthForm(url)
+	# still read by the strict whole-segment rule just above. It reads the
+	# percent-decoded URL, because links often write that colon as %3A
+	# (pre-merge review, 2026-11-10).
+	isAuthUrl = _urlIsAuthForm(_unquote(url))
 	formUrlHint = _urlMatches(_withoutQuery(url), Intent.FORM) or isAuthUrl
 	hasEditorialUrl = _urlMatches(url, Intent.ARTICLE) and not formUrlHint
 	formBlocked = (

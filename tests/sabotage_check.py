@@ -436,6 +436,12 @@ SABOTAGES = [
 		CLASSIFIER,
 	),
 	(
+		"strict auth rule stops percent-decoding",
+		"	isAuthUrl = _urlIsAuthForm(_unquote(url))",
+		"	isAuthUrl = _urlIsAuthForm(url)",
+		CLASSIFIER,
+	),
+	(
 		"add-on translations never initialised",
 		"\naddonHandler.initTranslation()\n",
 		"\n",
