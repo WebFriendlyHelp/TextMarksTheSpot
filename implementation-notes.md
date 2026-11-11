@@ -2,6 +2,23 @@
 
 Newest entries at the top.
 
+## 2026-11-11 - 1.0.19 release prep (branch release/prep-2026-11-11)
+
+- **Percent-decoding for the strict auth rule is scoped to title=.** Decoding
+  the whole query (7bbe709) let a search for "site:login", which the browser
+  writes as site%3Alogin, turn a results page into FORM. Only MediaWiki's
+  title= value names the page, so only that value is decoded; the path and
+  fragment are decoded whole. An unencoded ?q=tag:auth still matches, as it
+  did in 1.0.18; that is the accepted cost of reading the query at all.
+- **Diagnostics recording full URLs is the accepted design, not a leak.** The
+  release Codex review flagged that the capture and perf logs keep whole URLs.
+  They write only behind the TextMarksTheSpot-diagnostics-enabled marker file,
+  which is Casey's rule for anything that records browsing (opt-in by a file,
+  never a log level), and nothing is written without it.
+- **The readme's uninstall steps had been wrong since before the 2024.1
+  minimum.** They named Manage add-ons, which NVDA 2023.2 removed; the Add-on
+  Store's Installed add-ons tab and its Remove action replace it.
+
 ## 2026-11-10 - Fable review fixes (branch fix/fable-review-2026-11-10)
 
 Six of the nine findings fixed, each with a failing test first and a sabotage
