@@ -1075,3 +1075,21 @@ def test_percentEncodedPageNameInTheQueryIsStillAHint():
 	for suffix in ("?ref=createaccount", "?ref=%63reateaccount", "?utm_campaign=user%6Cogin"):
 		result = cls.classify(_commentedArticle("https://news.example/story-about-council" + suffix))
 		assert result.intent == cls.Intent.ARTICLE, suffix
+
+
+def test_percentDecodingIsLimitedToThePagesOwnTitle():
+	# Release review 2026-11-11 (rv-sweep-b TMTS-1): decoding the WHOLE query
+	# let an encoded colon or dot in any value meet the strict auth rule. A
+	# browser writes "site:login" typed into a search box as site%3Alogin, so a
+	# search results page with a few inputs became FORM, the intent that moves
+	# keyboard focus. Only the title= value names the page; decode just that.
+	for suffix in ("?q=tag%3Aauth", "?q=site%3Alogin&page=2", "?ref=x%2Elogin"):
+		result = cls.classify(_commentedArticle("https://s.example/search" + suffix))
+		assert result.intent == cls.Intent.ARTICLE, suffix
+	# Negative twin: the encoded MediaWiki title still decodes, wherever the
+	# title= pair sits in the query.
+	for url in (
+		"https://en.wikipedia.org/w/index.php?returnto=Main+Page&title=Special%3AUserLogin",
+		"https://en.wikipedia.org/w/index.php?TITLE=Special%3ACreateAccount",
+	):
+		assert cls.classify(_commentedArticle(url)).intent == cls.Intent.FORM, url

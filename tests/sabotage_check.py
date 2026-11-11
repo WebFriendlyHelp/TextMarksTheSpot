@@ -437,8 +437,14 @@ SABOTAGES = [
 	),
 	(
 		"strict auth rule stops percent-decoding",
-		"	isAuthUrl = _urlIsAuthForm(_unquote(url))",
+		"	isAuthUrl = _urlIsAuthForm(_decodedForAuthMatch(url))",
 		"	isAuthUrl = _urlIsAuthForm(url)",
+		CLASSIFIER,
+	),
+	(
+		"strict auth rule decodes every query value, not just title=",
+		'		if key == "title":\n			value = _unquote(value)',
+		"		value = _unquote(value)",
 		CLASSIFIER,
 	),
 	(

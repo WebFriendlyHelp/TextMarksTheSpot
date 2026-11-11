@@ -483,8 +483,10 @@ def classify(tree: TreeSummary) -> ClassifierResult:
 	# that names the page itself (MediaWiki's title=Special:UserLogin) is
 	# still read by the strict whole-segment rule just above. It reads the
 	# percent-decoded URL, because links often write that colon as %3A
-	# (pre-merge review, 2026-11-10).
-	isAuthUrl = _urlIsAuthForm(_unquote(url))
+	# (pre-merge review, 2026-11-10), but in the query only the title= value
+	# is decoded: a search for "site:login" arrives as site%3Alogin and must
+	# not become an auth hint (release review, 2026-11-11).
+	isAuthUrl = _urlIsAuthForm(_decodedForAuthMatch(url))
 	formUrlHint = _urlMatches(_withoutQuery(url), Intent.FORM) or isAuthUrl
 	hasEditorialUrl = _urlMatches(url, Intent.ARTICLE) and not formUrlHint
 	formBlocked = (
@@ -816,6 +818,27 @@ def _hintableUrl(url: str) -> str:
 			value = ""
 		kept.append(key + eq + value)
 	return base + "?" + "&".join(kept) + hashSep + fragment
+
+
+def _decodedForAuthMatch(url: str) -> str:
+	"""The URL percent-decoded for the strict auth rule, except query values.
+
+	The path and fragment are decoded whole. In the query only the value of a
+	title= key is decoded, because that is where MediaWiki names the page
+	(title=Special%3AUserLogin); any other value is free text or decoration
+	and stays as written. Caller passes the already-lowercased URL.
+	"""
+	base, sep, rest = url.partition("?")
+	if not sep:
+		return _unquote(url)
+	query, hashSep, fragment = rest.partition("#")
+	kept = []
+	for pair in query.split("&"):
+		key, eq, value = pair.partition("=")
+		if key == "title":
+			value = _unquote(value)
+		kept.append(key + eq + value)
+	return _unquote(base) + "?" + "&".join(kept) + hashSep + _unquote(fragment)
 
 
 def _withoutQuery(url: str) -> str:
