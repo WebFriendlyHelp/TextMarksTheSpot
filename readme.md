@@ -20,7 +20,7 @@ The other way is to download it straight from this page: [Get Text Marks the Spo
 
 If you want a specific version, [the releases page](https://github.com/WebFriendlyHelp/TextMarksTheSpot/releases) lists them all.
 
-To uninstall later: in NVDA, go to Tools, then Manage add-ons, select Text Marks the Spot, choose Uninstall, and restart NVDA.
+To uninstall later: in NVDA, go to Tools, then Add-on Store, and open the Installed add-ons tab. Select Text Marks the Spot, choose Remove, then close the Add-on Store and restart NVDA when it asks.
 
 ## How it works
 

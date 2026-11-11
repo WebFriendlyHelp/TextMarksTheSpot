@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.19
+
+Z gets out of the way when a web app wants it, and a tab you are not reading stays quiet.
+
+- **Turning single letter navigation off now covers Z too.** When you press NVDA+Shift+Space to turn single letter navigation off, so a web app's own one-key shortcuts reach the page, Z and Shift+Z kept running the add-on anyway and the page never got the key. Gmail uses Z for undo, so that one hurt. Both keys now go straight to the page while single letter navigation is off, like every other letter, and work as before when you turn it back on.
+- **Shift+Z works when a page starts you in a form field.** If a page put your cursor in an edit box when it opened, such as a sign-in page, Shift+Z did nothing at all and made no sound, so there was no way to tell the key had even been heard. Pressing Z twice on an excluded site had the same problem. Both now run, and you get either a landing or the two low beeps. One thing to know: on a form page this puts you in the first field of the form, even if you were further down.
+- **A page reloading in another tab no longer talks over you.** If a tab you had left reloaded, or something inside it finished loading, while you were reading a different tab, the add-on could play its working sound, read you that other page's paragraph, or even move your focus into one of its fields. It now leaves a page alone while you are reading somewhere else. When you go back to that tab, press Shift+Z for a landing.
+- **The NVDA+Z question comes to the front.** The question that asks whether to add a site to your exclusion list could open behind the browser, especially with a portable copy of NVDA, and then you heard nothing after pressing NVDA+Z. It now comes forward where you can answer it, and you are put back in the page afterwards.
+- **An article stays an article whatever tracking text is on its link.** A short article with a comment box could be treated as a sign-up form when the link that brought you there had something like "ref=createaccount" tacked on the end, and a sign-up form moves your keyboard focus into a field. That tacked-on part no longer counts. Wikipedia-style sign-in links are still recognized as sign-in pages, however the link spells out its colon.
+- **The add-on's help page is easier to read.** The documentation link for the add-on now opens a plain web page with the instructions and the full list of changes, without GitHub's menus and file list in front of them.
+- **Ready for translations.** Nothing changes in English, but the add-on now uses its own translations, so when someone contributes one, the spoken messages will come out in that language too, not just the add-on's name and description.
+
+Known gaps, unchanged from 1.0.18: a video row that also carries a written description under each video can still trip the headline wall, so some search results pages land on a video. Consent banners that never say what they store, the "We value your privacy" wording, are still not caught, and that costs you one press of Down Arrow. On some articles the cursor lands on the author's biography instead of the story; recipe sites can still land on a marketing line or a reader's review; the Verge and TechCrunch home pages lead with a large featured story and land on a headline further down the list; single-field sign-in pages that ask for your email first still get no landing (the two low beeps); and script-drawn result widgets like the fast.com speed test are still not detected.
+
 ## 1.0.18
 
 Pages that open with a real introduction land on it again, and the add-on is tested with NVDA 2026.3.
