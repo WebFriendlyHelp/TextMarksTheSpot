@@ -12,8 +12,10 @@ Newest entries at the top.
   expanders type that fast. This was L1 of the 2026-11-10 review, held until a
   VM reproduction; the reproduction settled it.
 - **What.** GlobalPlugin.getScript returns no script for those two scripts
-  unless focus is in a ready-or-not browse-mode document that is not in focus
-  mode and, for a character gesture, has single letter navigation on. The
+  unless focus is in a browse-mode document (NVDA additionally requires
+  isReady before asking the tree interceptor; this check does not) that is
+  not in focus mode and, for a character gesture, has single letter
+  navigation on. The
   scripts keep their own pass-through as a second line.
 - **Checked against NVDA's own source, tag release-2026.3.1** (not recall):
   baseObject.py ScriptableObject.getScript (lines 295 to 315) maps
