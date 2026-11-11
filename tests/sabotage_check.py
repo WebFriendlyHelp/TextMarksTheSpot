@@ -454,6 +454,12 @@ SABOTAGES = [
 		CLASSIFIER,
 	),
 	(
+		"Z and Shift+Z caught in every program again (getScript never declines them)",
+		'		if name in ("script_retrigger", "script_returnToLanding") and _zKeyIsNotOurs(gesture):',
+		'		if name in ("script_retrigger", "script_returnToLanding") and False:',
+		INIT,
+	),
+	(
 		"add-on translations never initialised",
 		"\naddonHandler.initTranslation()\n",
 		"\n",
