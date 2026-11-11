@@ -225,6 +225,24 @@ def _singleLetterNavIsOff(ti, gesture) -> bool:
 	return bool(getattr(gesture, "isCharacter", True))
 
 
+def _zKeyIsNotOurs(gesture) -> bool:
+	"""True when Z or Shift+Z should reach the focused program untouched: no
+	active browse-mode document (another program, an edit field, focus mode),
+	or single letter navigation is off. The same test the scripts use for
+	their gesture.send() pass-through, asked before NVDA picks a script."""
+	try:
+		focus = api.getFocusObject()
+		ti = getattr(focus, "treeInterceptor", None) if focus is not None else None
+	except Exception:
+		return False
+	return (
+		ti is None
+		or not isinstance(ti, browseMode.BrowseModeDocumentTreeInterceptor)
+		or bool(getattr(ti, "passThrough", False))
+		or _singleLetterNavIsOff(ti, gesture)
+	)
+
+
 log.info("[TMTS] module imported; defining GlobalPlugin")
 
 
@@ -341,6 +359,23 @@ class GlobalPlugin(globalPluginHandler.GlobalPlugin):
 		# document, before moving the caret to it.
 		self._lastInitialLandingNode = None
 		self._lastInitialLandingTiRef = None
+
+	def getScript(self, gesture):
+		# Z and Shift+Z are declined here, outside an active browse-mode
+		# document, rather than caught and re-sent with gesture.send(). A key
+		# NVDA has no script for stays on Windows' own input path; one that is
+		# re-sent is injected again after NVDA's main thread gets to it, and in
+		# the VM (2026-11-11) keys typed 8 ms apart into Notepad came out
+		# reordered and at 1 ms every z was lost, with NVDA alone keeping them.
+		# The scripts keep their own pass-through for the moment between this
+		# check and the script running.
+		script = super().getScript(gesture)
+		if script is None:
+			return None
+		name = getattr(script, "__name__", "")
+		if name in ("script_retrigger", "script_returnToLanding") and _zKeyIsNotOurs(gesture):
+			return None
+		return script
 
 	def terminate(self):
 		# Called by NVDA on add-on disable, uninstall, or reload. We must

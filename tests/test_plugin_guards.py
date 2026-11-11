@@ -427,6 +427,70 @@ def test_aRemappedNonCharacterGestureStillActsWithSingleLetterNavigationOff(plug
 	assert ran == ["scan"]
 
 
+# --- Z and Shift+Z are not captured outside active browse mode (L1, VM) ---------
+# VM check 2026-11-11: with the scripts catching every Z and re-sending it with
+# gesture.send(), keys typed by a machine (8 ms apart) into Notepad came out
+# reordered, 'zeezeezeezzz' for 'zezezezezeze', and at 1 ms every z was lost;
+# NVDA without the add-on kept them all. Declining the gesture in getScript
+# leaves the key on Windows' own path, so it is never re-injected.
+
+
+class IdGesture(Gesture):
+	def __init__(self, ident, isCharacter=True):
+		super().__init__(isCharacter)
+		self.normalizedIdentifiers = [ident]
+
+
+Z_IDS = ["kb:z", "kb:shift+z"]
+
+
+@pytest.mark.parametrize("ident", Z_IDS)
+def test_zIsNotCapturedOutsideBrowseMode(plugin, gp, ident):
+	REC.focus = types.SimpleNamespace(treeInterceptor=None)
+	assert gp.getScript(IdGesture(ident)) is None
+
+
+@pytest.mark.parametrize("ident", Z_IDS)
+def test_zIsNotCapturedInFocusMode(plugin, gp, ident):
+	ti = makeTi(plugin, "https://app.example/")
+	ti.passThrough = True
+	focusOn(ti)
+	assert gp.getScript(IdGesture(ident)) is None
+
+
+@pytest.mark.parametrize("ident", Z_IDS)
+def test_zIsNotCapturedWithSingleLetterNavigationOff(plugin, gp, ident):
+	ti = makeTi(plugin, "https://app.example/")
+	ti.singleLetterNavEnabled = False
+	focusOn(ti)
+	assert gp.getScript(IdGesture(ident)) is None
+
+
+@pytest.mark.parametrize("ident,name", zip(Z_IDS, ["script_retrigger", "script_returnToLanding"]))
+def test_zIsStillCapturedInBrowseMode(plugin, gp, ident, name):
+	# Negative twin: in an active browse-mode document the add-on keeps its keys.
+	ti = makeTi(plugin, "https://app.example/")
+	ti.singleLetterNavEnabled = True
+	focusOn(ti)
+	script = gp.getScript(IdGesture(ident))
+	assert script is not None and script.__name__ == name
+
+
+def test_aRemappedNonCharacterZGestureIsStillCapturedWithSingleLetterNavOff(plugin, gp):
+	# Twin of the M3 rule: only character gestures go to the page.
+	ti = makeTi(plugin, "https://app.example/")
+	ti.singleLetterNavEnabled = False
+	focusOn(ti)
+	g = IdGesture("kb:z", isCharacter=False)
+	assert gp.getScript(g) is not None
+
+
+def test_otherGesturesAreUnaffected(plugin, gp):
+	REC.focus = types.SimpleNamespace(treeInterceptor=None)
+	script = gp.getScript(IdGesture("kb:nvda+z"))
+	assert script is not None and script.__name__ == "script_toggleSiteExclusion"
+
+
 # --- A ready background document's load event is ignored (M1) -----------------
 # The readiness poll and the retry already abandon when focus is in another
 # document; the path taken when the TI is ALREADY ready did not, so tab A

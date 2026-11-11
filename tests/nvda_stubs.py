@@ -92,9 +92,28 @@ class _GlobalPluginBase:
 	def terminate(self):
 		pass
 
+	def getScript(self, gesture):
+		"""NVDA's ScriptableObject.getScript, reduced: the bound script whose
+		@script gestures include one of the gesture's normalized identifiers."""
+		for ident in getattr(gesture, "normalizedIdentifiers", ()):
+			for name in dir(type(self)):
+				if not name.startswith("script_"):
+					continue
+				fn = getattr(type(self), name)
+				if ident in getattr(fn, "_stubGestures", ()):
+					return getattr(self, name)
+		return None
+
 
 def _script(**kwargs):
-	return lambda fn: fn
+	def deco(fn):
+		gestures = list(kwargs.get("gestures", ()))
+		if kwargs.get("gesture"):
+			gestures.append(kwargs["gesture"])
+		fn._stubGestures = [g.lower() for g in gestures]
+		return fn
+
+	return deco
 
 
 class _Log:
